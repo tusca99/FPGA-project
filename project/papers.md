@@ -78,3 +78,23 @@ Abstract
 Recent demonstrations on specialized benchmarks have reignited excitement for quantum computers, yet their advantage for real-world problems remains an open question. Here, we show that probabilistic computers, co-designed with hardware to implement Monte Carlo algorithms, provide a scalable classical pathway for solving hard optimization problems. We focus on two algorithms applied to three-dimensional spin glasses: discrete-time simulated quantum annealing and adaptive parallel tempering. We benchmark these methods against a leading quantum annealer. For simulated quantum annealing, increasing replicas improves residual energy scaling, consistent with extreme value theory. Adaptive parallel tempering, supported by non-local isoenergetic cluster moves, scales more favorably and outperforms simulated quantum annealing. Field Programmable Gate Arrays or specialized chips can implement these algorithms in modern hardware, leveraging massive parallelism to accelerate them while improving energy efficiency. Our results establish a rigorous classical baseline for assessing practical quantum advantage and present probabilistic computers as a scalable platform for real-world optimization challenges.
 
 https://www.nature.com/articles/s41467-025-64235-y
+
+
+## paper 6
+
+### Toward an FPGA-based dedicated computer for molecular dynamics simulations
+
+Abstract
+
+First steps toward a molecular dynamics (MD) implementation in a cluster of field-programmable gate arrays (FPGAs) are presented, reaching
+a simulation speed of a few microseconds/day. The nodes in this cluster are programmed into a mid-ranged FPGA (Artix 7 XC7A200T),
+interconnected as a 3D torus by fast optical links. The implemented MD algorithm is highly parallelized and highly pipelined internally. The
+FPGA cluster is freely scalable in terms of size, i.e., a larger MD system requires more nodes, however, without compromising simulation
+speed. The performance in terms of energy stability and simulation speed is analyzed. At present, the focus lies on the fast networking,
+while only minimal MD functionality has been implemented so far, i.e., Lennard-Jones interactions and a thermostat, which were needed to
+demonstrate the feasibility of the FPGA cluster to run multi-microsecond simulations. To that end, the nucleation of a super-cooled Lennard-
+Jones liquid is investigated by unbiased MD simulations, which is a difficult MD problem since a high nucleation barrier has to be overcome.
+Finally, the pathways toward a full MD implementation are outlined. The current implementation will be made available as an open-source
+development project.
+
+https://doi.org/10.1063/5.0248834
