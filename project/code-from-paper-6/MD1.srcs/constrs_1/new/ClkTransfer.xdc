@@ -1,1 +1,0 @@
-set_false_path -from [get_pins sigIn_extend0_reg/C] -to [get_pins sigIn_extend1_reg/D] 
