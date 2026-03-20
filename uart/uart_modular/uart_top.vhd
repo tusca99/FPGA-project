@@ -70,16 +70,16 @@ architecture Behavioral of uart_top is
     signal rx_overrun : unsigned(31 downto 0) := (others => '0');
     signal tx_overrun : unsigned(31 downto 0) := (others => '0');
 
-    -- MD toy core interface
+    -- Percolation core interface
     signal core_step_add_valid : std_logic := '0';
     signal core_step_add_count : std_logic_vector(31 downto 0) := (others => '0');
     signal core_cfg_init_pulse : std_logic := '0';
 
-    signal core_step_count     : std_logic_vector(31 downto 0) := (others => '0');
-    signal core_pending_steps  : std_logic_vector(31 downto 0) := (others => '0');
-    signal core_pos0           : std_logic_vector(15 downto 0) := (others => '0');
-    signal core_pos1           : std_logic_vector(15 downto 0) := (others => '0');
-    signal core_dist2          : std_logic_vector(31 downto 0) := (others => '0');
+    signal core_step_count      : std_logic_vector(31 downto 0) := (others => '0');
+    signal core_pending_steps   : std_logic_vector(31 downto 0) := (others => '0');
+    signal core_spanning_count  : std_logic_vector(31 downto 0) := (others => '0');
+    signal core_total_occupied  : std_logic_vector(31 downto 0) := (others => '0');
+    signal core_mean_occupied   : std_logic_vector(31 downto 0) := (others => '0');
 
     -- Response builder
     type resp_t is array (0 to 127) of std_logic_vector(7 downto 0);
@@ -145,38 +145,36 @@ architecture Behavioral of uart_top is
 begin
 
     ------------------------------------------------------------------
-    -- MD toy core (single-clock data-plane)
-    --
+    -- Percolation core (site percolation, generate + BFS spanning check)
     -- Register map (subset):
-    -- 10: vel0 (signed16 in [15:0])
-    -- 11: vel1 (signed16 in [15:0])
-    -- 13: init_pos0 (signed16 in [15:0])
-    -- 14: init_pos1 (signed16 in [15:0])
-    --
+    -- 10: p threshold (UQ32)
+    -- 11: grid_size
+    -- 12: seed
+    -- 13: runs
     -- Status (read via RD):
     --  2: step_count
     --  5: pending_steps
-    --  6: pos0 (sign-extended)
-    --  7: pos1 (sign-extended)
-    --  8: dist2
+    --  6: spanning_count
+    --  7: total_occupied
+    --  8: mean_occupied
     ------------------------------------------------------------------
-    md_core_inst : entity work.md_toy_core
+    percolation_inst : entity work.percolation_core
         port map (
-            Clk          => Clk,
-            Rst          => Rst,
-            RunEn        => run_flag,
-            StepAddValid => core_step_add_valid,
-            StepAddCount => core_step_add_count,
-            CfgVel0      => regs(10)(15 downto 0),
-            CfgVel1      => regs(11)(15 downto 0),
-            CfgInitPos0  => regs(13)(15 downto 0),
-            CfgInitPos1  => regs(14)(15 downto 0),
-            CfgInit      => core_cfg_init_pulse,
-            StepCount    => core_step_count,
-            PendingSteps => core_pending_steps,
-            Pos0         => core_pos0,
-            Pos1         => core_pos1,
-            Dist2        => core_dist2
+            Clk           => Clk,
+            Rst           => Rst,
+            RunEn         => run_flag,
+            StepAddValid  => core_step_add_valid,
+            StepAddCount  => core_step_add_count,
+            CfgP          => regs(10),
+            CfgGridSize   => regs(11)(15 downto 0),
+            CfgSeed       => regs(12),
+            CfgRuns       => regs(13),
+            CfgInit       => core_cfg_init_pulse,
+            StepCount     => core_step_count,
+            PendingSteps  => core_pending_steps,
+            SpanningCount => core_spanning_count,
+            TotalOccupied => core_total_occupied,
+            MeanOccupied  => core_mean_occupied
         );
 
     ------------------------------------------------------------------
@@ -380,9 +378,9 @@ begin
                 regs(1) <= (31 downto 2 => '0') & run_flag & '0';
                 regs(2) <= core_step_count;
                 regs(5) <= core_pending_steps;
-                regs(6) <= (31 downto 16 => core_pos0(15)) & core_pos0;
-                regs(7) <= (31 downto 16 => core_pos1(15)) & core_pos1;
-                regs(8) <= core_dist2;
+                regs(6) <= core_spanning_count;
+                regs(7) <= core_total_occupied;
+                regs(8) <= core_mean_occupied;
 
                 -- on new decoded command, build a response buffer
                 if cmd_valid_s = '1' then
@@ -412,8 +410,8 @@ begin
                                 addr_u := unsigned(cmd_arg0_s);
                                 reg_i := to_integer(addr_u(4 downto 0));
                                 regs(reg_i) <= cmd_arg1_s;
-                                if reg_i = 13 or reg_i = 14 then
-                                    -- allow reinitialization after writing init positions
+                                if reg_i = 10 or reg_i = 11 or reg_i = 12 or reg_i = 13 then
+                                    -- config update makes sense to reinitialize core with new params
                                     core_cfg_init_pulse <= '1';
                                 end if;
                                 put_str(resp_buf, idx, "OK\n");
@@ -436,6 +434,14 @@ begin
                                 regs(4) <= std_logic_vector(tx_overrun);
                                 put_str(resp_buf, idx, "STEP ");
                                 put_hex32(resp_buf, idx, core_step_count);
+                                put_str(resp_buf, idx, " RUNS ");
+                                put_hex32(resp_buf, idx, core_step_count);
+                                put_str(resp_buf, idx, " SPAN_CNT ");
+                                put_hex32(resp_buf, idx, core_spanning_count);
+                                put_str(resp_buf, idx, " OCC ");
+                                put_hex32(resp_buf, idx, core_total_occupied);
+                                put_str(resp_buf, idx, " MEAN_OCC ");
+                                put_hex32(resp_buf, idx, core_mean_occupied);
                                 put_str(resp_buf, idx, " RX_OVR ");
                                 put_hex32(resp_buf, idx, std_logic_vector(rx_overrun));
                                 put_str(resp_buf, idx, " TX_OVR ");
