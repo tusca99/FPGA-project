@@ -1,58 +1,135 @@
-# context-mode — MANDATORY routing rules
+# Copilot Instructions for UART FPGA Project
 
-You have context-mode MCP tools available. These rules are NOT optional — they protect your context window from flooding. A single unrouted command can dump 56 KB into context and waste the entire session.
+## Architettura e Componenti Principali
 
-## BLOCKED commands — do NOT attempt these
+- Il progetto è organizzato in due macro-directory:
+  - `uart/uart_modular/`: implementazione modulare di UART (con `baud_gen`, `uart_tx`, `uart_rx`, testbench)
+  - `uart/uart_single/`: implementazione UART monolitica (esempio didattico)
+- Il top module principale è `uart_top.vhd`, che integra:
+  - Generatore di baud rate (`baud_gen.vhd`)
+  - Trasmettitore UART (`uart_tx.vhd`)
+  - Ricevitore UART (`uart_rx.vhd`)
+  - FIFO RX/TX a byte per non perdere dati (`byte_fifo.vhd`)
+  - Parser comandi ASCII newline-terminated (`ascii_cmd_parser.vhd`)
+  - Regfile/telemetria + core applicativo minimale (`md_toy_core.vhd`) e gestione LED come “activity indicator”
+- I testbench sono forniti per i moduli principali (`uart_tx_tb.vhd`, `uart_mod_tx_tb.vhd`).
 
-### curl / wget — BLOCKED
-Any terminal command containing `curl` or `wget` will be intercepted and blocked. Do NOT retry.
-Instead use:
-- `ctx_fetch_and_index(url, source)` to fetch and index web pages
-- `ctx_execute(language: "javascript", code: "const r = await fetch(...)")` to run HTTP calls in sandbox
+## Flusso di lavoro tipico
 
-### Inline HTTP — BLOCKED
-Any terminal command containing `fetch('http`, `requests.get(`, `requests.post(`, `http.get(`, or `http.request(` will be intercepted and blocked. Do NOT retry with terminal.
-Instead use:
-- `ctx_execute(language, code)` to run HTTP calls in sandbox — only stdout enters context
+- **Build e sintesi:**  
+  - Non sono presenti script di build automatici; la sintesi e l’implementazione vanno fatte tramite Vivado (GUI o TCL).
+  - I vincoli di pin sono definiti in `costraint/pins.xdc` (adattato per Arty A7).
+- **Simulazione:**  
+  - Usa i testbench VHDL (`*_tb.vhd`) per simulare i moduli in Vivado o ModelSim.
+  - I testbench generano clock, reset e stimoli (es. pressione pulsante) e verificano la trasmissione UART.
+- **Debug:**  
+  - Il LED pulsa brevemente quando viene decodificato un comando valido via UART.
+  - La demo attuale è “UART command/response” (non più il loop su carattere 'a').
 
-### WebFetch / fetch — BLOCKED
-Direct web fetching tools are blocked. Use the sandbox equivalent.
-Instead use:
-- `ctx_fetch_and_index(url, source)` then `ctx_search(queries)` to query the indexed content
+## Convenzioni e pattern
 
-## REDIRECTED tools — use sandbox equivalents
+- **Reset attivo basso** (`Rst = '0'`) in tutti i moduli.
+- **Parametri di clock e baud rate** passati come `generic` nei moduli.
+- **Sincronizzazione dei segnali di input** (pulsante, RX) tramite doppio flip-flop.
+- **Gestione edge detection** per pulsanti e segnali asincroni.
+- **Pipeline di trasmissione**: usare backpressure tramite `tx_busy` e buffering (FIFO TX) per evitare perdita di byte.
+- **Anti byte-loss (UART-controlled designs)**:
+  - RX: `uart_rx` genera `rx_valid` “stirato”; catturare il byte su fronte di salita (edge-detect) e inserirlo in FIFO RX.
+  - TX: accodare le risposte in FIFO TX e trasmettere solo quando `tx_busy='0'`.
+- **Testbench**: clock a 100 MHz, sequenze di reset e stimoli ben definite.
 
-### Terminal / run_in_terminal (>20 lines output)
-Terminal is ONLY for: `git`, `mkdir`, `rm`, `mv`, `cd`, `ls`, `npm install`, `pip install`, and other short-output commands.
-For everything else, use:
-- `ctx_batch_execute(commands, queries)` — run multiple commands + search in ONE call
-- `ctx_execute(language: "shell", code: "...")` — run in sandbox, only stdout enters context
+## Protocollo UART ASCII (MVP)
 
-### read_file (for analysis)
-If you are reading a file to **edit** it → read_file is correct (edit needs content in context).
-If you are reading to **analyze, explore, or summarize** → use `ctx_execute_file(path, language, code)` instead. Only your printed summary enters context.
+- **Formato comando**: una riga ASCII terminata da `\n` (eventuale `\r` ignorato).
+- **Case-insensitive**: i comandi sono accettati in maiuscolo/minuscolo.
+- **Numeri**: supportati in decimale (`123`) o esadecimale con prefisso `0x` (`0x1A2B`).
+- **Comandi supportati (implementati)**:
+  - `PING` → risposta: `PONG\n`
+  - `HELP` → risposta: lista comandi
+  - `RD <addr>` → risposta: `RD 0xAAAAAAAA 0xVVVVVVVV\n` (addr mascherato su 32 bit; regfile indicizzato sui 5 LSB)
+  - `WR <addr> <val>` → risposta: `OK\n`
+  - `START` / `STOP` → risposta: `OK\n`
+  - `STEP <n>` → risposta: `OK\n` (accoda `n` step nel core applicativo)
+  - `METRICS` → risposta: `STEP 0x... RX_OVR 0x... TX_OVR 0x...\n`
+- **Error handling**: comando sconosciuto o argomento non parsabile → `ERR\n`.
 
-### grep / search (large results)
-Search results can flood context. Use `ctx_execute(language: "shell", code: "grep ...")` to run searches in sandbox. Only your printed summary enters context.
+## MVP applicativo attuale (100 MHz): `md_toy_core.vhd`
 
-## Tool selection hierarchy
+- Il progetto sta lavorando in single-clock a **100 MHz** (Arty A7): evitare multi-clock/CDC finché non necessario.
+- Il data-plane attuale è un **MD toy model** (2 particelle, dinamica 1D su int16) in `uart/uart_modular/md_toy_core.vhd`.
+- Il control-plane resta UART ASCII (comandi `START/STOP/STEP` + `RD/WR`).
 
-1. **GATHER**: `ctx_batch_execute(commands, queries)` — Primary tool. Runs all commands, auto-indexes output, returns search results. ONE call replaces 30+ individual calls.
-2. **FOLLOW-UP**: `ctx_search(queries: ["q1", "q2", ...])` — Query indexed content. Pass ALL questions as array in ONE call.
-3. **PROCESSING**: `ctx_execute(language, code)` | `ctx_execute_file(path, language, code)` — Sandbox execution. Only stdout enters context.
-4. **WEB**: `ctx_fetch_and_index(url, source)` then `ctx_search(queries)` — Fetch, chunk, index, query. Raw HTML never enters context.
-5. **INDEX**: `ctx_index(content, source)` — Store content in FTS5 knowledge base for later search.
+**Mappa registri (via `RD/WR`, indice = 5 LSB dell’addr)**
+- Config:
+  - `10`: `vel0` (signed16 in `[15:0]`)
+  - `11`: `vel1` (signed16 in `[15:0]`)
+  - `13`: `init_pos0` (signed16 in `[15:0]`)
+  - `14`: `init_pos1` (signed16 in `[15:0]`)
+- Stato (read-back):
+  - `2`: `step_count`
+  - `5`: `pending_steps`
+  - `6`: `pos0` (sign-extended)
+  - `7`: `pos1` (sign-extended)
+  - `8`: `dist2 = (pos1-pos0)^2`
 
-## Output constraints
+Nota: alcune entry di stato (es. `2,5,6,7,8`) vengono sovrascritte continuamente dal core.
 
-- Keep responses under 500 words.
-- Write artifacts (code, configs, PRDs) to FILES — never return them as inline text. Return only: file path + 1-line description.
-- When indexing content, use descriptive source labels so others can `ctx_search(source: "label")` later.
+## Pattern consigliati per estensioni (MD / Ising / PT)
 
-## ctx commands
+- **Regfile come API stabile**: mappare parametri e risultati in registri (lettura/scrittura via `RD/WR`).
+- **Telemetria scalare prima, stream dopo**: iniziare con contatori/energie/acceptance rate; evitare dump massivi via UART.
+- **Separazione control-plane / data-plane**:
+  - Control-plane: parser ASCII, regfile, comandi di avvio/stop/step.
+  - Data-plane: core applicativo (MD/Ising) che aggiorna registri/metriche.
 
-| Command | Action |
-|---------|--------|
-| `ctx stats` | Call the `ctx_stats` MCP tool and display the full output verbatim |
-| `ctx doctor` | Call the `ctx_doctor` MCP tool, run the returned shell command, display as checklist |
-| `ctx upgrade` | Call the `ctx_upgrade` MCP tool, run the returned shell command, display as checklist |
+## Testbench (raccomandazioni)
+
+- Aggiungere TB che testa round-trip “a livello byte” (senza dover simulare ogni bit UART) stimolando FIFO RX e verificando FIFO TX/risposte.
+- Includere test negativi: linea troppo lunga, argomenti invalidi, comandi sconosciuti.
+
+## File chiave
+
+- `uart/uart_modular/uart_top.vhd`: top module, punto di partenza per estensioni.
+- `uart/uart_modular/baud_gen.vhd`: generatore di baud rate parametrico.
+- `uart/uart_modular/uart_tx.vhd` / `uart_rx.vhd`: moduli trasmettitore/ricevitore.
+- `uart/uart_modular/byte_fifo.vhd`: FIFO byte per RX/TX (anti byte-loss).
+- `uart/uart_modular/ascii_cmd_parser.vhd`: parser comandi ASCII (newline-terminated).
+- `uart/uart_modular/uart_tx_tb.vhd`, `uart_mod_tx_tb.vhd`: testbench di riferimento.
+- `uart/costraint/pins.xdc`: vincoli di pin per la board Arty A7.
+
+## Esempi di pattern
+
+- **Aggiunta di un nuovo modulo**:  
+  - Definire l’entity e l’architecture in VHDL.
+  - Instanziare nel top module e collegare segnali tramite port map.
+- **Estensione protocollo UART**:  
+  - Modificare `uart_tx`/`uart_rx` per supportare frame diversi (es. 9 bit, parità).
+- **Debug hardware**:  
+  - Usare LED o segnali di output per visualizzare eventi (es. ricezione carattere specifico).
+
+## Analisi e Sperimentazione Paper
+
+- I paper analizzati in `project/useful_papers/` e riassunti in `project/papers.md` possono ispirare estensioni hardware (es. acceleratori MCMC, Ising, Monte Carlo) integrabili tramite UART.
+- Documentare ogni nuovo modulo ispirato ai paper, specificando: input/output, parametri configurabili via UART, e pattern di testbench.
+
+## Reference design paper-6 (cartella `project/code-from-paper-6`)
+
+- `project/code-from-paper-6` contiene un **reference design** del paper 6 (Verilog + Vivado IP) con progetto `MD1.xpr`.
+- È **fortemente board/device-specific** (target `xc7a200tfbg484-2`, clocking multi-dominio, Ethernet/MDIO e link GTP) e **non è un drop-in** per Arty A7-100T.
+- Per l’MVP su Arty A7 si usa UART come control-plane; il reference design va considerato soprattutto come:
+  - fonte di idee/pattern (es. organizzazione neighbor boxes, LUT force),
+  - confronto architetturale per una futura estensione (eventualmente con board più adatte o riducendo drasticamente I/O).
+- Parti realisticamente riusabili (con adattamenti): kernel/idee da `ForceNonBond.v`, `NeighborBox.v`, logica di stepping in `MDmachine.v`.
+- Parti non realistiche su Arty A7 (as-is): top `MD.v`, sottosistemi `ETHlink/`, `GTP/`, `mdio/`, IP/clocking dedicati.
+
+## Piano d’azione (stato corrente)
+
+- Completato: UART base verificata e funzionante (TX/RX OK). Il problema osservato in precedenza era byte loss occasionale sotto carico; mitigato con RX FIFO + TX FIFO.
+- Completato: RX FIFO + parser ASCII + TX FIFO + integrazione in `uart_top.vhd`.
+- Completato: sostituito lo stub “metrics/step” con un core applicativo minimale (`md_toy_core.vhd`) pilotato via `START/STOP/STEP`.
+- In corso: testbench dedicato al round-trip dei comandi (stimolo byte-level, verifica risposte).
+- Da fare: scegliere MVP applicativo finale (Paper 6: MD più realistico, o Paper 3: Ising/PT) e sostituire/estendere `md_toy_core.vhd` con il core definitivo.
+
+---
+
+Aggiorna queste istruzioni se aggiungi nuovi moduli o cambi il flusso di lavoro.
