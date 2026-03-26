@@ -1,2 +1,4 @@
 *.vcd
 work-obj*.cf
+uart_modular/
+.Xil/

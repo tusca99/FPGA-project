@@ -1,0 +1,12 @@
+# compile vhdl design source files
+vhdl xil_defaultlib  \
+"../../../../uart_message_bin/baud_gen.vhd" \
+"../../../../uart_message_bin/uart_rx.vhd" \
+"../../../../uart_message_bin/uart_msg_rx.vhd" \
+"../../../../uart_message_bin/uart_tx.vhd" \
+"../../../../uart_message_bin/uart_msg_tx.vhd" \
+"../../../../uart_message_bin/uart_msg_loopback_top.vhd" \
+"../../../../uart_message_bin/uart_msg_loopback_tb.vhd" \
+
+# Do not sort compile order
+nosort

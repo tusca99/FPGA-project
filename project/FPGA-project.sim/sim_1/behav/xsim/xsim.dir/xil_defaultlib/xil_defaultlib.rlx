@@ -1,0 +1,13 @@
+0.7
+2020.2
+Nov 14 2025
+12:36:23
+/home/alessio/ssd_data/Alessio/uni magistrale/Programmable_Hardware_Devices/FPGA-project/project/percolation_core/percolation_core.vhd,1774450245,vhdl,/home/alessio/ssd_data/Alessio/uni magistrale/Programmable_Hardware_Devices/FPGA-project/project/percolation_core/percolation_core_tb.vhd,,,percolation_core,,,,,,,,
+/home/alessio/ssd_data/Alessio/uni magistrale/Programmable_Hardware_Devices/FPGA-project/project/percolation_core/percolation_core_tb.vhd,1774450245,vhdl,,,,percolation_core_tb,,,,,,,,
+/home/alessio/ssd_data/Alessio/uni magistrale/Programmable_Hardware_Devices/FPGA-project/project/uart_message_bin/baud_gen.vhd,1774519048,vhdl,/home/alessio/ssd_data/Alessio/uni magistrale/Programmable_Hardware_Devices/FPGA-project/project/uart_message_bin/uart_msg_loopback_top.vhd,,,baud_gen,,,,,,,,
+/home/alessio/ssd_data/Alessio/uni magistrale/Programmable_Hardware_Devices/FPGA-project/project/uart_message_bin/uart_msg_loopback_tb.vhd,1774532237,vhdl,,,,uart_msg_loopback_tb,,,,,,,,
+/home/alessio/ssd_data/Alessio/uni magistrale/Programmable_Hardware_Devices/FPGA-project/project/uart_message_bin/uart_msg_loopback_top.vhd,1774532237,vhdl,/home/alessio/ssd_data/Alessio/uni magistrale/Programmable_Hardware_Devices/FPGA-project/project/uart_message_bin/uart_msg_loopback_tb.vhd,,,uart_msg_loopback_top,,,,,,,,
+/home/alessio/ssd_data/Alessio/uni magistrale/Programmable_Hardware_Devices/FPGA-project/project/uart_message_bin/uart_msg_rx.vhd,1774460416,vhdl,/home/alessio/ssd_data/Alessio/uni magistrale/Programmable_Hardware_Devices/FPGA-project/project/uart_message_bin/uart_msg_loopback_top.vhd,,,uart_msg_rx,,,,,,,,
+/home/alessio/ssd_data/Alessio/uni magistrale/Programmable_Hardware_Devices/FPGA-project/project/uart_message_bin/uart_msg_tx.vhd,1774460416,vhdl,/home/alessio/ssd_data/Alessio/uni magistrale/Programmable_Hardware_Devices/FPGA-project/project/uart_message_bin/uart_msg_loopback_top.vhd,,,uart_msg_tx,,,,,,,,
+/home/alessio/ssd_data/Alessio/uni magistrale/Programmable_Hardware_Devices/FPGA-project/project/uart_message_bin/uart_rx.vhd,1774533262,vhdl,/home/alessio/ssd_data/Alessio/uni magistrale/Programmable_Hardware_Devices/FPGA-project/project/uart_message_bin/uart_msg_rx.vhd,,,uart_rx,,,,,,,,
+/home/alessio/ssd_data/Alessio/uni magistrale/Programmable_Hardware_Devices/FPGA-project/project/uart_message_bin/uart_tx.vhd,1774516020,vhdl,/home/alessio/ssd_data/Alessio/uni magistrale/Programmable_Hardware_Devices/FPGA-project/project/uart_message_bin/uart_msg_tx.vhd,,,uart_tx,,,,,,,,

@@ -44,6 +44,7 @@ begin
     process(Clk)
         variable byte_lo : integer;
         variable byte_hi : integer;
+        variable packed_byte : integer;
     begin
         if rising_edge(Clk) then
             if Rst = '0' then
@@ -66,7 +67,8 @@ begin
                         end if;
 
                     when LOAD =>
-                        byte_lo := byte_idx * 8;
+                        packed_byte := (N_BYTES - 1) - byte_idx;
+                        byte_lo := packed_byte * 8;
                         byte_hi := byte_lo + 7;
                         tx_data_s <= msg_reg(byte_hi downto byte_lo);
                         tx_start_s <= '1';

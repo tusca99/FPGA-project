@@ -23,11 +23,13 @@ architecture tb of uart_msg_loopback_tb is
 
     signal bench_req_data   : std_logic_vector(N_BYTES*8-1 downto 0);
     signal bench_req_valid  : std_logic;
+    signal bench_rx_valid   : std_logic;
     signal bench_rsp_data   : std_logic_vector(N_BYTES*8-1 downto 0);
     signal bench_rsp_valid  : std_logic;
     signal bench_app_cycles : std_logic_vector(31 downto 0);
 
     signal seen_req_pulse : std_logic := '0';
+    signal seen_rx_pulse  : std_logic := '0';
     signal seen_rsp_pulse : std_logic := '0';
     signal seen_tx_start  : std_logic := '0';
     signal tx_prev        : std_logic := '1';
@@ -72,6 +74,7 @@ begin
             uart_tx_o        => uart_tx_o,
             bench_req_data   => bench_req_data,
             bench_req_valid  => bench_req_valid,
+            bench_rx_valid   => bench_rx_valid,
             bench_rsp_data   => bench_rsp_data,
             bench_rsp_valid  => bench_rsp_valid,
             bench_app_cycles => bench_app_cycles
@@ -82,12 +85,17 @@ begin
         if rising_edge(Clk) then
             if Rst = '0' then
                 seen_req_pulse <= '0';
+                seen_rx_pulse  <= '0';
                 seen_rsp_pulse <= '0';
                 seen_tx_start  <= '0';
                 tx_prev <= '1';
             else
                 if bench_req_valid = '1' then
                     seen_req_pulse <= '1';
+                end if;
+
+                if bench_rx_valid = '1' then
+                    seen_rx_pulse <= '1';
                 end if;
 
                 if bench_rsp_valid = '1' then

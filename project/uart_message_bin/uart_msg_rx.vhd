@@ -21,6 +21,7 @@ end uart_msg_rx;
 architecture Behavioral of uart_msg_rx is
     signal rx_data_s   : std_logic_vector(7 downto 0) := (others => '0');
     signal rx_valid_s  : std_logic := '0';
+    signal rx_valid_prev_s : std_logic := '0';
 
     signal msg_reg     : std_logic_vector(N_BYTES*8-1 downto 0) := (others => '0');
     signal byte_idx    : integer range 0 to N_BYTES-1 := 0;
@@ -43,6 +44,7 @@ begin
     process(Clk)
         variable byte_lo : integer;
         variable byte_hi : integer;
+        variable packed_byte : integer;
     begin
         if rising_edge(Clk) then
             if Rst = '0' then
@@ -50,12 +52,14 @@ begin
                 byte_idx <= 0;
                 msg_valid_s <= '0';
                 receiving_s <= '0';
+                rx_valid_prev_s <= '0';
             else
                 msg_valid_s <= '0';
 
-                if rx_valid_s = '1' then
+                if rx_valid_s = '1' and rx_valid_prev_s = '0' then
                     receiving_s <= '1';
-                    byte_lo := byte_idx * 8;
+                    packed_byte := (N_BYTES - 1) - byte_idx;
+                    byte_lo := packed_byte * 8;
                     byte_hi := byte_lo + 7;
                     msg_reg(byte_hi downto byte_lo) <= rx_data_s;
 
@@ -67,6 +71,8 @@ begin
                         byte_idx <= byte_idx + 1;
                     end if;
                 end if;
+
+                rx_valid_prev_s <= rx_valid_s;
             end if;
         end if;
     end process;

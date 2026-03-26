@@ -16,6 +16,9 @@ entity uart_rx is
 end uart_rx;
 
 architecture Behavioral of uart_rx is
+    constant BIT_CLKS       : integer := 100_000_000 / 115200;
+    constant HALF_BIT_CLKS  : integer := BIT_CLKS / 2;
+
     type state_type is (IDLE, START, DATA, STOP);
     signal state      : state_type := IDLE;
     signal rx_sync_0  : std_logic := '1';
@@ -24,8 +27,8 @@ architecture Behavioral of uart_rx is
     signal shift_reg  : std_logic_vector(7 downto 0) := (others => '0');
     signal bit_index  : integer range 0 to 7 := 0;
     signal rx_valid_s : std_logic := '0';
-    signal rx_valid_cnt : integer range 0 to 2 := 0;
     signal rx_data_s  : std_logic_vector(7 downto 0) := (others => '0');
+    signal sample_count : integer range 0 to BIT_CLKS := 0;
 
 begin
 
@@ -54,47 +57,55 @@ begin
                 shift_reg <= (others => '0');
                 bit_index <= 0;
                 rx_data_s <= (others => '0');
+                sample_count <= 0;
             else
-                -- manage rx_valid pulse stretching (hold for a couple of clocks)
-                if rx_valid_cnt > 0 then
-                    if rx_valid_cnt = 1 then
-                        rx_valid_s <= '0';
-                    end if;
-                    rx_valid_cnt <= rx_valid_cnt - 1;
-                end if;
+                rx_valid_s <= '0'; -- default
                 case state is
                     when IDLE =>
                         -- detect falling edge (= start bit)
                         if rx_prev = '1' and rx_sync_1 = '0' then
+                            sample_count <= HALF_BIT_CLKS;
                             state <= START;
                         end if;
 
                     when START =>
-                        -- wait for half_tick to center sampling
-                        if half_tick = '1' then
-                            bit_index <= 0;
-                            state <= DATA;
+                        -- wait half a bit and re-check the start bit in the middle
+                        if sample_count = 0 then
+                            if rx_sync_1 = '0' then
+                                bit_index <= 0;
+                                sample_count <= BIT_CLKS - 1;
+                                state <= DATA;
+                            else
+                                state <= IDLE;
+                            end if;
+                        else
+                            sample_count <= sample_count - 1;
                         end if;
 
                     when DATA =>
-                        if baud_tick = '1' then
+                        if sample_count = 0 then
                             shift_reg(bit_index) <= rx_sync_1;
                             if bit_index = 7 then
+                                sample_count <= BIT_CLKS - 1;
                                 state <= STOP;
                             else
                                 bit_index <= bit_index + 1;
+                                sample_count <= BIT_CLKS - 1;
                             end if;
+                        else
+                            sample_count <= sample_count - 1;
                         end if;
 
                     when STOP =>
-                        if baud_tick = '1' then
+                        if sample_count = 0 then
                             -- sample stop bit
                             if rx_sync_1 = '1' then
                                 rx_data_s <= shift_reg;
-                                rx_valid_s <= '1'; -- set valid now
-                                rx_valid_cnt <= 2; -- hold for current + next cycles
+                                rx_valid_s <= '1'; -- one-cycle pulse
                             end if;
                             state <= IDLE;
+                        else
+                            sample_count <= sample_count - 1;
                         end if;
 
                 end case;

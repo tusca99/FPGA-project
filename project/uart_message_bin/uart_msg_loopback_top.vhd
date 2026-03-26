@@ -17,6 +17,7 @@ entity uart_msg_loopback_top is
 
         bench_req_data   : out std_logic_vector(N_BYTES*8-1 downto 0);
         bench_req_valid  : out std_logic;
+        bench_rx_valid   : out std_logic;
         bench_rsp_data   : out std_logic_vector(N_BYTES*8-1 downto 0);
         bench_rsp_valid  : out std_logic;
         bench_app_cycles : out std_logic_vector(31 downto 0)
@@ -35,10 +36,11 @@ architecture Behavioral of uart_msg_loopback_top is
     signal tx_busy_s  : std_logic := '0';
     signal tx_msg_s   : std_logic_vector(N_BYTES*8-1 downto 0) := (others => '0');
 
-    type state_t is (IDLE, APP_RUN, TX_WAIT);
+    type state_t is (IDLE, REQ_PULSE, APP_RUN, RESP_PULSE, TX_WAIT);
     signal state : state_t := IDLE;
     signal app_count : natural range 0 to APP_LATENCY_CYCLES := 0;
     signal app_cycles_s : unsigned(31 downto 0) := (others => '0');
+    signal rx_msg_latched_s : std_logic_vector(N_BYTES*8-1 downto 0) := (others => '0');
 
 begin
 
@@ -92,33 +94,45 @@ begin
                 app_cycles_s <= (others => '0');
                 tx_start_s <= '0';
                 tx_msg_s <= (others => '0');
+                rx_msg_latched_s <= (others => '0');
+                bench_req_data <= (others => '0');
                 bench_req_valid <= '0';
+                bench_rx_valid <= '0';
+                bench_rsp_data <= (others => '0');
                 bench_rsp_valid <= '0';
             else
                 tx_start_s <= '0';
                 bench_req_valid <= '0';
+                bench_rx_valid <= rx_valid_s;
                 bench_rsp_valid <= '0';
 
                 case state is
                     when IDLE =>
                         if rx_valid_s = '1' then
-                            bench_req_data <= rx_msg_s;
-                            bench_req_valid <= '1';
-                            tx_msg_s <= rx_msg_s;
+                            rx_msg_latched_s <= rx_msg_s;
                             app_count <= 0;
-                            state <= APP_RUN;
+                            state <= REQ_PULSE;
                         end if;
+
+                    when REQ_PULSE =>
+                        bench_req_data <= rx_msg_latched_s;
+                        bench_req_valid <= '1';
+                        tx_msg_s <= rx_msg_latched_s;
+                        state <= APP_RUN;
 
                     when APP_RUN =>
                         if app_count = APP_LATENCY_CYCLES then
                             app_cycles_s <= to_unsigned(app_count, 32);
-                            bench_rsp_data <= tx_msg_s;
-                            bench_rsp_valid <= '1';
-                            tx_start_s <= '1';
-                            state <= TX_WAIT;
+                            state <= RESP_PULSE;
                         else
                             app_count <= app_count + 1;
                         end if;
+
+                    when RESP_PULSE =>
+                        bench_rsp_data <= tx_msg_s;
+                        bench_rsp_valid <= '1';
+                        tx_start_s <= '1';
+                        state <= TX_WAIT;
 
                     when TX_WAIT =>
                         if tx_busy_s = '0' then

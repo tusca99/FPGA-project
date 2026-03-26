@@ -6,7 +6,7 @@ Obiettivo: gestire messaggi binari a lunghezza fissa in byte, senza ASCII parser
 
 - `N_BYTES` e` un generic.
 - I dati sono impacchettati in `std_logic_vector(N_BYTES*8-1 downto 0)`.
-- Byte 0 e` il primo byte trasmesso/ricevuto.
+- Byte 0 e` il primo byte trasmesso/ricevuto e finisce nei bit piu` significativi del bus, cosi` il dump in hex mostra i byte nell'ordine di arrivo.
 - RX alza `msg_valid` quando ha raccolto esattamente `N_BYTES` byte.
 - TX parte con `msg_start` e alza `busy` fino a fine trasmissione.
 
@@ -24,6 +24,8 @@ Questi wrapper riusano i blocchi gia` esistenti nel ramo modulare:
 - `baud_gen.vhd`
 - `uart_rx.vhd`
 - `uart_tx.vhd`
+
+`uart_rx.vhd` e `uart_tx.vhd` in questa cartella sono riallineati alle versioni originali del blocco modulare, per tenere qui solo il livello di wrapper del messaggio.
 
 ## Nota
 

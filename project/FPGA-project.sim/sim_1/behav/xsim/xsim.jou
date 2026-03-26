@@ -1,0 +1,25 @@
+#-----------------------------------------------------------
+# xsim v2025.2 (64-bit)
+# SW Build 6299465 on Fri Nov 14 12:34:56 MST 2025
+# IP Build 6300035 on Fri Nov 14 10:48:45 MST 2025
+# SharedData Build 6298862 on Thu Nov 13 04:50:51 MST 2025
+# Start of session at: Wed Mar 25 18:36:21 2026
+# Process ID         : 222485
+# Current directory  : /home/alessio/ssd_data/Alessio/uni magistrale/Programmable_Hardware_Devices/FPGA-project/project/FPGA-project.sim/sim_1/behav/xsim
+# Command line       : xsim -mode tcl -source {xsim.dir/uart_msg_loopback_tb_behav/xsim_script.tcl}
+# Log file           : /home/alessio/ssd_data/Alessio/uni magistrale/Programmable_Hardware_Devices/FPGA-project/project/FPGA-project.sim/sim_1/behav/xsim/xsim.log
+# Journal file       : /home/alessio/ssd_data/Alessio/uni magistrale/Programmable_Hardware_Devices/FPGA-project/project/FPGA-project.sim/sim_1/behav/xsim/xsim.jou
+# Running On         : fedora.fritz.box
+# Platform           : unknown
+# Operating System   : unknown
+# Processor Detail   : Intel(R) Core(TM) i7-9700 CPU @ 3.00GHz
+# CPU Frequency      : 4481.052 MHz
+# CPU Physical cores : 8
+# CPU Logical cores  : 8
+# Host memory        : 24866 MB
+# Swap memory        : 8589 MB
+# Total Virtual      : 33456 MB
+# Available Virtual  : 19780 MB
+#-----------------------------------------------------------
+source xsim.dir/uart_msg_loopback_tb_behav/xsim_script.tcl
+source /tmp/check_uart_msg.tcl
