@@ -91,8 +91,12 @@ begin
         variable nidx    : integer;
         variable row     : integer;
         variable col     : integer;
+        variable cfg_size_i : integer;
         variable new_runs_done : unsigned(31 downto 0);
         variable q_temp  : integer;
+        variable head_i  : integer;
+        variable tail_i  : integer;
+        variable cnt_i   : integer;
         variable i       : integer;
     begin
         if rising_edge(Clk) then
@@ -118,11 +122,12 @@ begin
                 run_occupied <= (others => '0');
             else
                 if CfgInit = '1' then
-                    grid_size   <= min_int(to_integer(unsigned(CfgGridSize)), MAX_GRID);
-                    if grid_size < 1 then
-                        grid_size <= 1;
+                    cfg_size_i := min_int(to_integer(unsigned(CfgGridSize)), MAX_GRID);
+                    if cfg_size_i < 1 then
+                        cfg_size_i := 1;
                     end if;
-                    grid_cells  <= grid_size * grid_size;
+                    grid_size   <= cfg_size_i;
+                    grid_cells  <= cfg_size_i * cfg_size_i;
                     p_thresh    <= unsigned(CfgP);
                     seed_reg    <= unsigned(CfgSeed);
                     lfsr        <= unsigned(CfgSeed);
@@ -208,13 +213,17 @@ begin
                         if bfs_cnt = 0 then
                             state <= 4;
                         else
-                            cur_idx := queue_mem(bfs_head);
-                            if bfs_head = (grid_cells - 1) then
-                                bfs_head <= 0;
+                            head_i := bfs_head;
+                            tail_i := bfs_tail;
+                            cnt_i := bfs_cnt;
+
+                            cur_idx := queue_mem(head_i);
+                            if head_i = (grid_cells - 1) then
+                                head_i := 0;
                             else
-                                bfs_head <= bfs_head + 1;
+                                head_i := head_i + 1;
                             end if;
-                            bfs_cnt <= bfs_cnt - 1;
+                            cnt_i := cnt_i - 1;
 
                             row := to_integer(cur_idx) / grid_size;
                             col := to_integer(cur_idx) mod grid_size;
@@ -226,13 +235,13 @@ begin
                                 nidx := to_integer(cur_idx) - grid_size;
                                 if visited_mem(nidx) = '0' and grid_mem(nidx) = '1' then
                                     visited_mem(nidx) <= '1';
-                                    queue_mem(bfs_tail) <= to_unsigned(nidx, 14);
-                                    if bfs_tail = (grid_cells - 1) then
-                                        bfs_tail <= 0;
+                                    queue_mem(tail_i) <= to_unsigned(nidx, 14);
+                                    if tail_i = (grid_cells - 1) then
+                                        tail_i := 0;
                                     else
-                                        bfs_tail <= bfs_tail + 1;
+                                        tail_i := tail_i + 1;
                                     end if;
-                                    bfs_cnt <= bfs_cnt + 1;
+                                    cnt_i := cnt_i + 1;
                                 end if;
                             end if;
 
@@ -240,13 +249,13 @@ begin
                                 nidx := to_integer(cur_idx) + grid_size;
                                 if visited_mem(nidx) = '0' and grid_mem(nidx) = '1' then
                                     visited_mem(nidx) <= '1';
-                                    queue_mem(bfs_tail) <= to_unsigned(nidx, 14);
-                                    if bfs_tail = (grid_cells - 1) then
-                                        bfs_tail <= 0;
+                                    queue_mem(tail_i) <= to_unsigned(nidx, 14);
+                                    if tail_i = (grid_cells - 1) then
+                                        tail_i := 0;
                                     else
-                                        bfs_tail <= bfs_tail + 1;
+                                        tail_i := tail_i + 1;
                                     end if;
-                                    bfs_cnt <= bfs_cnt + 1;
+                                    cnt_i := cnt_i + 1;
                                 end if;
                             end if;
 
@@ -254,13 +263,13 @@ begin
                                 nidx := to_integer(cur_idx) - 1;
                                 if visited_mem(nidx) = '0' and grid_mem(nidx) = '1' then
                                     visited_mem(nidx) <= '1';
-                                    queue_mem(bfs_tail) <= to_unsigned(nidx, 14);
-                                    if bfs_tail = (grid_cells - 1) then
-                                        bfs_tail <= 0;
+                                    queue_mem(tail_i) <= to_unsigned(nidx, 14);
+                                    if tail_i = (grid_cells - 1) then
+                                        tail_i := 0;
                                     else
-                                        bfs_tail <= bfs_tail + 1;
+                                        tail_i := tail_i + 1;
                                     end if;
-                                    bfs_cnt <= bfs_cnt + 1;
+                                    cnt_i := cnt_i + 1;
                                 end if;
                             end if;
 
@@ -268,14 +277,22 @@ begin
                                 nidx := to_integer(cur_idx) + 1;
                                 if visited_mem(nidx) = '0' and grid_mem(nidx) = '1' then
                                     visited_mem(nidx) <= '1';
-                                    queue_mem(bfs_tail) <= to_unsigned(nidx, 14);
-                                    if bfs_tail = (grid_cells - 1) then
-                                        bfs_tail <= 0;
+                                    queue_mem(tail_i) <= to_unsigned(nidx, 14);
+                                    if tail_i = (grid_cells - 1) then
+                                        tail_i := 0;
                                     else
-                                        bfs_tail <= bfs_tail + 1;
+                                        tail_i := tail_i + 1;
                                     end if;
-                                    bfs_cnt <= bfs_cnt + 1;
+                                    cnt_i := cnt_i + 1;
                                 end if;
+                            end if;
+
+                            bfs_head <= head_i;
+                            bfs_tail <= tail_i;
+                            bfs_cnt <= cnt_i;
+
+                            if cnt_i = 0 then
+                                state <= 4;
                             end if;
                         end if;
 

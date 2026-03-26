@@ -2,8 +2,8 @@
 2020.2
 Nov 14 2025
 12:36:23
-/home/alessio/ssd_data/Alessio/uni magistrale/Programmable_Hardware_Devices/FPGA-project/project/percolation_core/percolation_core.vhd,1774450245,vhdl,/home/alessio/ssd_data/Alessio/uni magistrale/Programmable_Hardware_Devices/FPGA-project/project/percolation_core/percolation_core_tb.vhd,,,percolation_core,,,,,,,,
-/home/alessio/ssd_data/Alessio/uni magistrale/Programmable_Hardware_Devices/FPGA-project/project/percolation_core/percolation_core_tb.vhd,1774450245,vhdl,,,,percolation_core_tb,,,,,,,,
+/home/alessio/ssd_data/Alessio/uni magistrale/Programmable_Hardware_Devices/FPGA-project/project/percolation_core/percolation_core.vhd,1774542859,vhdl,/home/alessio/ssd_data/Alessio/uni magistrale/Programmable_Hardware_Devices/FPGA-project/project/percolation_core/percolation_core_tb.vhd,,,percolation_core,,,,,,,,
+/home/alessio/ssd_data/Alessio/uni magistrale/Programmable_Hardware_Devices/FPGA-project/project/percolation_core/percolation_core_tb.vhd,1774456066,vhdl,,,,percolation_core_tb,,,,,,,,
 /home/alessio/ssd_data/Alessio/uni magistrale/Programmable_Hardware_Devices/FPGA-project/project/uart_message_bin/baud_gen.vhd,1774519048,vhdl,/home/alessio/ssd_data/Alessio/uni magistrale/Programmable_Hardware_Devices/FPGA-project/project/uart_message_bin/uart_msg_loopback_top.vhd,,,baud_gen,,,,,,,,
 /home/alessio/ssd_data/Alessio/uni magistrale/Programmable_Hardware_Devices/FPGA-project/project/uart_message_bin/uart_msg_loopback_tb.vhd,1774532237,vhdl,,,,uart_msg_loopback_tb,,,,,,,,
 /home/alessio/ssd_data/Alessio/uni magistrale/Programmable_Hardware_Devices/FPGA-project/project/uart_message_bin/uart_msg_loopback_top.vhd,1774532237,vhdl,/home/alessio/ssd_data/Alessio/uni magistrale/Programmable_Hardware_Devices/FPGA-project/project/uart_message_bin/uart_msg_loopback_tb.vhd,,,uart_msg_loopback_top,,,,,,,,

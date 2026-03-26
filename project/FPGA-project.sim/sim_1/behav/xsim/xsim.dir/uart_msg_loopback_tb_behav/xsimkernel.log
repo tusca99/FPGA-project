@@ -1,4 +1,7 @@
-Running: xsim.dir/uart_msg_loopback_tb_behav/xsimk -simmode gui -wdb uart_msg_loopback_tb_behav.wdb -simrunnum 0 -socket 57847
+Running: xsim.dir/uart_msg_loopback_tb_behav/xsimk -simmode gui -wdb uart_msg_loopback_tb_behav.wdb -simrunnum 0 -socket 37041
 Design successfully loaded
 Design Loading Memory Usage: 421136 KB (Peak: 421188 KB)
-Design Loading CPU Usage: 1060 ms
+Design Loading CPU Usage: 1100 ms
+Simulation completed
+Simulation Memory Usage: 502872 KB (Peak: 560404 KB)
+Simulation CPU Usage: 1110 ms

@@ -1,18 +1,18 @@
-# Copilot Instructions for UART FPGA Project
+# Copilot Instructions for FPGA Project
 
 ## Architettura e Componenti Principali
 
-- Il progetto è organizzato in due macro-directory:
-  - `uart/uart_modular/`: implementazione modulare di UART (con `baud_gen`, `uart_tx`, `uart_rx`, testbench)
-  - `uart/uart_single/`: implementazione UART monolitica (esempio didattico)
-- Il top module principale è `uart_top.vhd`, che integra:
+- Il progetto è organizzato in due aree principali:
+  - `project/uart_message_bin/`: stack UART binario a messaggi fissi per benchmark e integrazione con core applicativi
+  - `project/percolation_core/`: core di site percolation da validare prima dell’integrazione UART
+- Il top module di benchmark è `project/uart_message_bin/uart_msg_loopback_top.vhd`, che integra:
   - Generatore di baud rate (`baud_gen.vhd`)
   - Trasmettitore UART (`uart_tx.vhd`)
   - Ricevitore UART (`uart_rx.vhd`)
-  - FIFO RX/TX a byte per non perdere dati (`byte_fifo.vhd`)
-  - Parser comandi ASCII newline-terminated (`ascii_cmd_parser.vhd`)
-  - Regfile/telemetria + core applicativo minimale (`md_toy_core.vhd`) e gestione LED come “activity indicator”
-- I testbench sono forniti per i moduli principali (`uart_tx_tb.vhd`, `uart_mod_tx_tb.vhd`).
+  - Wrapper binari a lunghezza fissa (`uart_msg_rx.vhd`, `uart_msg_tx.vhd`)
+  - Loopback di benchmark con misura latenza (`uart_msg_loopback_tb.vhd`)
+- Il core applicativo da discutere e validare prima dell’integrazione è `project/percolation_core/percolation_core.vhd`.
+- I testbench disponibili coprono il loopback binario e il core percolation (`uart_msg_loopback_tb.vhd`, `percolation_core_tb.vhd`).
 
 ## Flusso di lavoro tipico
 
@@ -21,10 +21,10 @@
   - I vincoli di pin sono definiti in `costraint/pins.xdc` (adattato per Arty A7).
 - **Simulazione:**  
   - Usa i testbench VHDL (`*_tb.vhd`) per simulare i moduli in Vivado o ModelSim.
-  - I testbench generano clock, reset e stimoli (es. pressione pulsante) e verificano la trasmissione UART.
+  - I testbench generano clock, reset e stimoli e verificano sia la trasmissione UART sia il comportamento del core percolation.
 - **Debug:**  
-  - Il LED pulsa brevemente quando viene decodificato un comando valido via UART.
-  - La demo attuale è “UART command/response” (non più il loop su carattere 'a').
+  - Prima validare `percolation_core` da solo, poi integrarlo con UART binaria.
+  - Per benchmark UART usare messaggi a lunghezza fissa e confrontare il tempo baseline UART con il tempo totale del core.
 
 ## Convenzioni e pattern
 
@@ -32,11 +32,11 @@
 - **Parametri di clock e baud rate** passati come `generic` nei moduli.
 - **Sincronizzazione dei segnali di input** (pulsante, RX) tramite doppio flip-flop.
 - **Gestione edge detection** per pulsanti e segnali asincroni.
-- **Pipeline di trasmissione**: usare backpressure tramite `tx_busy` e buffering (FIFO TX) per evitare perdita di byte.
+- **Benchmark UART**: mantenere lunghezza messaggio, clock e baud rate costanti per sottrarre il baseline UART dal tempo del core.
 - **Anti byte-loss (UART-controlled designs)**:
-  - RX: `uart_rx` genera `rx_valid` “stirato”; catturare il byte su fronte di salita (edge-detect) e inserirlo in FIFO RX.
-  - TX: accodare le risposte in FIFO TX e trasmettere solo quando `tx_busy='0'`.
-- **Testbench**: clock a 100 MHz, sequenze di reset e stimoli ben definite.
+  - RX: `uart_rx` genera `rx_valid` “stirato`; catturare il byte su fronte di salita (edge-detect) e inserirlo nel wrapper del messaggio.
+  - TX: accodare le risposte e trasmettere solo quando `tx_busy='0'`.
+- **Testbench**: clock a 100 MHz, sequenze di reset e stimoli ben definite; per `percolation_core` fare prima validazione standalone e solo dopo integrazione con UART.
 
 ## Protocollo UART ASCII (MVP)
 
@@ -53,11 +53,11 @@
   - `METRICS` → risposta: `STEP 0x... RX_OVR 0x... TX_OVR 0x...\n`
 - **Error handling**: comando sconosciuto o argomento non parsabile → `ERR\n`.
 
-## MVP applicativo attuale (100 MHz): `md_toy_core.vhd`
+## MVP applicativo attuale (100 MHz): `percolation_core.vhd`
 
 - Il progetto sta lavorando in single-clock a **100 MHz** (Arty A7): evitare multi-clock/CDC finché non necessario.
-- Il data-plane attuale è un **MD toy model** (2 particelle, dinamica 1D su int16) in `uart/uart_modular/md_toy_core.vhd`.
-- Il control-plane resta UART ASCII (comandi `START/STOP/STEP` + `RD/WR`).
+- Il data-plane attuale da validare è il **site percolation core** in `project/percolation_core/percolation_core.vhd`.
+- Il control-plane finale sarà UART binaria a messaggi fissi per benchmark e controllo del core.
 
 **Mappa registri (via `RD/WR`, indice = 5 LSB dell’addr)**
 - Config:
@@ -74,13 +74,20 @@
 
 Nota: alcune entry di stato (es. `2,5,6,7,8`) vengono sovrascritte continuamente dal core.
 
-## Pattern consigliati per estensioni (MD / Ising / PT)
+## Pattern consigliati per estensioni (Percolation / UART benchmark)
 
 - **Regfile come API stabile**: mappare parametri e risultati in registri (lettura/scrittura via `RD/WR`).
 - **Telemetria scalare prima, stream dopo**: iniziare con contatori/energie/acceptance rate; evitare dump massivi via UART.
 - **Separazione control-plane / data-plane**:
-  - Control-plane: parser ASCII, regfile, comandi di avvio/stop/step.
-  - Data-plane: core applicativo (MD/Ising) che aggiorna registri/metriche.
+  - Control-plane: wrapper binario UART, parametri fissi, start/stop/step del core.
+  - Data-plane: `percolation_core` che aggiorna step, spanning count e statistiche.
+
+## Flusso di validazione consigliato
+
+1. Validare `project/percolation_core/percolation_core.vhd` con il suo testbench standalone.
+2. Discutere l’interfaccia e i valori che il core espone prima dell’integrazione.
+3. Integrare il core nel top UART binario solo dopo che la semantica dei segnali è chiara.
+4. Misurare il baseline UART con messaggi fissi e sottrarlo dal tempo totale per il benchmark.
 
 ## Testbench (raccomandazioni)
 
@@ -125,10 +132,9 @@ Nota: alcune entry di stato (es. `2,5,6,7,8`) vengono sovrascritte continuamente
 ## Piano d’azione (stato corrente)
 
 - Completato: UART base verificata e funzionante (TX/RX OK). Il problema osservato in precedenza era byte loss occasionale sotto carico; mitigato con RX FIFO + TX FIFO.
-- Completato: RX FIFO + parser ASCII + TX FIFO + integrazione in `uart_top.vhd`.
-- Completato: sostituito lo stub “metrics/step” con un core applicativo minimale (`md_toy_core.vhd`) pilotato via `START/STOP/STEP`.
-- In corso: testbench dedicato al round-trip dei comandi (stimolo byte-level, verifica risposte).
-- Da fare: scegliere MVP applicativo finale (Paper 6: MD più realistico, o Paper 3: Ising/PT) e sostituire/estendere `md_toy_core.vhd` con il core definitivo.
+- Completato: stack UART binario a messaggi fissi e loopback benchmark funzionante.
+- In corso: validazione standalone di `project/percolation_core/percolation_core.vhd` con `percolation_core_tb.vhd`.
+- Da fare: discutere bene cosa espone `percolation_core`, fissare il benchmark baseline UART e solo dopo integrare il core nel top UART.
 
 ---
 

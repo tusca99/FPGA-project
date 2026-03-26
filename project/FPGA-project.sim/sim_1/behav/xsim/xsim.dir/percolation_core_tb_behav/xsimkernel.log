@@ -1,7 +1,4 @@
-Running: xsim.dir/percolation_core_tb_behav/xsimk -simmode gui -wdb percolation_core_tb_behav.wdb -simrunnum 0 -socket 44667
+Running: xsim.dir/percolation_core_tb_behav/xsimk -simmode gui -wdb percolation_core_tb_behav.wdb -simrunnum 0 -socket 60695
 Design successfully loaded
 Design Loading Memory Usage: 421960 KB (Peak: 421968 KB)
-Design Loading CPU Usage: 1060 ms
-Simulation completed
-Simulation Memory Usage: 511896 KB (Peak: 561228 KB)
-Simulation CPU Usage: 1070 ms
+Design Loading CPU Usage: 1090 ms
