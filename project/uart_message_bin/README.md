@@ -32,3 +32,5 @@ Questi wrapper riusano i blocchi gia` esistenti nel ramo modulare:
 `uart_msg_loopback_top.vhd` instanzia un solo `baud_gen.vhd` e lo condivide tra RX e TX.
 
 Questa cartella e` pensata come base binaria minimale. La modalita` ASCII puo` essere aggiunta dopo, come strato separato.
+
+Per il flusso Vivado e` stata spostata la documentazione nel README radice della repo.

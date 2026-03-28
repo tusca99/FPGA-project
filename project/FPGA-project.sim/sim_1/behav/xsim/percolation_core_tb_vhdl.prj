@@ -1,7 +1,0 @@
-# compile vhdl design source files
-vhdl xil_defaultlib  \
-"../../../../percolation_core/percolation_core.vhd" \
-"../../../../percolation_core/percolation_core_tb.vhd" \
-
-# Do not sort compile order
-nosort
