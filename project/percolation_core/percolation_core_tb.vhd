@@ -64,7 +64,7 @@ begin
         CfgGridSize <= x"0008"; -- 8x8
         CfgP <= x"9999999A"; -- approx 0.6
         CfgSeed <= x"12345678";
-        CfgRuns <= x"00000010"; -- 16 runs
+        CfgRuns <= x"000000A0"; -- 16 runs
         CfgInit <= '1';
         wait for 10 ns;
         CfgInit <= '0';
