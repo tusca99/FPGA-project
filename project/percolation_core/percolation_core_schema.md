@@ -7,7 +7,7 @@ Questo file spiega, in modo semplice, cosa fa il core di percolazione in [percol
 Il core esegue molte volte la stessa prova:
 
 1. costruisce una griglia quadrata di celle
-2. decide in modo pseudo-casuale quali celle sono occupate
+2. decide in modo pseudo-casuale quali celle sono occupate tramite un modulo LFSR separato
 3. controlla se esiste un percorso connesso dall'alto al basso
 4. aggiorna alcune statistiche
 5. ripete per il numero di run richiesto
@@ -35,16 +35,65 @@ Le uscite sono solo statistiche:
 - `TotalOccupied` = somma delle celle occupate su tutti i run
 - `MeanOccupied` = media delle celle occupate per run
 
+## Contratto tra LFSR e connettività
+
+La generazione casuale e la connettività devono restare separabili. Il contratto minimo tra i blocchi e` questo:
+
+- `percolation_lfsr32`
+    - `Load`: ricarica il seed iniziale
+    - `StepEn`: avanza di uno stato
+    - `SeedIn`: seed configurato via UART o testbench
+    - `StateOut`: valore pseudo-casuale corrente
+- blocco di connettivita` / BFS
+    - consuma `StateOut` come sample casuale
+    - non conosce taps, seed o dettagli del PRNG
+    - decide solo se la cella corrente e` occupata e aggiorna lo spanning
+
+Questo contratto permette di sostituire il PRNG con un LFSR migliore o con un generatore diverso senza toccare la logica di spanning.
+
+## Top applicativo sottile
+
+Il passo successivo e` un wrapper di integrazione che parla con UART e non contiene logica algoritmica. Il suo compito e`:
+
+- ricevere configurazione, seed e comandi start/stop/step
+- trasferire i parametri al core
+- leggere le statistiche a fine run o su richiesta
+- esporre una superficie stabile per Python e benchmark
+
+Questo top non deve duplicare il lavoro del core: non costruisce la griglia, non fa BFS e non genera numeri casuali.
+
+### Frame binari del wrapper
+
+Il top applicativo usa messaggi binari a lunghezza fissa:
+
+- request: 24 byte totali, organizzati in 6 word da 32 bit
+    - word 0: `CfgP`
+    - word 1: `CfgGridSize` nei 16 bit meno significativi
+    - word 2: `CfgSeed`
+    - word 3: `CfgRuns`
+    - word 4: `ctrl` con i bit di start/init/step
+    - word 5: `StepAddCount`
+- response: 20 byte totali, organizzati in 5 word da 32 bit
+    - word 0: `StepCount`
+    - word 1: `PendingSteps`
+    - word 2: `SpanningCount`
+    - word 3: `TotalOccupied`
+    - word 4: `MeanOccupied`
+
+Questo layout mantiene il wrapper molto semplice e permette di fare un controllo Python diretto senza parsing testuale.
+
 ## Cosa fa davvero il codice
 
 Il core non fa una simulazione continua nel tempo.
 Fa sempre questo ciclo:
 
 - prepara una griglia casuale
-- cerca un cluster connesso partendo dal bordo alto
+- cerca un cluster connesso partendo dal bordo alto con una BFS flood fill
 - se il cluster arriva al bordo basso, conta un evento di spanning
 - aggiorna i contatori
 - decide se rifare tutto da capo
+
+La parte casuale e` isolata in `percolation_lfsr32`, quindi il core puo` essere letto come due passi distinti: campionamento random e verifica della connettivita`.
 
 ## Pseudocodice
 
@@ -138,3 +187,5 @@ Per il benchmark conviene tenere fisso il messaggio UART e sottrarre il suo cost
 ## Nota importante
 
 Il codice attuale usa una **BFS flood fill**, non un Hoshen-Kopelman classico. La logica è più semplice da capire, ma il principio fisico resta lo stesso: verificare se esiste un cluster che attraversa la griglia.
+
+La generazione casuale è già separata nel modulo `percolation_lfsr32`, così in futuro si può migliorare o sostituire il PRNG senza toccare la parte di connettività.

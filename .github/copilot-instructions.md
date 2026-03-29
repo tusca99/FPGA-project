@@ -5,6 +5,10 @@
 - Il progetto è organizzato in due aree principali:
   - `project/uart_message_bin/`: stack UART binario a messaggi fissi per benchmark e integrazione con core applicativi
   - `project/percolation_core/`: core di site percolation da validare prima dell’integrazione UART
+- Il `percolation_core` è da considerare un MVP di lavoro, non il punto finale dell’architettura:
+  - separare quanto prima la generazione casuale in un modulo LFSR dedicato
+  - tenere la connettività come blocco separato, partendo da BFS/flood fill e lasciando aperta l’evoluzione verso Hoshen-Kopelman / Union-Find
+  - prevedere un top o wrapper sottile che colleghi configurazione, start/stop, UART e statistiche senza contenere logica algoritmica pesante
 - Il top module di benchmark è `project/uart_message_bin/uart_msg_loopback_top.vhd`, che integra:
   - Generatore di baud rate (`baud_gen.vhd`)
   - Trasmettitore UART (`uart_tx.vhd`)
@@ -22,6 +26,7 @@
 - **Simulazione:**  
   - Usa i testbench VHDL (`*_tb.vhd`) per simulare i moduli in Vivado o ModelSim.
   - I testbench generano clock, reset e stimoli e verificano sia la trasmissione UART sia il comportamento del core percolation.
+  - Dopo un primo refactor funzionale, aggiungere quanto prima un controllo Python end-to-end via UART per validare protocollo, statistiche e benchmark prima di rifinire l’architettura interna.
 - **Debug:**  
   - Prima validare `percolation_core` da solo, poi integrarlo con UART binaria.
   - Per benchmark UART usare messaggi a lunghezza fissa e confrontare il tempo baseline UART con il tempo totale del core.
@@ -36,7 +41,8 @@
 - **Anti byte-loss (UART-controlled designs)**:
   - RX: `uart_rx` genera `rx_valid` “stirato`; catturare il byte su fronte di salita (edge-detect) e inserirlo nel wrapper del messaggio.
   - TX: accodare le risposte e trasmettere solo quando `tx_busy='0'`.
-- **Testbench**: clock a 100 MHz, sequenze di reset e stimoli ben definite; per `percolation_core` fare prima validazione standalone e solo dopo integrazione con UART.
+- **Testbench**: clock a 100 MHz, sequenze di reset e stimoli ben definite; per `percolation_core` fare prima validazione standalone e poi validazione via Python su UART appena esiste un flusso minimo end-to-end funzionante.
+- **Separazione funzionale**: LFSR, connettività e wrapper/top devono restare separati per facilitare lavoro parallelo, sostituzione dell’algoritmo di connettività e benchmark puliti.
 
 ## Protocollo UART ASCII (MVP)
 
@@ -58,6 +64,13 @@
 - Il progetto sta lavorando in single-clock a **100 MHz** (Arty A7): evitare multi-clock/CDC finché non necessario.
 - Il data-plane attuale da validare è il **site percolation core** in `project/percolation_core/percolation_core.vhd`.
 - Il control-plane finale sarà UART binaria a messaggi fissi per benchmark e controllo del core.
+- L’obiettivo pratico attuale e` arrivare a una pipeline minima ma verificabile: generazione casuale separata, connettività funzionante, top sottile, test Python via UART e benchmark statistiche.
+- Il prossimo file da introdurre dovrà essere un top applicativo sottile, per esempio `project/percolation_core/percolation_uart_top.vhd`, con responsabilità limitata a:
+  - ricezione configurazione via UART
+  - caricamento seed e parametri
+  - start/stop/step del core
+  - lettura e inoltro delle statistiche
+  - nessuna logica algoritmica di griglia o connettività
 
 **Mappa registri (via `RD/WR`, indice = 5 LSB dell’addr)**
 - Config:
@@ -81,13 +94,17 @@ Nota: alcune entry di stato (es. `2,5,6,7,8`) vengono sovrascritte continuamente
 - **Separazione control-plane / data-plane**:
   - Control-plane: wrapper binario UART, parametri fissi, start/stop/step del core.
   - Data-plane: `percolation_core` che aggiorna step, spanning count e statistiche.
+- **Separazione per sottoblocchi**: generatore casuale, algoritmo di connettività e top di integrazione devono poter evolvere in modo indipendente.
+- **Top applicativo sottile**: il top finale deve limitarsi a legare UART e core, senza ripetere parsing o logica di benchmark già esistenti nei wrapper binari.
 
 ## Flusso di validazione consigliato
 
-1. Validare `project/percolation_core/percolation_core.vhd` con il suo testbench standalone.
-2. Discutere l’interfaccia e i valori che il core espone prima dell’integrazione.
-3. Integrare il core nel top UART binario solo dopo che la semantica dei segnali è chiara.
-4. Misurare il baseline UART con messaggi fissi e sottrarlo dal tempo totale per il benchmark.
+1. Separare il blocco LFSR dal resto del core e validarlo in modo indipendente.
+2. Validare `project/percolation_core/percolation_core.vhd` con il suo testbench standalone, mantenendo BFS come baseline iniziale.
+3. Introdurre il top applicativo sottile per legare UART e core, senza aggiungere logica algoritmica nuova.
+4. Integrare il core nel top UART binario solo dopo che la semantica dei segnali è chiara.
+4. Aggiungere quanto prima un controllo Python via UART per verificare end-to-end funzionamento e statistiche.
+5. Misurare il baseline UART con messaggi fissi e sottrarlo dal tempo totale per il benchmark.
 
 ## Testbench (raccomandazioni)
 
@@ -103,6 +120,9 @@ Nota: alcune entry di stato (es. `2,5,6,7,8`) vengono sovrascritte continuamente
 - `uart/uart_modular/ascii_cmd_parser.vhd`: parser comandi ASCII (newline-terminated).
 - `uart/uart_modular/uart_tx_tb.vhd`, `uart_mod_tx_tb.vhd`: testbench di riferimento.
 - `uart/costraint/pins.xdc`: vincoli di pin per la board Arty A7.
+- `project/percolation_core/percolation_core.vhd`: MVP corrente del core, da rifattorizzare in sottoblocchi riusabili.
+- `project/percolation_core/percolation_uart_top.vhd`: futuro wrapper sottile per UART + core applicativo.
+- `project/uart_message_bin/uart_msg_loopback_top.vhd`: top di benchmark binario e punto di verifica del baseline UART.
 
 ## Esempi di pattern
 
@@ -133,8 +153,8 @@ Nota: alcune entry di stato (es. `2,5,6,7,8`) vengono sovrascritte continuamente
 
 - Completato: UART base verificata e funzionante (TX/RX OK). Il problema osservato in precedenza era byte loss occasionale sotto carico; mitigato con RX FIFO + TX FIFO.
 - Completato: stack UART binario a messaggi fissi e loopback benchmark funzionante.
-- In corso: validazione standalone di `project/percolation_core/percolation_core.vhd` con `percolation_core_tb.vhd`.
-- Da fare: discutere bene cosa espone `percolation_core`, fissare il benchmark baseline UART e solo dopo integrare il core nel top UART.
+- In corso: validazione standalone di `project/percolation_core/percolation_core.vhd` con `percolation_core_tb.vhd` e in parallelo separazione del blocco LFSR.
+- Da fare: definire il contratto tra LFSR, connettività e top sottile; introdurre presto un test Python via UART; poi integrare il core nel top UART e misurare il baseline.
 
 ---
 

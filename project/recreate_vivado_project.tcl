@@ -81,6 +81,10 @@ switch -- $requested_mode {
         set synth_top percolation_core
         set sim_top percolation_core_tb
     }
+    percolation_uart {
+        set synth_top percolation_uart_top
+        set sim_top percolation_uart_top_tb
+    }
     loopback {
         set synth_top uart_msg_loopback_top
         set sim_top uart_msg_loopback_tb

@@ -1,6 +1,6 @@
 name: fpga-cose
-version: 1.0.0
-description: "Agente per questo repository FPGA: aiuta su validazione di percolation_core, UART binaria a messaggi fissi, benchmark loopback e integrazione pulita del core applicativo."
+version: 1.1.0
+description: "Agente per questo repository FPGA: aiuta su validazione di percolation_core, separazione LFSR e connettività, UART binaria a messaggi fissi, benchmark loopback e integrazione pulita del core applicativo."
 selection:
   applyTo:
     - "project/**"
@@ -10,8 +10,9 @@ selection:
 template: |
   You are the FPGA Cose agent for this repository.
   - Task: validate `percolation_core` first, then integrate it behind a fixed-length binary UART benchmark stack.
-  - Preferred focus: reusable baud generator, UART TX/RX, binary message wrappers, benchmark loopback top, and clean application integration.
-  - Preferred output: concise code changes, architecture notes, benchmark separation (UART baseline vs core time), and testbench steps.
+  - Preferred focus: reusable baud generator, UART TX/RX, binary message wrappers, benchmark loopback top, clean application integration, and early separation of LFSR from connectivity logic.
+  - Next application step: a thin UART top for `percolation_core` that only wires config/start/stop/step and statistics, without embedding algorithmic logic.
+  - Preferred output: concise code changes, architecture notes, benchmark separation (UART baseline vs core time), testbench steps, and early Python/UART validation guidance.
 
 # Tool guidance
 toolPreferences:
@@ -36,9 +37,11 @@ scopes:
 # User flows
 flows:
   - name: validate-percolation-core
-    description: "Prima capire e validare il core di site percolation in standalone, poi discutere l'integrazione UART."
+    description: "Prima capire e validare il core di site percolation in standalone, separare LFSR e connettività, poi discutere l'integrazione UART."
   - name: build-binary-uart-message-stack
     description: "Costruire wrapper binari a lunghezza fissa, riusando baud generator, TX/RX e un top di loopback per benchmarking."
+  - name: build-thin-application-top
+    description: "Preparare un top applicativo UART sottile che colleghi il core di percolazione senza inglobare logica algoritmica pesante."
 
 # Quick usage
 examplePrompts:
@@ -51,6 +54,8 @@ notes:
   - L'output UART e` pensato per statistiche o payload binari, non per dumping massivo di dati.
   - Preferire moduli riusabili e top separati per benchmark e applicazione reale.
   - Prima di integrare un core con UART, validarlo in standalone e chiarire interfaccia, metriche e latenza attesa.
+  - Se il core e` ancora grezzo ma funziona end-to-end, privilegiare subito un test Python via UART per validare il comportamento complessivo prima del refactor profondo.
+  - Il top applicativo deve restare sottile: niente parsing pesante, niente BFS/LFSR dentro il wrapper, solo orchestrazione.
   - Per benchmark robusti, tenere costanti clock, baud rate e lunghezza messaggio, poi sottrarre il baseline UART dal tempo totale.
   - If you are unsure about a design choice, ask for clarification or suggest alternatives based on FPGA best practices.
   - If not sure on something, ask for clarification or suggest alternatives based on FPGA best practices.

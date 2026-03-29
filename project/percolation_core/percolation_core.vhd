@@ -42,8 +42,6 @@ architecture Behavioral of percolation_core is
     signal grid_size    : integer range 1 to MAX_GRID := 64;
     signal grid_cells   : integer range 1 to MAX_CELLS := 64*64;
     signal p_thresh     : unsigned(31 downto 0) := (others => '0');
-    signal lfsr         : unsigned(31 downto 0) := (others => '1');
-    signal seed_reg     : unsigned(31 downto 0) := (others => '1');
     signal runs_target  : unsigned(31 downto 0) := (others => '0');
 
     signal run_enable   : std_logic := '0';
@@ -61,14 +59,9 @@ architecture Behavioral of percolation_core is
     signal p_spanning   : std_logic := '0';
     signal run_occupied : unsigned(31 downto 0) := (others => '0');
 
-    function lfsr_next(x : unsigned(31 downto 0)) return unsigned is
-        variable y      : unsigned(31 downto 0);
-        variable newbit : std_logic;
-    begin
-        newbit := x(31) xor x(21) xor x(1) xor x(0);
-        y := x(30 downto 0) & newbit;
-        return y;
-    end function;
+    signal lfsr_value : std_logic_vector(31 downto 0) := (others => '1');
+    signal lfsr_load  : std_logic := '0';
+    signal lfsr_step  : std_logic := '0';
 
     function min_int(a, b : integer) return integer is
     begin
@@ -80,6 +73,16 @@ architecture Behavioral of percolation_core is
     end function;
 
 begin
+    lfsr_inst : entity work.percolation_lfsr32
+        port map (
+            Clk      => Clk,
+            Rst      => Rst,
+            Load     => lfsr_load,
+            StepEn   => lfsr_step,
+            SeedIn   => CfgSeed,
+            StateOut => lfsr_value
+        );
+
     StepCount     <= std_logic_vector(runs_done);
     PendingSteps  <= std_logic_vector(pending);
     SpanningCount <= std_logic_vector(spanning_cnt);
@@ -104,8 +107,6 @@ begin
                 grid_size    <= 64;
                 grid_cells   <= 64*64;
                 p_thresh     <= (others => '0');
-                seed_reg     <= (others => '1');
-                lfsr         <= (others => '1');
                 runs_target  <= (others => '0');
                 run_enable   <= '0';
                 pending      <= (others => '0');
@@ -120,7 +121,12 @@ begin
                 state        <= 0;
                 p_spanning   <= '0';
                 run_occupied <= (others => '0');
+                lfsr_load    <= '0';
+                lfsr_step    <= '0';
             else
+                lfsr_load <= '0';
+                lfsr_step <= '0';
+
                 if CfgInit = '1' then
                     cfg_size_i := min_int(to_integer(unsigned(CfgGridSize)), MAX_GRID);
                     if cfg_size_i < 1 then
@@ -129,9 +135,8 @@ begin
                     grid_size   <= cfg_size_i;
                     grid_cells  <= cfg_size_i * cfg_size_i;
                     p_thresh    <= unsigned(CfgP);
-                    seed_reg    <= unsigned(CfgSeed);
-                    lfsr        <= unsigned(CfgSeed);
                     runs_target <= unsigned(CfgRuns);
+                    lfsr_load   <= '1';
 
                     run_enable   <= '0';
                     pending      <= (others => '0');
@@ -170,13 +175,13 @@ begin
 
                     when 1 => -- GRID GENERATION
                         if gen_index < grid_cells then
-                            if unsigned(lfsr) <= p_thresh then
+                            if unsigned(lfsr_value) <= p_thresh then
                                 grid_mem(gen_index) <= '1';
                                 run_occupied <= run_occupied + 1;
                             else
                                 grid_mem(gen_index) <= '0';
                             end if;
-                            lfsr <= lfsr_next(lfsr);
+                            lfsr_step <= '1';
                             gen_index <= gen_index + 1;
                         else
                             bfs_head <= 0;
