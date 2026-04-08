@@ -7,7 +7,7 @@ Questo file spiega, in modo semplice, cosa fa il core di percolazione in [percol
 Il core esegue molte volte la stessa prova:
 
 1. costruisce una griglia quadrata di celle
-2. decide in modo pseudo-casuale quali celle sono occupate tramite un modulo LFSR separato
+2. decide in modo pseudo-casuale quali celle sono occupate tramite un bank RNG separato 64-wide
 3. controlla se esiste un percorso connesso dall'alto al basso
 4. aggiorna alcune statistiche
 5. ripete per il numero di run richiesto
@@ -24,7 +24,7 @@ In pratica risponde a questa domanda:
 - `StepAddValid` e `StepAddCount` aggiungono run in coda
 - `CfgP` imposta la probabilità di occupazione
 - `CfgGridSize` imposta la dimensione della griglia
-- `CfgSeed` imposta il seed dell'LFSR
+- `CfgSeed` imposta il seed del bank RNG
 - `CfgRuns` imposta quanti run fare al massimo
 
 Le uscite sono solo statistiche:
@@ -35,21 +35,22 @@ Le uscite sono solo statistiche:
 - `TotalOccupied` = somma delle celle occupate su tutti i run
 - `MeanOccupied` = media delle celle occupate per run
 
-## Contratto tra LFSR e connettività
+## Contratto tra RNG e connettività
 
 La generazione casuale e la connettività devono restare separabili. Il contratto minimo tra i blocchi e` questo:
 
-- `percolation_lfsr32`
-    - `Load`: ricarica il seed iniziale
-    - `StepEn`: avanza di uno stato
-    - `SeedIn`: seed configurato via UART o testbench
-    - `StateOut`: valore pseudo-casuale corrente
+- `rng_hybrid_64`
+    - `rst`: re-inizializza il bank RNG e riparte dal seed configurato
+    - `master_key` / `run_tag`: diversificazione iniziale della sequenza
+    - `threshold`: soglia di occupazione `p`
+    - `site_open(63 downto 0)`: 64 bit di occupazione per colonna
+    - `busy`: vale `1` mentre il bank si inizializza
 - blocco di connettivita` / BFS
-    - consuma `StateOut` come sample casuale
-    - non conosce taps, seed o dettagli del PRNG
-    - decide solo se la cella corrente e` occupata e aggiorna lo spanning
+    - consuma `site_open` come sample casuale già confrontato con `p`
+    - non conosce taps, seed o dettagli del RNG
+    - decide solo se il cluster attraversa la griglia e aggiorna lo spanning
 
-Questo contratto permette di sostituire il PRNG con un LFSR migliore o con un generatore diverso senza toccare la logica di spanning.
+Questo contratto permette di sostituire il PRNG con un bank RNG diverso senza toccare la logica di spanning.
 
 ## Top applicativo sottile
 
@@ -88,12 +89,13 @@ Il core non fa una simulazione continua nel tempo.
 Fa sempre questo ciclo:
 
 - prepara una griglia casuale
+- prepara la griglia prendendo una colonna alla volta dal bank RNG 64-wide
 - cerca un cluster connesso partendo dal bordo alto con una BFS flood fill
 - se il cluster arriva al bordo basso, conta un evento di spanning
 - aggiorna i contatori
 - decide se rifare tutto da capo
 
-La parte casuale e` isolata in `percolation_lfsr32`, quindi il core puo` essere letto come due passi distinti: campionamento random e verifica della connettivita`.
+La parte casuale e` isolata nel bank `rng_hybrid_64`, quindi il core puo` essere letto come due passi distinti: campionamento random e verifica della connettivita`.
 
 ## Pseudocodice
 
@@ -108,9 +110,9 @@ on CfgInit:
 if RunEn = 1 or ci sono step in coda:
     se non ho già finito tutti i run richiesti:
         while non ho riempito tutta la griglia:
-            per ogni cella:
-                usa l'LFSR per decidere se è occupata
-                conta le celle occupate
+            prendi 64 bit di occupazione dal bank RNG
+            scrivili nella colonna corrente della griglia
+            conta le celle occupate
 
         prendi tutte le celle occupate della prima riga
         mettile in una coda BFS
@@ -142,7 +144,7 @@ flowchart TD
     A[Reset or start] --> B[Load config with CfgInit]
     B --> C[Wait in IDLE]
     C -->|RunEn or pending steps| D[Generate grid cell by cell]
-    D --> E[Use LFSR to decide occupied or empty]
+    D --> E[Use RNG bank to decide occupied or empty]
     E --> F[Seed BFS from top row occupied cells]
     F --> G[Pop one cell from queue]
     G --> H[Check 4 neighbors]
@@ -188,4 +190,4 @@ Per il benchmark conviene tenere fisso il messaggio UART e sottrarre il suo cost
 
 Il codice attuale usa una **BFS flood fill**, non un Hoshen-Kopelman classico. La logica è più semplice da capire, ma il principio fisico resta lo stesso: verificare se esiste un cluster che attraversa la griglia.
 
-La generazione casuale è già separata nel modulo `percolation_lfsr32`, così in futuro si può migliorare o sostituire il PRNG senza toccare la parte di connettività.
+La generazione casuale è già separata nel bank `rng_hybrid_64`, così in futuro si può migliorare o sostituire il PRNG senza toccare la parte di connettività.

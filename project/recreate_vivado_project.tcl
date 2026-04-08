@@ -4,6 +4,8 @@ set project_name FPGA-project
 set part_name xc7a100tcsg324-1
 set project_root [file normalize [file join $repo_root project .vivado]]
 set project_dir [file join $project_root $project_name]
+set rtl_source_root [file join $repo_root RTL]
+set rng_app_units [list a_rng_pkg.vhd b_rng_aes_ctr_prng.vhd z_rng_trivium_array.vhd zz_rng_hybrid_64.vhd zzz_tb_rng_hybrid.vhd]
 set synth_top uart_msg_loopback_top
 set sim_top uart_msg_loopback_tb
 
@@ -32,7 +34,11 @@ proc add_vhdl_tree {root_dir} {
     set sim_files {}
 
     foreach vhdl_file [collect_files $root_dir *.vhd] {
-        if {[string match *_tb.vhd [file tail $vhdl_file]]} {
+        set file_name [file tail $vhdl_file]
+        if {$root_dir eq $::rtl_source_root && [lsearch -exact $::rng_app_units $file_name] >= 0} {
+            continue
+        }
+        if {[string match *_tb.vhd $file_name] || [string match tb_*.vhd $file_name]} {
             lappend sim_files $vhdl_file
         } else {
             lappend source_files $vhdl_file
@@ -56,8 +62,10 @@ set_property target_language VHDL [current_project]
 set_property simulator_language VHDL [current_project]
 
 foreach source_root [list \
-        [file join $repo_root project percolation_core] \
-        [file join $repo_root project uart_message_bin]] {
+        [file join $repo_root RTL] \
+    [file join $repo_root project rng] \
+    [file join $repo_root project percolation_core] \
+    [file join $repo_root project uart_message_bin]] {
     add_vhdl_tree $source_root
 }
 
