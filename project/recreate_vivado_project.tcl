@@ -53,6 +53,7 @@ if {[file exists $project_dir]} {
 }
 create_project -force $project_name $project_dir -part $part_name
 set_property target_language VHDL [current_project]
+set_property simulator_language VHDL [current_project]
 
 foreach source_root [list \
         [file join $repo_root project percolation_core] \
@@ -109,6 +110,6 @@ if {[llength $sim_matches] > 0} {
     error "Top entity not found in sim_1: $sim_top"
 }
 
-save_project_as -name $project_name -dir $project_root
+save_project_as -force -name $project_name -dir $project_root
 
 puts "Created Vivado project at [file join $project_dir ${project_name}.xpr]"

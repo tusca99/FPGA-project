@@ -15,6 +15,7 @@ end percolation_lfsr32;
 
 architecture Behavioral of percolation_lfsr32 is
     signal state_reg : std_logic_vector(31 downto 0) := (others => '1');
+    constant ZERO_SEED : std_logic_vector(31 downto 0) := (others => '0');
 
     function lfsr_next(x : std_logic_vector(31 downto 0)) return std_logic_vector is
         variable y      : std_logic_vector(31 downto 0);
@@ -32,7 +33,7 @@ begin
             if Rst = '0' then
                 state_reg <= (others => '1');
             elsif Load = '1' then
-                if SeedIn = (others => '0') then
+                if SeedIn = ZERO_SEED then
                     state_reg <= (others => '1');
                 else
                     state_reg <= SeedIn;

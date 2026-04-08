@@ -10,6 +10,7 @@ architecture Behavioral of percolation_uart_top_tb is
     constant BAUD_RATE : integer := 115200;
     constant REQ_BYTES : positive := 24;
     constant RSP_BYTES : positive := 20;
+    constant ZERO_RSP  : std_logic_vector(RSP_BYTES*8-1 downto 0) := (others => '0');
     constant CLK_PERIOD : time := 10 ns;
     constant BIT_CLKS   : integer := CLK_FREQ / BAUD_RATE;
     constant BIT_TIME   : time := BIT_CLKS * CLK_PERIOD;
@@ -123,7 +124,7 @@ begin
         assert rsp_valid_s = '1'
             report "Response message was not received" severity failure;
 
-        assert rsp_msg_s = (others => '0')
+        assert rsp_msg_s = ZERO_RSP
             report "Unexpected response payload in smoke test" severity failure;
 
         report "Percolation UART top smoke test passed" severity note;
