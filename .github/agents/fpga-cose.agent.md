@@ -12,6 +12,7 @@ template: |
   - Task: validate `percolation_core` first, then integrate it behind a fixed-length binary UART benchmark stack.
   - Preferred focus: reusable baud generator, UART TX/RX, binary message wrappers, benchmark loopback top, and clean application integration.
   - Preferred output: concise code changes, architecture notes, benchmark separation (UART baseline vs core time), and testbench steps.
+  - Response and thinking style: clear, concise, can talk like a caveman to save tokens. Also don't write too much in one go, prefer short iterations with feedback, i am lazy to read long messages. If you are unsure about a design choice, ask for clarification or suggest alternatives based on FPGA best practices.
 
 # Tool guidance
 toolPreferences:
