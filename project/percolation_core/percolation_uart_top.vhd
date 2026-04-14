@@ -20,7 +20,7 @@ entity percolation_uart_top is
 end percolation_uart_top;
 
 architecture Behavioral of percolation_uart_top is
-    type state_t is (IDLE, SEND_WAIT);
+    type state_t is (IDLE, WAIT_CORE, SEND_WAIT, TX_COMPLETE);
     signal state : state_t := IDLE;
 
     signal baud_tick_s : std_logic := '0';
@@ -49,6 +49,12 @@ architecture Behavioral of percolation_uart_top is
     signal core_step_count_s   : std_logic_vector(31 downto 0) := (others => '0');
     signal core_spanning_s     : std_logic_vector(31 downto 0) := (others => '0');
     signal core_total_s        : std_logic_vector(31 downto 0) := (others => '0');
+
+    -- Add counter to prevent infinite wait in WAIT_CORE state
+    signal wait_timeout_s : unsigned(31 downto 0) := (others => '0');
+    constant WAIT_TIMEOUT_MAX : integer := 100_000; -- ~1ms at 100MHz (aggressive for quick feedback)
+    
+    signal tx_busy_prev : std_logic := '0';  -- Track previous busy state
 
     function word_from_msg(msg : std_logic_vector; word_index : natural) return std_logic_vector is
         variable word_hi : integer;
@@ -144,6 +150,9 @@ begin
         variable grid_runs : std_logic_vector(31 downto 0);
     begin
         if rising_edge(Clk) then
+            -- Track previous state of tx_busy for edge detection
+            tx_busy_prev <= tx_busy_s;
+            
             if Rst = '0' then
                 state <= IDLE;
                 tx_msg_s <= (others => '0');
@@ -154,13 +163,16 @@ begin
                 core_cfg_runs_s <= (others => '0');
                 core_cfg_init_s <= '0';
                 core_run_en_s <= '0';
+                wait_timeout_s <= (others => '0');
             else
+                -- Only clear one-cycle pulses at start of cycle
                 tx_start_s <= '0';
                 core_cfg_init_s <= '0';
-                core_run_en_s <= '0';
+                -- NOTE: core_run_en_s stays asserted in WAIT_CORE to let core keep running
 
                 case state is
                     when IDLE =>
+                        core_run_en_s <= '0';  -- Deassert when idle
                         -- UART message: Word0=CfgP, Word1=CfgSeed, Word2=GridSize[7:0] | CfgRuns[23:0]
                         if rx_valid_s = '1' then
                             core_cfg_p_s    <= word_from_msg(rx_msg_s, 0);
@@ -168,15 +180,15 @@ begin
                             
                             grid_runs := word_from_msg(rx_msg_s, 2);
                             core_cfg_grid_s <= std_logic_vector(resize(unsigned(grid_runs(31 downto 24)), 16));
-                            core_cfg_runs_s <= resize(unsigned(grid_runs(23 downto 0)), 32);
+                            core_cfg_runs_s <= std_logic_vector(resize(unsigned(grid_runs(23 downto 0)), 32));
                             
                             -- Auto-init and run on UART message
                             core_cfg_init_s <= '1';
-                            core_run_en_s   <= '1';
+                            core_run_en_s   <= '1';  -- Keep high while in WAIT_CORE
                             
-                            -- Response: Word0=StepCount, Word1=SpanningCount, Word2=TotalOccupied
-                            tx_msg_s <= core_step_count_s & core_spanning_s & core_total_s;
-                            state <= SEND_WAIT;
+                            -- Reset timeout and transition to wait for core to complete
+                            wait_timeout_s <= (others => '0');
+                            state <= WAIT_CORE;
                         end if;
 
                         -- Button override (debug): check for button presses
@@ -187,9 +199,37 @@ begin
                             core_run_en_s <= '1';
                         end if;
 
+                    when WAIT_CORE =>
+                        -- core_run_en_s stays high to keep core executing
+                        -- Wait for the percolation core to finish (core_step_count_s becomes non-zero)
+                        -- With timeout safety to avoid infinite wait
+                        wait_timeout_s <= wait_timeout_s + 1;
+                        
+                        -- Transition when: core has produced results OR timeout
+                        if core_step_count_s /= x"00000000" then
+                            -- Core has produced steps - capture and send
+                            tx_msg_s <= core_step_count_s & core_spanning_s & core_total_s;
+                            state <= SEND_WAIT;
+                        elsif wait_timeout_s >= WAIT_TIMEOUT_MAX then
+                            -- Timeout: send whatever we have (may be zeros)
+                            tx_msg_s <= core_step_count_s & core_spanning_s & core_total_s;
+                            state <= SEND_WAIT;
+                        end if;
+
                     when SEND_WAIT =>
+                        core_run_en_s <= '0';  -- Deassert when sending response
                         if tx_busy_s = '0' then
+                            -- tx_busy is idle, safe to pulse msg_start
                             tx_start_s <= '1';
+                            state <= TX_COMPLETE;
+                        end if;
+
+                    when TX_COMPLETE =>
+                        -- Wait for uart_msg_tx to complete transmission
+                        -- uart_msg_tx.busy goes: 0 -> 1 (on msg_start edge) -> 0 (when done)
+                        -- We detect falling edge: tx_busy_prev = '1' and tx_busy_s = '0'
+                        if tx_busy_prev = '1' and tx_busy_s = '0' then
+                            -- Transmission just completed
                             state <= IDLE;
                         end if;
                 end case;
