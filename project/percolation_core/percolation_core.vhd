@@ -70,6 +70,9 @@ architecture Behavioral of percolation_core is
     signal rng_master_key_s  : std_logic_vector(127 downto 0) := (others => '0');
     signal rng_run_tag_s     : std_logic_vector(31 downto 0) := (others => '0');
 
+    constant C_GOLDEN1 : unsigned(31 downto 0) := x"9E3779B9";
+    constant C_GOLDEN2 : unsigned(31 downto 0) := x"243F6A88";
+
     function min_int(a, b : integer) return integer is
     begin
         if a < b then
@@ -85,8 +88,8 @@ architecture Behavioral of percolation_core is
     begin
         key_u(31 downto 0)   := seed_u;
         key_u(63 downto 32)  := not seed_u;
-        key_u(95 downto 64)  := seed_u xor unsigned(x"9E3779B9");
-        key_u(127 downto 96) := seed_u + unsigned(x"243F6A88");
+        key_u(95 downto 64)  := seed_u xor C_GOLDEN1;
+        key_u(127 downto 96) := seed_u + C_GOLDEN2;
         return std_logic_vector(key_u);
     end function;
 

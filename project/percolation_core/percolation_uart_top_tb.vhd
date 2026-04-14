@@ -8,8 +8,8 @@ end entity;
 architecture Behavioral of percolation_uart_top_tb is
     constant CLK_FREQ  : integer := 100_000_000;
     constant BAUD_RATE : integer := 115200;
-    constant REQ_BYTES : positive := 24;
-    constant RSP_BYTES : positive := 20;
+    constant REQ_BYTES : positive := 12;
+    constant RSP_BYTES : positive := 12;
     constant ZERO_RSP  : std_logic_vector(RSP_BYTES*8-1 downto 0) := (others => '0');
     constant CLK_PERIOD : time := 10 ns;
     constant BIT_CLKS   : integer := CLK_FREQ / BAUD_RATE;
@@ -19,6 +19,8 @@ architecture Behavioral of percolation_uart_top_tb is
     signal Rst       : std_logic := '0';
     signal uart_rx_i : std_logic := '1';
     signal uart_tx_o : std_logic;
+    signal btn_init  : std_logic := '1';
+    signal btn_run   : std_logic := '1';
 
     signal dec_baud_tick_s : std_logic := '0';
     signal dec_half_tick_s : std_logic := '0';
@@ -29,12 +31,9 @@ architecture Behavioral of percolation_uart_top_tb is
 
     type byte_array_t is array (natural range <>) of std_logic_vector(7 downto 0);
     constant REQ_BYTES_VEC : byte_array_t(0 to REQ_BYTES-1) := (
-        x"99", x"99", x"99", x"9A", -- CfgP = approx 0.6
-        x"00", x"00", x"00", x"08", -- CfgGridSize = 8
-        x"12", x"34", x"56", x"78", -- CfgSeed
-        x"00", x"00", x"00", x"10", -- CfgRuns = 16
-        x"00", x"00", x"00", x"07", -- ctrl: init/run/step bits set
-        x"00", x"00", x"00", x"01"  -- StepAddCount = 1
+        x"99", x"99", x"99", x"9A", -- Word 0: CfgP = approx 0.6
+        x"12", x"34", x"56", x"78", -- Word 1: CfgSeed
+        x"08", x"00", x"00", x"10"  -- Word 2: GridSize=8 | CfgRuns=16
     );
 
     procedure send_uart_byte(signal line : out std_logic; constant data_byte : in std_logic_vector(7 downto 0)) is
@@ -85,7 +84,9 @@ begin
             Clk       => Clk,
             Rst       => Rst,
             uart_rx_i => uart_rx_i,
-            uart_tx_o => uart_tx_o
+            uart_tx_o => uart_tx_o,
+            btn_init_i => btn_init,
+            btn_run_i  => btn_run
         );
 
     rsp_rx_inst : entity work.uart_msg_rx
@@ -124,8 +125,8 @@ begin
         assert rsp_valid_s = '1'
             report "Response message was not received" severity failure;
 
-        assert rsp_msg_s = ZERO_RSP
-            report "Unexpected response payload in smoke test" severity failure;
+        assert rsp_msg_s /= ZERO_RSP
+            report "Response payload should contain non-zero results (step count, spanning count, etc.)" severity failure;
 
         report "Percolation UART top smoke test passed" severity note;
         wait;

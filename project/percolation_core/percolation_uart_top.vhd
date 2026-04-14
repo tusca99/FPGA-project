@@ -6,14 +6,16 @@ entity percolation_uart_top is
     generic (
         CLK_FREQ  : integer := 100_000_000;
         BAUD_RATE : integer := 115200;
-        REQ_BYTES : positive := 24;
-        RSP_BYTES : positive := 20
+        REQ_BYTES : positive := 12;
+        RSP_BYTES : positive := 12
     );
     port (
         Clk       : in  std_logic;
         Rst       : in  std_logic; -- active low
         uart_rx_i : in  std_logic;
-        uart_tx_o : out std_logic
+        uart_tx_o : out std_logic;
+        btn_init_i : in std_logic := '1'; -- button for manual init (active low)
+        btn_run_i  : in std_logic := '1'  -- button for manual run (active low)
     );
 end percolation_uart_top;
 
@@ -32,18 +34,21 @@ architecture Behavioral of percolation_uart_top is
     signal tx_start_s      : std_logic := '0';
     signal tx_busy_s       : std_logic := '0';
 
+    -- Button synchronizers (double-flip-flop)
+    signal btn_init_sync1 : std_logic := '1';
+    signal btn_init_sync2 : std_logic := '1';
+    signal btn_run_sync1  : std_logic := '1';
+    signal btn_run_sync2  : std_logic := '1';
+
     signal core_cfg_p_s        : std_logic_vector(31 downto 0) := (others => '0');
     signal core_cfg_grid_s     : std_logic_vector(15 downto 0) := (others => '0');
     signal core_cfg_seed_s     : std_logic_vector(31 downto 0) := (others => '0');
     signal core_cfg_runs_s     : std_logic_vector(31 downto 0) := (others => '0');
     signal core_cfg_init_s     : std_logic := '0';
     signal core_run_en_s       : std_logic := '0';
-    signal core_step_valid_s   : std_logic := '0';
     signal core_step_count_s   : std_logic_vector(31 downto 0) := (others => '0');
-    signal core_pending_s      : std_logic_vector(31 downto 0) := (others => '0');
     signal core_spanning_s     : std_logic_vector(31 downto 0) := (others => '0');
     signal core_total_s        : std_logic_vector(31 downto 0) := (others => '0');
-    signal core_mean_s         : std_logic_vector(31 downto 0) := (others => '0');
 
     function word_from_msg(msg : std_logic_vector; word_index : natural) return std_logic_vector is
         variable word_hi : integer;
@@ -103,27 +108,40 @@ begin
             Clk           => Clk,
             Rst           => Rst,
             RunEn         => core_run_en_s,
-            StepAddValid   => core_step_valid_s,
-            StepAddCount   => word_from_msg(rx_msg_s, 5),
+            StepAddValid  => '0',  -- no step control in this interface
+            StepAddCount  => (others => '0'),
             CfgP          => core_cfg_p_s,
             CfgGridSize   => core_cfg_grid_s,
             CfgSeed       => core_cfg_seed_s,
             CfgRuns       => core_cfg_runs_s,
             CfgInit       => core_cfg_init_s,
             StepCount     => core_step_count_s,
-            PendingSteps  => core_pending_s,
+            PendingSteps  => open,  -- not used in response
             SpanningCount => core_spanning_s,
             TotalOccupied => core_total_s,
-            MeanOccupied  => core_mean_s
+            MeanOccupied  => open   -- not used in response
         );
 
+    -- Button synchronization (double-flip-flop for metastability)
     process(Clk)
-        variable ctrl_word : std_logic_vector(31 downto 0);
-        variable rsp_word0 : std_logic_vector(31 downto 0);
-        variable rsp_word1 : std_logic_vector(31 downto 0);
-        variable rsp_word2 : std_logic_vector(31 downto 0);
-        variable rsp_word3 : std_logic_vector(31 downto 0);
-        variable rsp_word4 : std_logic_vector(31 downto 0);
+    begin
+        if rising_edge(Clk) then
+            if Rst = '0' then
+                btn_init_sync1 <= '1';
+                btn_init_sync2 <= '1';
+                btn_run_sync1  <= '1';
+                btn_run_sync2  <= '1';
+            else
+                btn_init_sync1 <= btn_init_i;
+                btn_init_sync2 <= btn_init_sync1;
+                btn_run_sync1  <= btn_run_i;
+                btn_run_sync2  <= btn_run_sync1;
+            end if;
+        end if;
+    end process;
+
+    process(Clk)
+        variable grid_runs : std_logic_vector(31 downto 0);
     begin
         if rising_edge(Clk) then
             if Rst = '0' then
@@ -136,32 +154,37 @@ begin
                 core_cfg_runs_s <= (others => '0');
                 core_cfg_init_s <= '0';
                 core_run_en_s <= '0';
-                core_step_valid_s <= '0';
             else
                 tx_start_s <= '0';
                 core_cfg_init_s <= '0';
-                core_step_valid_s <= '0';
+                core_run_en_s <= '0';
 
                 case state is
                     when IDLE =>
+                        -- UART message: Word0=CfgP, Word1=CfgSeed, Word2=GridSize[7:0] | CfgRuns[23:0]
                         if rx_valid_s = '1' then
                             core_cfg_p_s    <= word_from_msg(rx_msg_s, 0);
-                            core_cfg_grid_s <= word_from_msg(rx_msg_s, 1)(15 downto 0);
-                            core_cfg_seed_s <= word_from_msg(rx_msg_s, 2);
-                            core_cfg_runs_s <= word_from_msg(rx_msg_s, 3);
-
-                            ctrl_word := word_from_msg(rx_msg_s, 4);
-                            core_run_en_s     <= ctrl_word(1);
-                            core_cfg_init_s   <= ctrl_word(0);
-                            core_step_valid_s <= ctrl_word(2);
-
-                            rsp_word0 := core_step_count_s;
-                            rsp_word1 := core_pending_s;
-                            rsp_word2 := core_spanning_s;
-                            rsp_word3 := core_total_s;
-                            rsp_word4 := core_mean_s;
-                            tx_msg_s <= rsp_word0 & rsp_word1 & rsp_word2 & rsp_word3 & rsp_word4;
+                            core_cfg_seed_s <= word_from_msg(rx_msg_s, 1);
+                            
+                            grid_runs := word_from_msg(rx_msg_s, 2);
+                            core_cfg_grid_s <= std_logic_vector(resize(unsigned(grid_runs(31 downto 24)), 16));
+                            core_cfg_runs_s <= resize(unsigned(grid_runs(23 downto 0)), 32);
+                            
+                            -- Auto-init and run on UART message
+                            core_cfg_init_s <= '1';
+                            core_run_en_s   <= '1';
+                            
+                            -- Response: Word0=StepCount, Word1=SpanningCount, Word2=TotalOccupied
+                            tx_msg_s <= core_step_count_s & core_spanning_s & core_total_s;
                             state <= SEND_WAIT;
+                        end if;
+
+                        -- Button override (debug): check for button presses
+                        if btn_init_sync2 = '0' then
+                            core_cfg_init_s <= '1';
+                        end if;
+                        if btn_run_sync2 = '0' then
+                            core_run_en_s <= '1';
                         end if;
 
                     when SEND_WAIT =>
