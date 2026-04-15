@@ -1,8 +1,10 @@
 # Simulation Test Guide
 
+Questa e` la matrice canonica di validazione. Per il recovery rapido e i problemi di Vivado usa [../SIM_FIX_GUIDE.md](../SIM_FIX_GUIDE.md).
+
 ## Compilation Order & Dependencies
 
-### Tier 1: Core Utilities (RTL/)
+### Tier 1: Core Utilities (project/rng/rtl/)
 ```
 1. a_rng_pkg.vhd (defines types/constants)
 2. AES modules: reg.vhd, sbox.vhd, add_round_key.vhd, mix_columns.vhd, etc.
@@ -17,19 +19,19 @@
 7. zz_rng_hybrid_64.vhd (Hybrid RNG combining AES + Trivium)
 ```
 
-Legacy AES-CTR PRNG is not part of the current build.
+Legacy AES-CTR PRNG and `percolation_lfsr32.vhd` are not part of the current build.
 
 ### Tier 3: Percolation Core (project/percolation_core/)
 ```
-9. percolation_core.vhd (uses rng_hybrid_64 + BFS connectivity)
+8. percolation_core.vhd (uses rng_hybrid_64 + BFS connectivity)
 ```
 
 ### Tier 4: UART Stack (project/uart_message_bin/)
 ```
-10. baud_gen.vhd
-11. uart_tx.vhd, uart_rx.vhd
-12. uart_msg_tx.vhd, uart_msg_rx.vhd
-13. uart_msg_loopback_top.vhd
+9. baud_gen.vhd
+10. uart_tx.vhd, uart_rx.vhd
+11. uart_msg_tx.vhd, uart_msg_rx.vhd
+12. uart_msg_loopback_top.vhd
 ```
 
 ## Testbenches Available
@@ -122,4 +124,4 @@ cd project/rng/
 
 ---
 
-**Last Updated**: 2026-04-10
+**Last Updated**: 2026-04-15

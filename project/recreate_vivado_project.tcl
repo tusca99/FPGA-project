@@ -26,6 +26,10 @@ proc collect_vhdl_files {root_dirs} {
                 set nested [collect_vhdl_files [list $path]]
                 set files [concat $files $nested]
             } elseif {[string match *.vhd [file tail $path]]} {
+                if {[string match b_rng_aes_ctr_prng.vhd [file tail $path]] ||
+                    [string match percolation_lfsr32.vhd [file tail $path]]} {
+                    continue
+                }
                 lappend files [file normalize $path]
             }
         }

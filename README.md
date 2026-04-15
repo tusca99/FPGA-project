@@ -4,9 +4,10 @@ Repository FPGA per validare il core di site percolation e il control-plane UART
 
 ## Struttura
 
-- `project/percolation_core/`: core di percolation e testbench standalone
-- `project/uart_message_bin/`: wrapper UART binari, top di loopback e testbench
-- `project/constraint/`: vincoli di pin, incluso `pins.xdc` per il mapping delle porte fisiche della board, ad esempio UART
+- [project/percolation_core/README.md](project/percolation_core/README.md): core di percolation, testbench standalone e roadmap della connettivita`
+- [project/uart_message_bin/README.md](project/uart_message_bin/README.md): wrapper UART binari, top di loopback e testbench
+- [project/constraint/](project/constraint/): vincoli di pin, incluso `pins.xdc` per il mapping delle porte fisiche della board, ad esempio UART
+- [project/strategia_implementazione_fpga.md](project/strategia_implementazione_fpga.md): panoramica generale e stato del progetto
 - `Papers/`: materiale di riferimento
 
 ## Flusso consigliato
@@ -65,3 +66,4 @@ Questi artefatti sono generati da Vivado e non vanno versionati:
 
 Per il client UART, il riferimento Python puro e i benchmark, vedi [python/README.md](python/README.md).
 Se vuoi il bootstrap rapido per un collega, usa [python/bootstrap.sh](python/bootstrap.sh).
+Per il contratto request/response del core vedi [project/percolation_core/UART_PROTOCOL_V2.md](project/percolation_core/UART_PROTOCOL_V2.md).

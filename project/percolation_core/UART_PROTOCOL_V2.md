@@ -40,7 +40,7 @@ Bytes (HEX):  99 99 99 9A | 12 34 56 78 | 08 00 00 10
 
 | Word | Bytes | Field | Purpose |
 |------|-------|-------|---------|
-| 0 | 0–3 | `StepCount` | Total steps executed in current run |
+| 0 | 0–3 | `StepCount` | Number of completed runs in the current batch |
 | 1 | 4–7 | `SpanningCount` | Number of spanning clusters found |
 | 2 | 8–11 | `TotalOccupied` | Total occupied sites across all runs |
 | 3 | 12–15 | `BfsStepCount` | Total BFS dequeue/cycle count accumulated across the batch |
@@ -48,11 +48,11 @@ Bytes (HEX):  99 99 99 9A | 12 34 56 78 | 08 00 00 10
 ### Example Response:
 ```
 Word 0 (StepCount):      0x00000010   (16 completed runs)
-Word 1 (SpanningCount):  0x00000003   (3 spanning clusters)
-Word 2 (TotalOccupied):  0x0000AB12   (occupied sites total)
-Word 3 (BfsStepCount):   0x00000184   (BFS cycles across the batch)
+Word 1 (SpanningCount):  0x00000008   (8 spanning clusters)
+Word 2 (TotalOccupied):  0x000001F8   (occupied sites total)
+Word 3 (BfsStepCount):   0x00000166   (BFS cycles across the batch)
 
-Bytes (HEX):  00 00 00 10 | 00 00 00 03 | 00 00 AB 12 | 00 00 01 84
+Bytes (HEX):  00 00 00 10 | 00 00 00 08 | 00 00 01 F8 | 00 00 01 66
 ```
 
 ---
