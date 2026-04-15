@@ -24,6 +24,8 @@ architecture Behavioral of percolation_core_tb is
     signal SpanningCount: std_logic_vector(31 downto 0);
     signal TotalOccupied: std_logic_vector(31 downto 0);
     signal MeanOccupied : std_logic_vector(31 downto 0);
+    signal BfsStepCount : std_logic_vector(31 downto 0);
+    signal Done         : std_logic;
 
 begin
     dut: entity work.percolation_core
@@ -42,7 +44,9 @@ begin
             PendingSteps => PendingSteps,
             SpanningCount => SpanningCount,
             TotalOccupied => TotalOccupied,
-            MeanOccupied => MeanOccupied
+            MeanOccupied => MeanOccupied,
+            BfsStepCount => BfsStepCount,
+            Done => Done
         );
 
     clk_proc : process
@@ -64,14 +68,20 @@ begin
         CfgGridSize <= x"0008"; -- 8x8
         CfgP <= x"9999999A"; -- approx 0.6
         CfgSeed <= x"12345678";
-        CfgRuns <= x"000000A0"; -- 16 runs
+        CfgRuns <= x"00000010"; -- 16 runs
         CfgInit <= '1';
         wait for 10 ns;
         CfgInit <= '0';
 
         RunEn <= '1';
-        wait for 25000 ns;
+        for cycle_index in 0 to 1_000_000 loop
+            wait until rising_edge(Clk);
+            exit when Done = '1';
+        end loop;
         RunEn <= '0';
+
+        assert Done = '1'
+            report "Percolation core did not assert Done" severity failure;
 
         assert to_integer(unsigned(StepCount)) > 0
             report "Percolation core failed to run any step" severity failure;
@@ -79,6 +89,7 @@ begin
         report "StepCount=" & integer'image(to_integer(unsigned(StepCount))) severity note;
         report "SpanningCount=" & integer'image(to_integer(unsigned(SpanningCount))) severity note;
         report "TotalOccupied=" & integer'image(to_integer(unsigned(TotalOccupied))) severity note;
+        report "BfsStepCount=" & integer'image(to_integer(unsigned(BfsStepCount))) severity note;
 
         wait;
     end process;

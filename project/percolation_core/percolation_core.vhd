@@ -20,11 +20,13 @@ entity percolation_core is
         CfgInit        : in std_logic; -- reload config + reset state
 
         -- status/metrics
-        StepCount      : out std_logic_vector(31 downto 0);
+        StepCount      : out std_logic_vector(31 downto 0); -- how many runs it has done
         PendingSteps   : out std_logic_vector(31 downto 0);
         SpanningCount  : out std_logic_vector(31 downto 0);
         TotalOccupied  : out std_logic_vector(31 downto 0);
-        MeanOccupied   : out std_logic_vector(31 downto 0)
+        MeanOccupied   : out std_logic_vector(31 downto 0);
+        BfsStepCount   : out std_logic_vector(31 downto 0);
+        Done           : out std_logic
     );
 end percolation_core;
 
@@ -50,6 +52,7 @@ architecture Behavioral of percolation_core is
     signal spanning_cnt : unsigned(31 downto 0) := (others => '0');
     signal occupied_sum : unsigned(31 downto 0) := (others => '0');
     signal mean_occ     : unsigned(31 downto 0) := (others => '0');
+    signal bfs_steps_total : unsigned(31 downto 0) := (others => '0');
 
     signal state        : integer range 0 to 5 := 0;
     signal gen_index    : integer range 0 to MAX_GRID := 0;
@@ -117,6 +120,8 @@ begin
     SpanningCount <= std_logic_vector(spanning_cnt);
     TotalOccupied <= std_logic_vector(occupied_sum);
     MeanOccupied  <= std_logic_vector(mean_occ);
+    BfsStepCount  <= std_logic_vector(bfs_steps_total);
+    Done          <= '1' when (runs_target /= 0) and (runs_done >= runs_target) else '0';
 
     process(Clk)
         variable cur_idx : unsigned(13 downto 0);
@@ -144,6 +149,7 @@ begin
                 spanning_cnt <= (others => '0');
                 occupied_sum <= (others => '0');
                 mean_occ     <= (others => '0');
+                bfs_steps_total <= (others => '0');
                 gen_index    <= 0;
                 bfs_head     <= 0;
                 bfs_tail     <= 0;
@@ -169,6 +175,7 @@ begin
                     spanning_cnt <= (others => '0');
                     occupied_sum <= (others => '0');
                     mean_occ     <= (others => '0');
+                    bfs_steps_total <= (others => '0');
                     gen_index    <= 0;
                     gen_row_base <= 0;
                     bfs_head     <= 0;
@@ -279,6 +286,7 @@ begin
                                 head_i := head_i + 1;
                             end if;
                             cnt_i := cnt_i - 1;
+                            bfs_steps_total <= bfs_steps_total + 1;
 
                             row := to_integer(cur_idx) / grid_size;
                             col := to_integer(cur_idx) mod grid_size;

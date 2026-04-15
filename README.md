@@ -60,3 +60,8 @@ Questi artefatti sono generati da Vivado e non vanno versionati:
 - Il README di `project/uart_message_bin/` resta dedicato solo al sottosistema UART binario.
 - Prima validare `percolation_core` standalone, poi integrarlo dietro il top UART.
 - Se Vivado segnala problemi di simulazione, il primo check da fare e` che il progetto sia stato creato da [project/recreate_vivado_project.tcl](project/recreate_vivado_project.tcl) e non da un progetto in-memory temporaneo.
+
+## Strumenti Python
+
+Per il client UART, il riferimento Python puro e i benchmark, vedi [python/README.md](python/README.md).
+Se vuoi il bootstrap rapido per un collega, usa [python/bootstrap.sh](python/bootstrap.sh).

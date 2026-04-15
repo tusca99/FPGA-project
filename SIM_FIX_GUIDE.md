@@ -2,82 +2,59 @@
 
 ## Quick Start (2 steps)
 
-### Step 1: Backup Original TCL
+### Step 1: Backup Current TCL
 ```bash
-cd /media/leonardo-pieripoli/Storage/Archivio/PhysicsOfData/ProgrammableHardware/FPGA-project/project/
-cp recreate_vivado_project.tcl recreate_vivado_project.tcl.backup
+cd /path/to/FPGA-project
+cp project/recreate_vivado_project.tcl project/recreate_vivado_project.tcl.backup
 ```
 
-### Step 2: Use Fixed TCL Script
+### Step 2: Use Current TCL Script
 ```bash
-# Option A: Replace original file
-cp recreate_vivado_project_FIXED.tcl recreate_vivado_project.tcl
+# Recreate the project from the canonical script
+vivado -mode batch -source project/recreate_vivado_project.tcl
 
-# Option B: Delete Vivado cache and recreate with FIXED version
+# Optional: clean cache first if Vivado is holding stale state
 rm -rf .vivado/FPGA-project/
-vivado -mode batch -source recreate_vivado_project_FIXED.tcl
+vivado -mode batch -source project/recreate_vivado_project.tcl
 ```
 
 ---
 
-## Why This Fixes the "Failed to Link Design" Error
+## Why This Works
 
-The original TCL script had a flaw:
-```tcl
-foreach source_root [list \
-    [file join $repo_root RTL] \
-    [file join $repo_root project rng] \
-    ...
-]
-add_vhdl_tree $source_root
-```
-
-**Problem**: Files were added by directory scanning with alphabetical sorting, which didn't guarantee that `RTL/rng_trivium.vhd` compiled **before** `project/rng/z_rng_trivium_array.vhd` (which instantiates it).
-
-**Solution**: The FIXED script explicitly lists files in strict dependency order:
-```
-1. a_rng_pkg  (package definition)
-2. AES modules (reg, sbox, sub_byte, etc.)
-3. aes_enc    (top-level AES)
-4. rng_trivium ← CRITICAL: Must be here
-5. z_rng_trivium_array ← Uses rng_trivium from step 4
-6. zz_rng_hybrid_64 ← Uses aes_enc and trivium_array
-7. percolation_core ← Uses rng_hybrid_64
-8. UART stack
-9. Testbenches
-```
+The current Tcl script only scans the active design trees and keeps the legacy `uart_modular/` copy out of the project. That avoids duplicate design units such as `baud_gen`, `uart_rx`, and `uart_tx`, while Vivado still resolves the dependency order from the instantiated entities.
 
 ---
 
 ## Running Simulations
 
-Once the project is recreated with the FIXED script:
+Once the project is recreated with the current script:
 
 ### Run UART Loopback (Simplest, No RNG Dependencies)
 ```bash
-vivado -mode batch -source recreate_vivado_project_FIXED.tcl loopback
-vivado .vivado/FPGA-project/FPGA-project.xpr
+vivado -mode batch -source project/recreate_vivado_project.tcl -tclargs loopback
+vivado project/.vivado/FPGA-project/FPGA-project.xpr
 # In GUI: Tools → Run Simulation → Behavioral Simulation
 ```
 
 ### Run RNG Hybrid Test
 ```bash
-vivado -mode batch -source recreate_vivado_project_FIXED.tcl rng
-vivado .vivado/FPGA-project/FPGA-project.xpr
+vivado -mode batch -source project/recreate_vivado_project.tcl -tclargs rng
+vivado project/.vivado/FPGA-project/FPGA-project.xpr
 # In GUI: Select zzz_tb_rng_hybrid from hierarchy, then run simulation
 ```
 
 ### Run Percolation Core Test
 ```bash
-vivado -mode batch -source recreate_vivado_project_FIXED.tcl percolation
-vivado .vivado/FPGA-project/FPGA-project.xpr
+vivado -mode batch -source project/recreate_vivado_project.tcl -tclargs percolation
+vivado project/.vivado/FPGA-project/FPGA-project.xpr
 # In GUI: Run Simulation
 ```
 
 ### Run Percolation with UART
 ```bash
-vivado -mode batch -source recreate_vivado_project_FIXED.tcl percolation_uart
-vivado .vivado/FPGA-project/FPGA-project.xpr
+vivado -mode batch -source project/recreate_vivado_project.tcl -tclargs percolation_uart
+vivado project/.vivado/FPGA-project/FPGA-project.xpr
 # In GUI: Run Simulation
 ```
 
@@ -105,23 +82,22 @@ vivado .vivado/FPGA-project/FPGA-project.xpr
 ## Troubleshooting
 
 ### Still getting "Failed to link design"?
-1. Check that the FIXED TCL script was used
+1. Check that the current TCL script was used
 2. Verify no old project cache: `rm -rf project/.vivado/FPGA-project/`
 3. Confirm all files exist: `ls -la project/percolation_core/percolation_lfsr32.vhd`
 4. Manually open project and check File → Project Settings → Sources, verify order
 
 ### Missing entity errors?
-Check compiler output (View → Output → Compilation) for specific entity names and review `recreate_vivado_project_FIXED.tcl` for typos
+Check compiler output (View → Output → Compilation) for specific entity names and review `project/recreate_vivado_project.tcl` for typos
 
 ### Simulation won't elaborate?
-Usually means entity not found at that compilation stage. Check the dependency order in the FIXED script matches the "Why This Fixes" section above.
+Usually means entity not found at that compilation stage. Check the current script and the compile order in Vivado's Sources view.
 
 ---
 
 ## File Reference
 
-- **Original script**: `project/recreate_vivado_project.tcl` (has auto-sort issue)
-- **Fixed script**: `project/recreate_vivado_project_FIXED.tcl` (explicit order)
+- **Current script**: `project/recreate_vivado_project.tcl`
 - **Backup**: `project/recreate_vivado_project.tcl.backup` (created if Step 1 used)
 
 ---

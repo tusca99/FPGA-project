@@ -13,10 +13,11 @@
 ### Tier 2: Application RNG (project/rng/)
 ```
 5. a_rng_pkg.vhd (package from project/rng - same as RTL version)
-6. b_rng_aes_ctr_prng.vhd (AES-CTR mode)
-7. z_rng_trivium_array.vhd (64x Trivium instances)
-8. zz_rng_hybrid_64.vhd (Hybrid RNG combining AES + Trivium)
+6. z_rng_trivium_array.vhd (64x Trivium instances)
+7. zz_rng_hybrid_64.vhd (Hybrid RNG combining AES + Trivium)
 ```
+
+Legacy AES-CTR PRNG is not part of the current build.
 
 ### Tier 3: Percolation Core (project/percolation_core/)
 ```

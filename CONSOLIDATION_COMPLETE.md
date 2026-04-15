@@ -7,11 +7,11 @@
 RTL/
   ├── aes_enc.vhd, reg.vhd, sbox.vhd, ... (13 AES files)
   ├── rng_trivium.vhd
-  ├── a_rng_pkg.vhd, b_rng_aes_ctr_prng.vhd, z_rng_trivium_array.vhd
+  ├── a_rng_pkg.vhd, legacy AES-CTR PRNG, z_rng_trivium_array.vhd
   └── zz_rng_hybrid_64.vhd, zzz_tb_rng_hybrid.vhd (DUPLICATES!)
   
 project/rng/
-  ├── a_rng_pkg.vhd, b_rng_aes_ctr_prng.vhd, z_rng_trivium_array.vhd
+  ├── a_rng_pkg.vhd, legacy AES-CTR PRNG, z_rng_trivium_array.vhd
   ├── zz_rng_hybrid_64.vhd, zzz_tb_rng_hybrid.vhd (ORIGINAL)
   └── (confused which was the canonical version)
 ```
@@ -30,7 +30,6 @@ project/rng/
   │   ├── rng_trivium.vhd
   │   └── (13 support files)
   ├── a_rng_pkg.vhd  ← Application layer
-  ├── b_rng_aes_ctr_prng.vhd
   ├── z_rng_trivium_array.vhd
   ├── zz_rng_hybrid_64.vhd
   └── zzz_tb_rng_hybrid.vhd  ← Testbench

@@ -9,7 +9,7 @@ architecture Behavioral of percolation_uart_top_tb is
     constant CLK_FREQ  : integer := 100_000_000;
     constant BAUD_RATE : integer := 115200;
     constant REQ_BYTES : positive := 12;
-    constant RSP_BYTES : positive := 12;
+    constant RSP_BYTES : positive := 16;
     constant ZERO_RSP  : std_logic_vector(RSP_BYTES*8-1 downto 0) := (others => '0');
     constant CLK_PERIOD : time := 10 ns;
     constant BIT_CLKS   : integer := CLK_FREQ / BAUD_RATE;
@@ -124,6 +124,11 @@ begin
 
         assert rsp_valid_s = '1'
             report "Response message was not received" severity failure;
+
+        assert rsp_msg_s(127 downto 96) = x"00000010"
+            report "Unexpected StepCount in response: expected 16 completed runs" severity failure;
+
+        report "BfsStepCount=" & integer'image(to_integer(unsigned(rsp_msg_s(31 downto 0)))) severity note;
 
         assert rsp_msg_s /= ZERO_RSP
             report "Response payload should contain non-zero results (step count, spanning count, etc.)" severity failure;

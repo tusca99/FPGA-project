@@ -13,22 +13,36 @@ create_project -force $project_name $project_dir -part $part_name
 set_property target_language VHDL [current_project]
 set_property simulator_language VHDL [current_project]
 
-# Collect and add all VHDL files - let Vivado determine compilation order
-proc collect_vhdl_files {root_dir} {
+# Collect and add all VHDL files from the active design trees only.
+# This avoids pulling in legacy duplicates such as uart_modular/.
+proc collect_vhdl_files {root_dirs} {
     set files {}
-    foreach path [glob -nocomplain -directory $root_dir *] {
-        if {[file isdirectory $path]} {
-            set nested [collect_vhdl_files $path]
-            set files [concat $files $nested]
-        } elseif {[string match *.vhd [file tail $path]]} {
-            lappend files [file normalize $path]
+    foreach root_dir $root_dirs {
+        if {![file exists $root_dir]} {
+            continue
+        }
+        foreach path [glob -nocomplain -directory $root_dir *] {
+            if {[file isdirectory $path]} {
+                set nested [collect_vhdl_files [list $path]]
+                set files [concat $files $nested]
+            } elseif {[string match *.vhd [file tail $path]]} {
+                lappend files [file normalize $path]
+            }
         }
     }
     return [lsort -dictionary $files]
 }
 
+# Active VHDL roots only; the top-level uart_modular/ tree is legacy and
+# intentionally excluded to prevent duplicate design units in Vivado.
+set vhdl_roots [list \
+    [file join $repo_root project rng] \
+    [file join $repo_root project percolation_core] \
+    [file join $repo_root project uart_message_bin] \
+]
+
 # Add all VHDL files (testbenches go to sim_1)
-foreach vhdl_file [collect_vhdl_files $repo_root] {
+foreach vhdl_file [collect_vhdl_files $vhdl_roots] {
     set file_name [file tail $vhdl_file]
     
     if {[string match *_tb.vhd $file_name] || [string match tb_*.vhd $file_name]} {

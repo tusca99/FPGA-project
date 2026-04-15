@@ -1,0 +1,2 @@
+# Base editable install for the Python tools.
+-e .
