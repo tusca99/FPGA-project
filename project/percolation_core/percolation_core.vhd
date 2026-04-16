@@ -244,16 +244,20 @@ begin
                                 bfs_tail <= 0;
                                 bfs_cnt <= 0;
 
-                                for i in 0 to grid_cells-1 loop
-                                    visited_mem(i) <= '0';
+                                for i in 0 to MAX_CELLS - 1 loop
+                                    if i < grid_cells then
+                                        visited_mem(i) <= '0';
+                                    end if;
                                 end loop;
 
                                 q_temp := 0;
-                                for col in 0 to grid_size-1 loop
-                                    if grid_mem(col) = '1' then
-                                        visited_mem(col) <= '1';
-                                        queue_mem(q_temp) <= to_unsigned(col, 14);
-                                        q_temp := q_temp + 1;
+                                for col in 0 to MAX_GRID - 1 loop
+                                    if col < grid_size then
+                                        if grid_mem(col) = '1' then
+                                            visited_mem(col) <= '1';
+                                            queue_mem(q_temp) <= to_unsigned(col, 14);
+                                            q_temp := q_temp + 1;
+                                        end if;
                                     end if;
                                 end loop;
 
