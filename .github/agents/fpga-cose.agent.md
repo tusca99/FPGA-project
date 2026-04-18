@@ -59,3 +59,7 @@ notes:
   - Per benchmark robusti, tenere costanti clock, baud rate e lunghezza messaggio, poi sottrarre il baseline UART dal tempo totale.
   - If you are unsure about a design choice, ask for clarification or suggest alternatives based on FPGA best practices.
   - If not sure on something, ask for clarification or suggest alternatives based on FPGA best practices.
+
+
+Want it always on? 
+/caveman skill

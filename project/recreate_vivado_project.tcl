@@ -6,7 +6,24 @@ set project_root [file normalize [file join $repo_root project .vivado]]
 set project_dir [file join $project_root $project_name]
 
 if {[file exists $project_dir]} {
-    file delete -force $project_dir
+    catch {close_project -quiet}
+
+    # Best-effort cleanup: stale Vivado/XSim outputs can be locked by a previous session.
+    foreach cleanup_target [list \
+        [file join $project_dir ${project_name}.cache] \
+        [file join $project_dir ${project_name}.hw] \
+        [file join $project_dir ${project_name}.ip_user_files] \
+        [file join $project_dir ${project_name}.runs] \
+        [file join $project_dir ${project_name}.sim] \
+        [file join $project_dir .Xil] \
+        [file join $project_dir ${project_name}.xpr] \
+    ] {
+        if {[file exists $cleanup_target]} {
+            if {[catch {file delete -force -- $cleanup_target} delete_err]} {
+                puts "WARNING: Could not delete '$cleanup_target': $delete_err"
+            }
+        }
+    }
 }
 
 create_project -force $project_name $project_dir -part $part_name
@@ -41,10 +58,11 @@ set vhdl_roots [list \
     [file join $repo_root project uart_message_bin] \
 ]
 
-# Add all VHDL files (testbenches go to sim_1)
+# Add all VHDL files. Testbenches go to sim_1; the loopback top stays in
+# sources_1 so it can be selected as a synthesis or simulation top.
 foreach vhdl_file [collect_vhdl_files $vhdl_roots] {
     set file_name [file tail $vhdl_file]
-    
+
     if {[string match *_tb.vhd $file_name] || [string match tb_*.vhd $file_name]} {
         add_files -fileset sim_1 -norecurse $vhdl_file
     } else {
@@ -53,7 +71,8 @@ foreach vhdl_file [collect_vhdl_files $vhdl_roots] {
 }
 
 # Add constraints
-foreach xdc_file [glob -nocomplain "$repo_root/project/constraint/*.xdc"] {
+set xdc_file [file join $repo_root project constraint pins.xdc]
+if {[file exists $xdc_file]} {
     add_files -fileset constrs_1 -norecurse $xdc_file
 }
 
@@ -64,8 +83,8 @@ update_compile_order -fileset sim_1
 puts "Compile order determined automatically"
 
 # Set default simulation/synthesis tops
-set synth_top uart_msg_loopback_top
-set sim_top uart_msg_loopback_tb
+set synth_top percolation_uart_top
+set sim_top percolation_uart_top_tb
 
 # Allow mode selection (optional)
 set requested_mode ""
@@ -79,6 +98,7 @@ switch -- $requested_mode {
         set sim_top uart_msg_loopback_tb
     }
     rng {
+        set synth_top percolation_uart_top
         set sim_top tb_rng_hybrid
     }
     percolation {

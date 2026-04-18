@@ -8,6 +8,9 @@ Questo e` il data-plane MVP per il progetto di site percolation.
 - La connettivita` e il test di spanning sono ancora basati su BFS flood-fill.
 - `Done` indica che la batch richiesta e` terminata.
 - `BfsStepCount` e` cumulativo su tutte le run della richiesta, non per singola run.
+- Statistiche derivate come la media delle celle occupate vanno calcolate lato host dai contatori grezzi.
+- `uart_msg_loopback_top` e il percorso RNG sintetizzano gia` in tempi brevi; il debug corrente e` concentrato su `percolation_core.vhd`.
+- Se un nuovo problema appare, partire dal testbench standalone del core prima di riaprire il wrapper UART.
 
 ## File chiave
 

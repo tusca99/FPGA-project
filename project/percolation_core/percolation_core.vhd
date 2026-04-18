@@ -24,7 +24,6 @@ entity percolation_core is
         PendingSteps   : out std_logic_vector(31 downto 0);
         SpanningCount  : out std_logic_vector(31 downto 0);
         TotalOccupied  : out std_logic_vector(31 downto 0);
-        MeanOccupied   : out std_logic_vector(31 downto 0);
         BfsStepCount   : out std_logic_vector(31 downto 0);
         Done           : out std_logic
     );
@@ -33,14 +32,21 @@ end percolation_core;
 architecture Behavioral of percolation_core is
     constant MAX_GRID   : integer := 128;
     constant MAX_CELLS  : integer := MAX_GRID * MAX_GRID;
+    constant VISIT_BITS  : integer := 16;
+    constant VISIT_MAX    : unsigned(VISIT_BITS-1 downto 0) := (others => '1');
+    constant GRID_BITS  : integer := 7;
+    constant IDX_BITS   : integer := 14;
+    constant QUEUE_BITS : integer := IDX_BITS + 2 * GRID_BITS;
 
     type grid_t    is array (0 to MAX_CELLS-1) of std_logic;
-    type visited_t is array (0 to MAX_CELLS-1) of std_logic;
-    type queue_t   is array (0 to MAX_CELLS-1) of unsigned(13 downto 0);
+    type visited_t is array (0 to MAX_CELLS-1) of unsigned(VISIT_BITS-1 downto 0);
+    -- Queue entries pack linear index, row, and column to avoid div/mod in BFS.
+    type queue_t   is array (0 to MAX_CELLS-1) of unsigned(QUEUE_BITS-1 downto 0);
 
     signal grid_mem     : grid_t := (others => '0');
-    signal visited_mem  : visited_t := (others => '0');
+    signal visited_mem  : visited_t := (others => (others => '0'));
     signal queue_mem    : queue_t;
+    signal visit_epoch_s : unsigned(VISIT_BITS-1 downto 0) := to_unsigned(1, VISIT_BITS);
 
     signal grid_size    : integer range 1 to MAX_GRID := 64;
     signal grid_cells   : integer range 1 to MAX_CELLS := 64*64;
@@ -51,12 +57,12 @@ architecture Behavioral of percolation_core is
     signal runs_done    : unsigned(31 downto 0) := (others => '0');
     signal spanning_cnt : unsigned(31 downto 0) := (others => '0');
     signal occupied_sum : unsigned(31 downto 0) := (others => '0');
-    signal mean_occ     : unsigned(31 downto 0) := (others => '0');
     signal bfs_steps_total : unsigned(31 downto 0) := (others => '0');
 
     signal state        : integer range 0 to 5 := 0;
     signal gen_index    : integer range 0 to MAX_GRID := 0;
     signal gen_row_base : integer range 0 to MAX_GRID := 0;
+    signal gen_row_start : integer range 0 to MAX_CELLS := 0;
     signal bfs_head     : integer range 0 to MAX_CELLS := 0;
     signal bfs_tail     : integer range 0 to MAX_CELLS := 0;
     signal bfs_cnt      : integer range 0 to MAX_CELLS := 0;
@@ -66,6 +72,7 @@ architecture Behavioral of percolation_core is
     signal rng_words_s       : word_array_t := (others => (others => '0'));
     signal rng_valid_mask_s  : flag_array_t := (others => '0');
     signal rng_site_open_s   : flag_array_t := (others => '0');
+    signal rng_chunk_open_s  : flag_array_t := (others => '0');
     signal rng_all_valid_s   : std_logic := '0';
     signal rng_busy_s        : std_logic := '1';
     signal rng_arm_s         : std_logic := '0';
@@ -83,6 +90,37 @@ architecture Behavioral of percolation_core is
         else
             return b;
         end if;
+    end function;
+
+    function next_epoch(current : unsigned) return unsigned is
+    begin
+        if current = VISIT_MAX then
+            return to_unsigned(1, VISIT_BITS);
+        else
+            return current + 1;
+        end if;
+    end function;
+
+    function pack_queue(idx, row, col : integer) return unsigned is
+    begin
+        return to_unsigned(idx, IDX_BITS) &
+               to_unsigned(row, GRID_BITS) &
+               to_unsigned(col, GRID_BITS);
+    end function;
+
+    function queue_idx(entry : unsigned) return integer is
+    begin
+        return to_integer(entry(QUEUE_BITS - 1 downto 2 * GRID_BITS));
+    end function;
+
+    function queue_row(entry : unsigned) return integer is
+    begin
+        return to_integer(entry(2 * GRID_BITS - 1 downto GRID_BITS));
+    end function;
+
+    function queue_col(entry : unsigned) return integer is
+    begin
+        return to_integer(entry(GRID_BITS - 1 downto 0));
     end function;
 
     function seed_to_master_key(seed : std_logic_vector(31 downto 0)) return std_logic_vector is
@@ -119,12 +157,12 @@ begin
     PendingSteps  <= std_logic_vector(pending);
     SpanningCount <= std_logic_vector(spanning_cnt);
     TotalOccupied <= std_logic_vector(occupied_sum);
-    MeanOccupied  <= std_logic_vector(mean_occ);
     BfsStepCount  <= std_logic_vector(bfs_steps_total);
     Done          <= '1' when (runs_target /= 0) and (runs_done >= runs_target) else '0';
 
     process(Clk)
-        variable cur_idx : unsigned(13 downto 0);
+        variable cur_entry : unsigned(QUEUE_BITS - 1 downto 0);
+        variable cur_idx : integer;
         variable nidx    : integer;
         variable row     : integer;
         variable col     : integer;
@@ -135,7 +173,7 @@ begin
         variable tail_i  : integer;
         variable cnt_i   : integer;
         variable i       : integer;
-        variable chunk_rows : integer;
+        variable chunk_cols : integer;
         variable chunk_occupied : integer;
     begin
         if rising_edge(Clk) then
@@ -148,7 +186,6 @@ begin
                 runs_done    <= (others => '0');
                 spanning_cnt <= (others => '0');
                 occupied_sum <= (others => '0');
-                mean_occ     <= (others => '0');
                 bfs_steps_total <= (others => '0');
                 gen_index    <= 0;
                 bfs_head     <= 0;
@@ -158,7 +195,10 @@ begin
                 p_spanning   <= '0';
                 run_occupied <= (others => '0');
                 gen_row_base <= 0;
+                gen_row_start <= 0;
                 rng_arm_s    <= '0';
+                rng_chunk_open_s <= (others => '0');
+                visit_epoch_s <= to_unsigned(1, VISIT_BITS);
             else
                 if CfgInit = '1' then
                     cfg_size_i := min_int(to_integer(unsigned(CfgGridSize)), MAX_GRID);
@@ -174,7 +214,6 @@ begin
                     runs_done    <= (others => '0');
                     spanning_cnt <= (others => '0');
                     occupied_sum <= (others => '0');
-                    mean_occ     <= (others => '0');
                     bfs_steps_total <= (others => '0');
                     gen_index    <= 0;
                     gen_row_base <= 0;
@@ -185,6 +224,9 @@ begin
                     p_spanning   <= '0';
                     run_occupied <= (others => '0');
                     rng_arm_s    <= '0';
+                    rng_chunk_open_s <= (others => '0');
+                    gen_row_start <= 0;
+                    visit_epoch_s <= to_unsigned(1, VISIT_BITS);
                 end if;
 
                 if (CfgInit = '0') and (rng_busy_s = '1') then
@@ -203,75 +245,94 @@ begin
 
                 case state is
                     when 0 => -- IDLE
-                        if (rng_arm_s = '1') and (rng_busy_s = '0') and
+                              if (rng_arm_s = '1') and (rng_busy_s = '0') and (rng_all_valid_s = '1') and
                            ((run_enable = '1') or (pending /= 0)) and
                            ((runs_target = 0) or (runs_done < runs_target)) then
+                            visit_epoch_s <= next_epoch(visit_epoch_s);
                             gen_index    <= 0;
                             gen_row_base <= 0;
+                            gen_row_start <= 0;
                             run_occupied <= (others => '0');
                             p_spanning   <= '0';
+                            rng_chunk_open_s <= (others => '0');
                             state        <= 1;
                         end if;
 
-                    when 1 => -- GRID GENERATION
-                        if rng_busy_s = '0' then
-                            if gen_index < grid_size then
-                                chunk_rows := min_int(grid_size - gen_row_base, N_ROWS);
-                                chunk_occupied := 0;
+                    when 1 => -- CAPTURE RNG CHUNK
+                        if (rng_busy_s = '0') and (rng_all_valid_s = '1') then
+                            rng_chunk_open_s <= rng_site_open_s;
+                            state <= 3;
+                        end if;
 
-                                for row_offset in 0 to N_ROWS - 1 loop
-                                    if row_offset < chunk_rows then
-                                        nidx := (gen_row_base + row_offset) * grid_size + gen_index;
-                                        if rng_site_open_s(row_offset) = '1' then
-                                            grid_mem(nidx) <= '1';
-                                            chunk_occupied := chunk_occupied + 1;
-                                        else
-                                            grid_mem(nidx) <= '0';
-                                        end if;
+                    when 3 => -- GRID GENERATION
+                        if gen_index < grid_size then
+                            chunk_cols := min_int(grid_size - gen_row_base, N_ROWS);
+                            chunk_occupied := 0;
+
+                            for col_offset in 0 to N_ROWS - 1 loop
+                                if col_offset < chunk_cols then
+                                    nidx := gen_row_start + gen_row_base + col_offset;
+                                    if rng_chunk_open_s(col_offset) = '1' then
+                                        grid_mem(nidx) <= '1';
+                                        chunk_occupied := chunk_occupied + 1;
+                                    else
+                                        grid_mem(nidx) <= '0';
                                     end if;
-                                end loop;
-
-                                run_occupied <= run_occupied + to_unsigned(chunk_occupied, 32);
-
-                                if gen_row_base + chunk_rows >= grid_size then
-                                    gen_row_base <= 0;
-                                    gen_index <= gen_index + 1;
-                                else
-                                    gen_row_base <= gen_row_base + N_ROWS;
                                 end if;
+                            end loop;
+
+                            if (gen_index = 0) and (gen_row_base = 0) then
+                                report "percolation_core first chunk: busy=" & std_logic'image(rng_busy_s) &
+                                       " all_valid=" & std_logic'image(rng_all_valid_s) &
+                                       " valid0=" & std_logic'image(rng_valid_mask_s(0)) &
+                                       " open0=" & std_logic'image(rng_chunk_open_s(0)) &
+                                       " open1=" & std_logic'image(rng_chunk_open_s(1)) &
+                                       " open2=" & std_logic'image(rng_chunk_open_s(2)) &
+                                       " open3=" & std_logic'image(rng_chunk_open_s(3)) &
+                                       " open4=" & std_logic'image(rng_chunk_open_s(4)) &
+                                       " open5=" & std_logic'image(rng_chunk_open_s(5)) &
+                                       " open6=" & std_logic'image(rng_chunk_open_s(6)) &
+                                       " open7=" & std_logic'image(rng_chunk_open_s(7)) &
+                                       " chunk_occupied=" & integer'image(chunk_occupied)
+                                    severity note;
+                            end if;
+
+                            run_occupied <= run_occupied + to_unsigned(chunk_occupied, 32);
+
+                            if gen_row_base + chunk_cols >= grid_size then
+                                gen_row_base <= 0;
+                                gen_index <= gen_index + 1;
+                                gen_row_start <= gen_row_start + grid_size;
                             else
-                                bfs_head <= 0;
-                                bfs_tail <= 0;
-                                bfs_cnt <= 0;
+                                gen_row_base <= gen_row_base + N_ROWS;
+                            end if;
 
-                                for i in 0 to MAX_CELLS - 1 loop
-                                    if i < grid_cells then
-                                        visited_mem(i) <= '0';
+                            rng_chunk_open_s <= (others => '0');
+                            state <= 1;
+                        else
+                            bfs_head <= 0;
+                            bfs_tail <= 0;
+                            bfs_cnt <= 0;
+
+                            q_temp := 0;
+                            for col in 0 to MAX_GRID - 1 loop
+                                if col < grid_size then
+                                    if grid_mem(col) = '1' and visited_mem(col) /= visit_epoch_s then
+                                        visited_mem(col) <= visit_epoch_s;
+                                        queue_mem(q_temp) <= pack_queue(col, 0, col);
+                                        q_temp := q_temp + 1;
                                     end if;
-                                end loop;
-
-                                q_temp := 0;
-                                for col in 0 to MAX_GRID - 1 loop
-                                    if col < grid_size then
-                                        if grid_mem(col) = '1' then
-                                            visited_mem(col) <= '1';
-                                            queue_mem(q_temp) <= to_unsigned(col, 14);
-                                            q_temp := q_temp + 1;
-                                        end if;
-                                    end if;
-                                end loop;
-
-                                bfs_cnt <= q_temp;
-                                bfs_tail <= q_temp;
-                                if bfs_tail >= grid_cells then
-                                    bfs_tail <= 0;
                                 end if;
+                            end loop;
 
-                                if q_temp > 0 then
-                                    state <= 2;
-                                else
-                                    state <= 4;
-                                end if;
+                            bfs_head <= 0;
+                            bfs_tail <= q_temp;
+                            bfs_cnt <= q_temp;
+
+                            if q_temp > 0 then
+                                state <= 2;
+                            else
+                                state <= 4;
                             end if;
                         end if;
 
@@ -283,7 +344,10 @@ begin
                             tail_i := bfs_tail;
                             cnt_i := bfs_cnt;
 
-                            cur_idx := queue_mem(head_i);
+                            cur_entry := queue_mem(head_i);
+                            cur_idx := queue_idx(cur_entry);
+                            row := queue_row(cur_entry);
+                            col := queue_col(cur_entry);
                             if head_i = (grid_cells - 1) then
                                 head_i := 0;
                             else
@@ -291,18 +355,15 @@ begin
                             end if;
                             cnt_i := cnt_i - 1;
                             bfs_steps_total <= bfs_steps_total + 1;
-
-                            row := to_integer(cur_idx) / grid_size;
-                            col := to_integer(cur_idx) mod grid_size;
                             if row = grid_size - 1 then
                                 p_spanning <= '1';
                             end if;
 
                             if row > 0 then
-                                nidx := to_integer(cur_idx) - grid_size;
-                                if visited_mem(nidx) = '0' and grid_mem(nidx) = '1' then
-                                    visited_mem(nidx) <= '1';
-                                    queue_mem(tail_i) <= to_unsigned(nidx, 14);
+                                nidx := cur_idx - grid_size;
+                                if visited_mem(nidx) /= visit_epoch_s and grid_mem(nidx) = '1' then
+                                    visited_mem(nidx) <= visit_epoch_s;
+                                    queue_mem(tail_i) <= pack_queue(nidx, row - 1, col);
                                     if tail_i = (grid_cells - 1) then
                                         tail_i := 0;
                                     else
@@ -313,10 +374,10 @@ begin
                             end if;
 
                             if row < grid_size - 1 then
-                                nidx := to_integer(cur_idx) + grid_size;
-                                if visited_mem(nidx) = '0' and grid_mem(nidx) = '1' then
-                                    visited_mem(nidx) <= '1';
-                                    queue_mem(tail_i) <= to_unsigned(nidx, 14);
+                                nidx := cur_idx + grid_size;
+                                if visited_mem(nidx) /= visit_epoch_s and grid_mem(nidx) = '1' then
+                                    visited_mem(nidx) <= visit_epoch_s;
+                                    queue_mem(tail_i) <= pack_queue(nidx, row + 1, col);
                                     if tail_i = (grid_cells - 1) then
                                         tail_i := 0;
                                     else
@@ -327,10 +388,10 @@ begin
                             end if;
 
                             if col > 0 then
-                                nidx := to_integer(cur_idx) - 1;
-                                if visited_mem(nidx) = '0' and grid_mem(nidx) = '1' then
-                                    visited_mem(nidx) <= '1';
-                                    queue_mem(tail_i) <= to_unsigned(nidx, 14);
+                                nidx := cur_idx - 1;
+                                if visited_mem(nidx) /= visit_epoch_s and grid_mem(nidx) = '1' then
+                                    visited_mem(nidx) <= visit_epoch_s;
+                                    queue_mem(tail_i) <= pack_queue(nidx, row, col - 1);
                                     if tail_i = (grid_cells - 1) then
                                         tail_i := 0;
                                     else
@@ -341,10 +402,10 @@ begin
                             end if;
 
                             if col < grid_size - 1 then
-                                nidx := to_integer(cur_idx) + 1;
-                                if visited_mem(nidx) = '0' and grid_mem(nidx) = '1' then
-                                    visited_mem(nidx) <= '1';
-                                    queue_mem(tail_i) <= to_unsigned(nidx, 14);
+                                nidx := cur_idx + 1;
+                                if visited_mem(nidx) /= visit_epoch_s and grid_mem(nidx) = '1' then
+                                    visited_mem(nidx) <= visit_epoch_s;
+                                    queue_mem(tail_i) <= pack_queue(nidx, row, col + 1);
                                     if tail_i = (grid_cells - 1) then
                                         tail_i := 0;
                                     else
@@ -364,6 +425,16 @@ begin
                         end if;
 
                     when 4 => -- RUN COMPLETE
+                        report "percolation_core run complete: grid_size=" & integer'image(grid_size) &
+                               " gen_index=" & integer'image(gen_index) &
+                               " gen_row_base=" & integer'image(gen_row_base) &
+                               " run_occupied=" & integer'image(to_integer(run_occupied)) &
+                               " bfs_total=" & integer'image(to_integer(bfs_steps_total)) &
+                               " runs_done=" & integer'image(to_integer(runs_done)) &
+                               " rng_busy=" & std_logic'image(rng_busy_s) &
+                               " p_spanning=" & std_logic'image(p_spanning)
+                            severity note;
+
                         new_runs_done := runs_done + 1;
                         runs_done <= new_runs_done;
 
@@ -372,11 +443,6 @@ begin
                         end if;
 
                         occupied_sum <= occupied_sum + run_occupied;
-                        if new_runs_done /= 0 then
-                            mean_occ <= (occupied_sum + run_occupied) / new_runs_done;
-                        else
-                            mean_occ <= (others => '0');
-                        end if;
 
                         if pending /= 0 then
                             pending <= pending - 1;
@@ -384,6 +450,7 @@ begin
 
                         if ((run_enable = '1') or (pending /= 0)) and
                            ((runs_target = 0) or (new_runs_done < runs_target)) then
+                            visit_epoch_s <= next_epoch(visit_epoch_s);
                             gen_index    <= 0;
                             gen_row_base <= 0;
                             run_occupied <= (others => '0');

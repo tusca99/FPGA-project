@@ -33,7 +33,8 @@ Le uscite sono solo statistiche:
 - `PendingSteps` = quanti run restano in coda
 - `SpanningCount` = quanti run hanno avuto percolazione
 - `TotalOccupied` = somma delle celle occupate su tutti i run
-- `MeanOccupied` = media delle celle occupate per run
+
+Se serve la media delle celle occupate per run, conviene calcolarla lato host come `TotalOccupied / StepCount`.
 
 ## Contratto tra RNG e connettività
 
@@ -74,12 +75,11 @@ Il top applicativo usa messaggi binari a lunghezza fissa:
     - word 3: `CfgRuns`
     - word 4: `ctrl` con i bit di start/init/step
     - word 5: `StepAddCount`
-- response: 20 byte totali, organizzati in 5 word da 32 bit
+- response: 16 byte totali, organizzati in 4 word da 32 bit
     - word 0: `StepCount`
     - word 1: `PendingSteps`
     - word 2: `SpanningCount`
     - word 3: `TotalOccupied`
-    - word 4: `MeanOccupied`
 
 Questo layout mantiene il wrapper molto semplice e permette di fare un controllo Python diretto senza parsing testuale.
 
@@ -129,7 +129,7 @@ if RunEn = 1 or ci sono step in coda:
         incrementa StepCount
         se spanning = vero:
             incrementa SpanningCount
-        aggiorna TotalOccupied e MeanOccupied
+        aggiorna TotalOccupied
 
         se servono altri run:
             riparti con una nuova griglia
@@ -158,10 +158,8 @@ flowchart TD
     M -->|Yes| N[Update counters]
     N --> O[StepCount + 1]
     N --> P[SpanningCount if spanning]
-    N --> Q[TotalOccupied and MeanOccupied]
     O --> R{More runs needed?}
     P --> R
-    Q --> R
     R -->|Yes| D
     R -->|No| C
 ```

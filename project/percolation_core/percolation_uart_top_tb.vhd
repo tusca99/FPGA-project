@@ -7,7 +7,7 @@ end entity;
 
 architecture Behavioral of percolation_uart_top_tb is
     constant CLK_FREQ  : integer := 100_000_000;
-    constant BAUD_RATE : integer := 115200;
+    constant BAUD_RATE : integer := 1_000_000; -- simulation-only speed-up
     constant REQ_BYTES : positive := 12;
     constant RSP_BYTES : positive := 16;
     constant ZERO_RSP  : std_logic_vector(RSP_BYTES*8-1 downto 0) := (others => '0');

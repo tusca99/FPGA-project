@@ -2,6 +2,8 @@
 
 Questa e` la matrice canonica di validazione. Per il recovery rapido e i problemi di Vivado usa [../SIM_FIX_GUIDE.md](../SIM_FIX_GUIDE.md).
 
+Nota corrente: `uart_msg_loopback_top` e il percorso RNG sono gia` stati verificati come sintetizzabili in tempi brevi; per la prossima sessione partire da `project/percolation_core/percolation_core.vhd` e dal suo testbench standalone.
+
 ## Compilation Order & Dependencies
 
 ### Tier 1: Core Utilities (project/rng/rtl/)
@@ -23,7 +25,7 @@ Legacy AES-CTR PRNG and `percolation_lfsr32.vhd` are not part of the current bui
 
 ### Tier 3: Percolation Core (project/percolation_core/)
 ```
-8. percolation_core.vhd (uses rng_hybrid_64 + BFS connectivity)
+8. percolation_core.vhd (current debug target; uses rng_hybrid_64 + BFS connectivity)
 ```
 
 ### Tier 4: UART Stack (project/uart_message_bin/)
@@ -89,6 +91,7 @@ cd project/rng/
 - **Duration**: 25 μs
 - **Test**: 8×8 grid, 16 runs, p=0.6
 - **Pass Criteria**: StepCount > 0, can read SpanningCount
+- **Note**: se questo TB fallisce, il problema e` nel core prima di essere nel wrapper UART.
 
 ### UART Loopback TB (`uart_msg_loopback_tb.vhd`)
 - **Duration**: Depends on message size
@@ -118,9 +121,9 @@ cd project/rng/
 
 ## Next Steps for Validation
 
-1. **Start with RNG**: Run `zzz_tb_rng_hybrid.vhd` first (simplest, no external deps)
-2. **Then Percolation**: Run `percolation_core_tb.vhd` (uses RNG internally)
-3. **Finally UART**: Run `uart_msg_loopback_tb.vhd` and `percolation_uart_top_tb.vhd`
+1. **Start with Percolation**: Run `percolation_core_tb.vhd` first; this is the current suspect path.
+2. **Then RNG if needed**: Use `zzz_tb_rng_hybrid.vhd` only if you need to isolate the bank RNG.
+3. **Finally UART**: Run `percolation_uart_top_tb.vhd` and the loopback TB only for integration or regression checks.
 
 ---
 

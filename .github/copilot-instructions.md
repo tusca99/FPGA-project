@@ -153,7 +153,8 @@ Nota: alcune entry di stato (es. `2,5,6,7,8`) vengono sovrascritte continuamente
 
 - Completato: UART base verificata e funzionante (TX/RX OK). Il problema osservato in precedenza era byte loss occasionale sotto carico; mitigato con RX FIFO + TX FIFO.
 - Completato: stack UART binario a messaggi fissi e loopback benchmark funzionante.
-- In corso: validazione standalone di `project/percolation_core/percolation_core.vhd` con `percolation_core_tb.vhd` e in parallelo separazione del blocco LFSR.
+- Completato: i top `uart_msg_loopback_top` e `rng` sintetizzano in tempi brevi; non sono il focus del debug corrente.
+- In corso: validazione standalone di `project/percolation_core/percolation_core.vhd` con `percolation_core_tb.vhd`; il sospetto principale e` nel core, non nel wrapper UART.
 - Da fare: definire il contratto tra LFSR, connettività e top sottile; introdurre presto un test Python via UART; poi integrare il core nel top UART e misurare il baseline.
 
 ---

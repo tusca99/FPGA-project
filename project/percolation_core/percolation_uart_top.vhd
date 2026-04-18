@@ -127,7 +127,6 @@ begin
             PendingSteps  => open,  -- not used in response
             SpanningCount => core_spanning_s,
             TotalOccupied => core_total_s,
-            MeanOccupied  => open,  -- not used in response
             BfsStepCount  => core_bfs_steps_s,
             Done          => core_done_s
         );
