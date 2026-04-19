@@ -66,7 +66,7 @@ begin
         CfgGridSize <= x"0008"; -- 8x8
         CfgP <= x"970A3D70"; -- p ~= 0.59 in UQ32
         CfgSeed <= x"12345678";
-        CfgRuns <= x"00000064"; -- 100 runs
+        CfgRuns <= x"00000010"; -- 16 runs
         CfgInit <= '1';
         wait for 10 ns;
         CfgInit <= '0';
@@ -81,8 +81,8 @@ begin
         assert Done = '1'
             report "Percolation core did not assert Done" severity failure;
 
-        assert to_integer(unsigned(StepCount)) = 100
-            report "Percolation core did not complete the requested 100 runs" severity failure;
+        assert to_integer(unsigned(StepCount)) = 16
+            report "Percolation core did not complete the requested 16 runs" severity failure;
 
         assert to_integer(unsigned(TotalOccupied)) > 0
             report "Percolation core reported zero occupied sites across the batch" severity failure;

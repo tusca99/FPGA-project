@@ -8,7 +8,7 @@ Il core esegue molte volte la stessa prova:
 
 1. costruisce una griglia quadrata di celle
 2. decide in modo pseudo-casuale quali celle sono occupate tramite un bank RNG separato 64-wide
-3. controlla se esiste un percorso connesso dall'alto al basso
+3. controlla se esiste un cluster che attraversa la griglia dall'alto al basso
 4. aggiorna alcune statistiche
 5. ripete per il numero di run richiesto
 
@@ -46,10 +46,10 @@ La generazione casuale e la connettività devono restare separabili. Il contratt
     - `threshold`: soglia di occupazione `p`
     - `site_open(63 downto 0)`: 64 bit di occupazione per colonna
     - `busy`: vale `1` mentre il bank si inizializza
-- blocco di connettivita` / BFS
-    - consuma `site_open` come sample casuale già confrontato con `p`
+- blocco di connettivita` / HK row-wise
+    - consuma una riga di occupazione già confrontata con `p`
     - non conosce taps, seed o dettagli del RNG
-    - decide solo se il cluster attraversa la griglia e aggiorna lo spanning
+    - usa etichette di riga, tabella union-find e flag di bordo per decidere lo spanning
 
 Questo contratto permette di sostituire il PRNG con un bank RNG diverso senza toccare la logica di spanning.
 
@@ -62,7 +62,7 @@ Il passo successivo e` un wrapper di integrazione che parla con UART e non conti
 - leggere le statistiche a fine run o su richiesta
 - esporre una superficie stabile per Python e benchmark
 
-Questo top non deve duplicare il lavoro del core: non costruisce la griglia, non fa BFS e non genera numeri casuali.
+Questo top non deve duplicare il lavoro del core: non costruisce la griglia, non fa connettivita` globale e non genera numeri casuali.
 
 ### Frame binari del wrapper
 
@@ -89,13 +89,14 @@ Il core non fa una simulazione continua nel tempo.
 Fa sempre questo ciclo:
 
 - prepara una griglia casuale
-- prepara la griglia prendendo una colonna alla volta dal bank RNG 64-wide
-- cerca un cluster connesso partendo dal bordo alto con una BFS flood fill
-- se il cluster arriva al bordo basso, conta un evento di spanning
+- prepara la griglia prendendo una riga alla volta dal bank RNG 64-wide
+- assegna etichette ai cluster occupati con una scansione row-wise
+- unisce le etichette equivalenti quando un cluster si connette in orizzontale o verticale
+- se una componente tocca bordo alto e basso, conta un evento di spanning
 - aggiorna i contatori
 - decide se rifare tutto da capo
 
-La parte casuale e` isolata nel bank `rng_hybrid_64`, quindi il core puo` essere letto come due passi distinti: campionamento random e verifica della connettivita`.
+La parte casuale e` isolata nel bank `rng_hybrid_64`, quindi il core puo` essere letto come due passi distinti: campionamento random e verifica della connettivita` row-wise.
 
 ## Pseudocodice
 
@@ -109,22 +110,13 @@ on CfgInit:
 
 if RunEn = 1 or ci sono step in coda:
     se non ho già finito tutti i run richiesti:
-        while non ho riempito tutta la griglia:
+        while non ho completato la riga corrente:
             prendi 64 bit di occupazione dal bank RNG
-            scrivili nella colonna corrente della griglia
-            conta le celle occupate
+            scrivili nella riga corrente della griglia
+            assegna o unisci le etichette HK per le celle occupate
 
-        prendi tutte le celle occupate della prima riga
-        mettile in una coda BFS
-
-        while la coda non è vuota:
-            estrai una cella
-            controlla i 4 vicini
-            se un vicino è occupato e non visitato:
-                marcialo come visitato
-                mettilo in coda
-            se arrivo all'ultima riga:
-                segna spanning = vero
+        aggiorna le equivalenze tra etichette attive
+        verifica se una root tocca sia il bordo alto sia il bordo basso
 
         incrementa StepCount
         se spanning = vero:
@@ -143,25 +135,26 @@ if RunEn = 1 or ci sono step in coda:
 flowchart TD
     A[Reset or start] --> B[Load config with CfgInit]
     B --> C[Wait in IDLE]
-    C -->|RunEn or pending steps| D[Generate grid cell by cell]
-    D --> E[Use RNG bank to decide occupied or empty]
-    E --> F[Seed BFS from top row occupied cells]
-    F --> G[Pop one cell from queue]
-    G --> H[Check 4 neighbors]
-    H --> I[Mark visited and enqueue occupied neighbors]
-    I --> J{Reached bottom row?}
-    J -->|Yes| K[Set spanning flag]
-    J -->|No| L[Continue BFS]
+    C -->|RunEn or pending steps| D[Generate next row from RNG bank]
+    D --> E[Scan row left to right]
+    E --> F{Cell occupied?}
+    F -->|No| G[Clear current label]
+    F -->|Yes| H[Read left and up labels]
+    H --> I{Need new label?}
+    I -->|Yes| J[Allocate fresh label]
+    I -->|No| K[Reuse or union labels]
+    J --> L[Update row buffers]
     K --> L
-    L --> M{Queue empty?}
-    M -->|No| G
-    M -->|Yes| N[Update counters]
-    N --> O[StepCount + 1]
-    N --> P[SpanningCount if spanning]
-    O --> R{More runs needed?}
-    P --> R
-    R -->|Yes| D
-    R -->|No| C
+    G --> L
+    L --> M{Row complete?}
+    M -->|No| E
+    M -->|Yes| N{More rows?}
+    N -->|Yes| D
+    N -->|No| O[Resolve equivalences and boundary flags]
+    O --> P[Update counters]
+    P --> Q{More runs needed?}
+    Q -->|Yes| D
+    Q -->|No| C
 ```
 
 ## Esempio mentale
@@ -180,12 +173,12 @@ Quindi il core non cerca "la strada migliore": cerca solo se **esiste almeno un 
 Questo core è interessante perché separa bene due tempi diversi:
 
 - tempo UART: mandare i parametri dentro e riportare fuori le statistiche
-- tempo del core: generare la griglia, fare la BFS e aggiornare i contatori
+- tempo del core: generare la griglia, eseguire la connettivita` row-wise e aggiornare i contatori
 
 Per il benchmark conviene tenere fisso il messaggio UART e sottrarre il suo costo, così misuri meglio il lavoro vero del core.
 
 ## Nota importante
 
-Il codice attuale usa una **BFS flood fill**, non un Hoshen-Kopelman classico. La logica è più semplice da capire, ma il principio fisico resta lo stesso: verificare se esiste un cluster che attraversa la griglia.
+La direzione target e` un **Hoshen-Kopelman / Union-Find row-wise**. La BFS puo` restare solo come riferimento storico o test funzionale, ma non e` la forma finale da portare in RTL per una griglia grande.
 
-La generazione casuale è già separata nel bank `rng_hybrid_64`, così in futuro si può migliorare o sostituire il PRNG senza toccare la parte di connettività.
+La generazione casuale e` gia` separata nel bank `rng_hybrid_64`, quindi si puo` sostituire la connettivita` senza toccare la parte RNG.

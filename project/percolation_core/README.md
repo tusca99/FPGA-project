@@ -5,7 +5,7 @@ Questo e` il data-plane MVP per il progetto di site percolation.
 ## Stato attuale
 
 - Il core lavora in single-clock e usa un generatore RNG dedicato per riempire la griglia.
-- La connettivita` e il test di spanning sono ancora basati su BFS flood-fill.
+- La direzione di connettivita` target e` Hoshen-Kopelman / Union-Find row-wise; la BFS resta solo come baseline storica di confronto.
 - `Done` indica che la batch richiesta e` terminata.
 - `BfsStepCount` e` cumulativo su tutte le run della richiesta, non per singola run.
 - Statistiche derivate come la media delle celle occupate vanno calcolate lato host dai contatori grezzi.
@@ -15,6 +15,7 @@ Questo e` il data-plane MVP per il progetto di site percolation.
 ## File chiave
 
 - `percolation_core.vhd`: core principale, configurazione, generazione griglia e statistiche.
+- `hk_row_wise.md`: documento di progetto per il modulo HK row-wise.
 - `percolation_core_tb.vhd`: testbench standalone del core.
 - `percolation_uart_top.vhd`: wrapper sottile UART + core.
 - `percolation_uart_top_tb.vhd`: testbench end-to-end del wrapper UART.
@@ -23,7 +24,7 @@ Questo e` il data-plane MVP per il progetto di site percolation.
 
 ## Direzione di evoluzione
 
-La parte di connettivita` e` il pezzo da migliorare per primo: il baseline BFS funziona come MVP, ma la separazione logica va tenuta aperta per una futura implementazione Hoshen-Kopelman o Union-Find.
+La parte di connettivita` va portata verso Hoshen-Kopelman / Union-Find row-wise: il modulo deve restare sintetizzabile, streaming, e leggibile per riga, senza BFS globale o code sulla griglia intera.
 
 ## Doc collegate
 
