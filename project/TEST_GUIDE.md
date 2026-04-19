@@ -25,7 +25,7 @@ Legacy AES-CTR PRNG and `percolation_lfsr32.vhd` are not part of the current bui
 
 ### Tier 3: Percolation Core (project/percolation_core/)
 ```
-8. percolation_core.vhd (current debug target; uses rng_hybrid_64 + BFS connectivity)
+8. percolation_core.vhd (current debug target; uses rng_hybrid_64 + row-wise HK connectivity)
 ```
 
 ### Tier 4: UART Stack (project/uart_message_bin/)
@@ -41,7 +41,7 @@ Legacy AES-CTR PRNG and `percolation_lfsr32.vhd` are not part of the current bui
 | Testbench | Source | Top Module Tested | Purpose |
 |-----------|--------|-------------------|---------|
 | `zzz_tb_rng_hybrid.vhd` | project/rng/ | rng_hybrid_64 | Verify RNG seed→words pipeline (64 Trivium rows) |
-| `percolation_core_tb.vhd` | project/percolation_core/ | percolation_core | Verify grid generation + BFS connectivity |
+| `percolation_core_tb.vhd` | project/percolation_core/ | percolation_core | Verify grid generation + HK connectivity |
 | `percolation_uart_top_tb.vhd` | project/percolation_core/ | percolation_uart_top | Verify UART command→core integration |
 | `uart_msg_loopback_tb.vhd` | project/uart_message_bin/ | uart_msg_loopback_top | UART frame loopback benchmark |
 

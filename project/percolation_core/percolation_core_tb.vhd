@@ -23,7 +23,7 @@ architecture Behavioral of percolation_core_tb is
     signal PendingSteps : std_logic_vector(31 downto 0);
     signal SpanningCount: std_logic_vector(31 downto 0);
     signal TotalOccupied: std_logic_vector(31 downto 0);
-    signal BfsStepCount : std_logic_vector(31 downto 0);
+    signal ConnStepCount : std_logic_vector(31 downto 0);
     signal Done         : std_logic;
 
 begin
@@ -43,7 +43,7 @@ begin
             PendingSteps => PendingSteps,
             SpanningCount => SpanningCount,
             TotalOccupied => TotalOccupied,
-            BfsStepCount => BfsStepCount,
+            ConnStepCount => ConnStepCount,
             Done => Done
         );
 
@@ -63,7 +63,7 @@ begin
         wait for 20 ns;
         Rst <= '1';
 
-        CfgGridSize <= x"0008"; -- 8x8
+        CfgGridSize <= x"0008"; -- 64x64
         CfgP <= x"970A3D70"; -- p ~= 0.59 in UQ32
         CfgSeed <= x"12345678";
         CfgRuns <= x"00000010"; -- 16 runs
@@ -90,7 +90,7 @@ begin
         report "StepCount=" & integer'image(to_integer(unsigned(StepCount))) severity note;
         report "SpanningCount=" & integer'image(to_integer(unsigned(SpanningCount))) severity note;
         report "TotalOccupied=" & integer'image(to_integer(unsigned(TotalOccupied))) severity note;
-        report "BfsStepCount=" & integer'image(to_integer(unsigned(BfsStepCount))) severity note;
+        report "ConnStepCount=" & integer'image(to_integer(unsigned(ConnStepCount))) severity note;
 
         wait;
     end process;

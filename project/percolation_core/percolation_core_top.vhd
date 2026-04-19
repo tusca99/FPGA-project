@@ -21,7 +21,7 @@ entity percolation_core_top is
         PendingSteps  : out std_logic_vector(31 downto 0);
         SpanningCount : out std_logic_vector(31 downto 0);
         TotalOccupied : out std_logic_vector(31 downto 0);
-        BfsStepCount  : out std_logic_vector(31 downto 0);
+        ConnStepCount : out std_logic_vector(31 downto 0);
         Done          : out std_logic
     );
 end percolation_core_top;
@@ -44,7 +44,7 @@ begin
             PendingSteps  => PendingSteps,
             SpanningCount => SpanningCount,
             TotalOccupied => TotalOccupied,
-            BfsStepCount  => BfsStepCount,
+            ConnStepCount => ConnStepCount,
             Done          => Done
         );
 end Behavioral;

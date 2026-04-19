@@ -172,13 +172,11 @@ Quindi il core non cerca "la strada migliore": cerca solo se **esiste almeno un 
 
 Questo core è interessante perché separa bene due tempi diversi:
 
-- tempo UART: mandare i parametri dentro e riportare fuori le statistiche
-- tempo del core: generare la griglia, eseguire la connettivita` row-wise e aggiornare i contatori
 
 Per il benchmark conviene tenere fisso il messaggio UART e sottrarre il suo costo, così misuri meglio il lavoro vero del core.
 
 ## Nota importante
 
-La direzione target e` un **Hoshen-Kopelman / Union-Find row-wise**. La BFS puo` restare solo come riferimento storico o test funzionale, ma non e` la forma finale da portare in RTL per una griglia grande.
+ La direzione target e` un **Hoshen-Kopelman / Union-Find row-wise**. Il vecchio approccio globale puo` restare solo come riferimento storico o test funzionale, ma non e` la forma finale da portare in RTL per una griglia grande.
 
 La generazione casuale e` gia` separata nel bank `rng_hybrid_64`, quindi si puo` sostituire la connettivita` senza toccare la parte RNG.

@@ -5,9 +5,9 @@ Questo e` il data-plane MVP per il progetto di site percolation.
 ## Stato attuale
 
 - Il core lavora in single-clock e usa un generatore RNG dedicato per riempire la griglia.
-- La direzione di connettivita` target e` Hoshen-Kopelman / Union-Find row-wise; la BFS resta solo come baseline storica di confronto.
+- La direzione di connettivita` target e` Hoshen-Kopelman / Union-Find row-wise; la baseline storica resta solo come confronto interno.
 - `Done` indica che la batch richiesta e` terminata.
-- `BfsStepCount` e` cumulativo su tutte le run della richiesta, non per singola run.
+- `ConnStepCount` e` cumulativo su tutte le run della richiesta, non per singola run.
 - Statistiche derivate come la media delle celle occupate vanno calcolate lato host dai contatori grezzi.
 - `uart_msg_loopback_top` e il percorso RNG sintetizzano gia` in tempi brevi; il debug corrente e` concentrato su `percolation_core.vhd`.
 - Se un nuovo problema appare, partire dal testbench standalone del core prima di riaprire il wrapper UART.
@@ -24,7 +24,7 @@ Questo e` il data-plane MVP per il progetto di site percolation.
 
 ## Direzione di evoluzione
 
-La parte di connettivita` va portata verso Hoshen-Kopelman / Union-Find row-wise: il modulo deve restare sintetizzabile, streaming, e leggibile per riga, senza BFS globale o code sulla griglia intera.
+La parte di connettivita` va portata verso Hoshen-Kopelman / Union-Find row-wise: il modulo deve restare sintetizzabile, streaming, e leggibile per riga, senza code globali sulla griglia intera.
 
 ## Doc collegate
 

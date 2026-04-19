@@ -11,8 +11,8 @@ Questo documento e` una panoramica generale del progetto. I dettagli di ogni pez
 
 - Il data-plane attivo e` `percolation_core`, in single-clock a 100 MHz.
 - La generazione casuale e` gia` separata dal resto della logica e passa da un blocco RNG dedicato.
-- La connettivita` e il test di spanning usano ancora BFS flood-fill come baseline.
-- `BfsStepCount` conta tutti i dequeue / passi BFS della batch completa, quindi somma le 16 run se `CfgRuns = 16`.
+- La connettivita` e il test di spanning usano ora un blocco row-wise HK / Union-Find come baseline funzionale.
+- `ConnStepCount` conta tutto il lavoro di connettivita` della batch completa, quindi somma le 16 run se `CfgRuns = 16`.
 - La parte host-side Python e` disponibile per protocollo, client, reference simulation e benchmark.
 - Il passo successivo di miglioramento della connettivita` e` mantenere l'interfaccia aperta per Hoshen-Kopelman o Union-Find.
 
@@ -37,13 +37,13 @@ Questo documento e` una panoramica generale del progetto. I dettagli di ogni pez
 - **RNG / PRNG**: generazione pseudo-casuale per occupazione dei siti.
 - **Grid BRAM**: memoria per la griglia occupata.
 - **FSM di controllo**: sequenza delle operazioni (ricezione config, generazione griglia, labeling, calcolo statistiche, invio output).
-- **Labeling / connettivita`**: baseline BFS flood-fill oggi, con interfaccia da tenere pronta per Hoshen-Kopelman.
+- **Labeling / connettivita`**: baseline row-wise HK / Union-Find, con interfaccia da tenere pronta per eventuali ottimizzazioni future.
 - **Modulo statistiche**: calcolo spanning probability, mean cluster size, largest cluster size.
 
 ### Flusso Operativo
 1. Ricezione config via UART (p, dimensione griglia, seed, numero runs)
 2. Generazione griglia occupata tramite RNG dedicato e confronto con soglia $p$
-3. Labeling / spanning detection dei cluster (BFS baseline, futura evoluzione Hoshen-Kopelman)
+3. Labeling / spanning detection dei cluster (baseline row-wise HK / Union-Find)
 4. Calcolo statistiche
 5. Invio risultati via UART
 6. Ripetizione per raccolta dati statistici
@@ -85,7 +85,7 @@ largest_cluster_norm: 0.32
 - **UART**: già disponibile, va integrato con FSM di controllo.
 - **RNG**: generatore pseudo-casuale, avanzato ad ogni sito; confronto con soglia per occupazione.
 - **Grid**: array in BRAM, ogni cella occupata ('1') o vuota ('0').
-- **Connettivita`**: oggi BFS flood-fill, domani possibile Hoshen-Kopelman / Union-Find.
+- **Connettivita`**: oggi Hoshen-Kopelman / Union-Find row-wise, con spazio per ottimizzazioni future.
 - **Statistiche**: modulo dedicato per calcolo e accumulo dei risultati.
 - **Modularità**: struttura i moduli in modo che sia facile aggiungere la logica per percolazione diretta (selezione dei vicini, evoluzione temporale).
 
@@ -100,7 +100,7 @@ largest_cluster_norm: 0.32
 - Confronta il threshold di percolazione con il valore analitico noto (~0.5927 per 2D).
 - Usa Python o altro software per analisi e confronto dei risultati.
 - Prepara testbench VHDL per ogni modulo.
-- Quando la BFS diventa il collo di bottiglia, sostituirla o affiancarla con Hoshen-Kopelman / Union-Find senza cambiare il control-plane.
+- Quando la connettivita` diventa il collo di bottiglia, sostituirla o affiancarla con una variante piu` efficiente senza cambiare il control-plane.
 
 ---
 

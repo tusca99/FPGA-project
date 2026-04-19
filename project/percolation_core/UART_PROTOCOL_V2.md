@@ -1,4 +1,4 @@
-# Percolation UART Protocol v2.1 (Optimized + BFS metric)
+# Percolation UART Protocol v2.1 (Optimized + connectivity metric)
 
 ## Overview
 Compact binary protocol with hybrid UART + button control for debug.
@@ -43,14 +43,14 @@ Bytes (HEX):  99 99 99 9A | 12 34 56 78 | 08 00 00 10
 | 0 | 0–3 | `StepCount` | Number of completed runs in the current batch |
 | 1 | 4–7 | `SpanningCount` | Number of spanning clusters found |
 | 2 | 8–11 | `TotalOccupied` | Total occupied sites across all runs |
-| 3 | 12–15 | `BfsStepCount` | Total BFS dequeue/cycle count accumulated across the batch |
+| 3 | 12–15 | `ConnStepCount` | Total connectivity work accumulated across the batch |
 
 ### Example Response:
 ```
 Word 0 (StepCount):      0x00000010   (16 completed runs)
 Word 1 (SpanningCount):  0x00000008   (8 spanning clusters)
 Word 2 (TotalOccupied):  0x000001F8   (occupied sites total)
-Word 3 (BfsStepCount):   0x00000166   (BFS cycles across the batch)
+Word 3 (ConnStepCount):   0x00000166   (connectivity work across the batch)
 
 Bytes (HEX):  00 00 00 10 | 00 00 00 08 | 00 00 01 F8 | 00 00 01 66
 ```
@@ -88,7 +88,7 @@ Bytes (HEX):  00 00 00 10 | 00 00 00 08 | 00 00 01 F8 | 00 00 01 66
 - One-time RNG setup (AES seed expansion + Trivium warmup): ~13–15 µs
 - Per run on 8×8: tens of cycles, not thousands
 - Total computation for 8×8 / 16 runs: typically ~20–30 µs
-- 64×64 or denser cases scale much higher because BFS can visit many more cells
+- 64×64 or denser cases scale much higher because the older flood-fill baseline can visit many more cells
 - **Overhead:** ~2 ms end-to-end on the UART wire at 115200 baud
 
 ### For faster operation:
@@ -126,8 +126,8 @@ Bytes (HEX):  00 00 00 10 | 00 00 00 08 | 00 00 01 F8 | 00 00 01 66
 - `btn_init_i`, `btn_run_i` ports (active low, default '1')
 - Unpacking: `GridSize <= word[31:24]`, `CfgRuns <= word[23:0]` (from word 2)
 - Completion is driven by the core `Done` trigger, not by `RunEn`
-- Response: `StepCount`, `SpanningCount`, `TotalOccupied`, `BfsStepCount`
-- `BfsStepCount` is accumulated across the batch; for per-run statistics, set `CfgRuns = 1` and sample multiple requests
+- Response: `StepCount`, `SpanningCount`, `TotalOccupied`, `ConnStepCount`
+- `ConnStepCount` is accumulated across the batch; for per-run statistics, set `CfgRuns = 1` and sample multiple requests
 
 ### Button Synchronization:
 ```vhdl
@@ -156,12 +156,12 @@ def send_request(ser, cfg_p, cfg_seed, grid_size, num_runs):
 def recv_response(ser):
     """Receive 16-byte response."""
     rsp = ser.read(16)
-    step_count, spanning_count, total_occupied, bfs_steps = struct.unpack('>IIII', rsp)
-    return step_count, spanning_count, total_occupied, bfs_steps
+    step_count, spanning_count, total_occupied, conn_steps = struct.unpack('>IIII', rsp)
+    return step_count, spanning_count, total_occupied, conn_steps
 
 # Example usage
 ser = serial.Serial('/dev/ttyUSB0', 115200)
 send_request(ser, 0x9999999A, 0x12345678, 8, 16)
-steps, spanning, occupied, bfs_steps = recv_response(ser)
-print(f"Steps: {steps}, Spanning: {spanning}, Occupied: {occupied}, BFS steps: {bfs_steps}")
+steps, spanning, occupied, conn_steps = recv_response(ser)
+print(f"Steps: {steps}, Spanning: {spanning}, Occupied: {occupied}, Conn steps: {conn_steps}")
 ```

@@ -49,7 +49,7 @@ architecture Behavioral of percolation_uart_top is
     signal core_step_count_s   : std_logic_vector(31 downto 0) := (others => '0');
     signal core_spanning_s     : std_logic_vector(31 downto 0) := (others => '0');
     signal core_total_s        : std_logic_vector(31 downto 0) := (others => '0');
-    signal core_bfs_steps_s    : std_logic_vector(31 downto 0) := (others => '0');
+    signal core_conn_steps_s   : std_logic_vector(31 downto 0) := (others => '0');
     signal core_done_s         : std_logic := '0';
 
     -- Add counter to prevent infinite wait in WAIT_CORE state
@@ -127,7 +127,7 @@ begin
             PendingSteps  => open,  -- not used in response
             SpanningCount => core_spanning_s,
             TotalOccupied => core_total_s,
-            BfsStepCount  => core_bfs_steps_s,
+            ConnStepCount => core_conn_steps_s,
             Done          => core_done_s
         );
 
@@ -211,11 +211,11 @@ begin
                         -- Transition when: core signals completion OR timeout
                         if core_done_s = '1' then
                             -- Core has completed the configured number of runs; capture and send
-                            tx_msg_s <= core_step_count_s & core_spanning_s & core_total_s & core_bfs_steps_s;
+                            tx_msg_s <= core_step_count_s & core_spanning_s & core_total_s & core_conn_steps_s;
                             state <= SEND_WAIT;
                         elsif wait_timeout_s >= WAIT_TIMEOUT_MAX then
                             -- Timeout: send whatever we have (may be zeros)
-                            tx_msg_s <= core_step_count_s & core_spanning_s & core_total_s & core_bfs_steps_s;
+                            tx_msg_s <= core_step_count_s & core_spanning_s & core_total_s & core_conn_steps_s;
                             state <= SEND_WAIT;
                         end if;
 

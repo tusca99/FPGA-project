@@ -128,7 +128,7 @@ begin
         assert rsp_msg_s(127 downto 96) = x"00000010"
             report "Unexpected StepCount in response: expected 16 completed runs" severity failure;
 
-        report "BfsStepCount=" & integer'image(to_integer(unsigned(rsp_msg_s(31 downto 0)))) severity note;
+        report "ConnStepCount=" & integer'image(to_integer(unsigned(rsp_msg_s(31 downto 0)))) severity note;
 
         assert rsp_msg_s /= ZERO_RSP
             report "Response payload should contain non-zero results (step count, spanning count, etc.)" severity failure;

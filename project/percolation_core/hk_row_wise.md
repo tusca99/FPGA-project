@@ -1,10 +1,37 @@
-# HK Row-Wise - Documento di Implementazione
+# HK Row-Wise - Skeleton RTL
 
-Questo documento descrive il modulo di connettivita` target per il core di percolation: un Hoshen-Kopelman / Union-Find row-wise pensato per sintesi su FPGA.
+Questo documento definisce il contratto RTL target per il modulo di connettivita` del core di percolation: un Hoshen-Kopelman / Union-Find row-wise pensato per sintesi su FPGA.
+
+## Entity Target
+
+Il blocco target e` `percolation_hk_row_wise`.
+
+```vhdl
+entity percolation_hk_row_wise is
+    generic (
+        MAX_GRID   : integer := 128;
+        MAX_CELLS  : integer := 128 * 128;
+        LABEL_BITS : integer := 16
+    );
+    port (
+        Clk           : in std_logic;
+        Rst           : in std_logic; -- active low
+        CfgInit       : in std_logic;
+        GridSize      : in std_logic_vector(15 downto 0);
+        Start         : in std_logic;
+        RowOpen       : in std_logic_vector(MAX_GRID - 1 downto 0);
+        RowValid      : in std_logic;
+        Busy          : out std_logic;
+        Done          : out std_logic;
+        Spanning      : out std_logic;
+        ConnStepCount : out std_logic_vector(31 downto 0)
+    );
+end entity;
+```
 
 ## Obiettivo
 
-Verificare se esiste un cluster che collega il bordo alto al bordo basso della griglia, senza usare una BFS globale con coda su tutta la matrice.
+Verificare se esiste un cluster che collega il bordo alto al bordo basso della griglia, senza usare un approccio globale con coda su tutta la matrice.
 
 L'idea e` processare la griglia una riga alla volta, mantenendo solo lo stato minimo necessario:
 
@@ -19,7 +46,7 @@ Il target e` una griglia grande, fino a 128x128, su Arty A7-100T.
 
 Row-wise e` la scelta naturale perche:
 
-- riduce la memoria viva a due righe di etichette invece di una BFS su tutta la griglia
+- riduce la memoria viva a due righe di etichette invece di una scansione globale su tutta la griglia
 - sfrutta bene il bank RNG 64-wide gia` presente nel progetto
 - evita code e visite globali difficili da sintetizzare e costose in tempo di simulazione
 - permette di chiudere una run con logica locale e prevedibile
@@ -28,19 +55,41 @@ Row-wise e` la scelta naturale perche:
 
 Il modulo di connettivita` deve ricevere:
 
-- `Start`: avvio di una nuova analisi su una griglia completa
+- `Start`: avvio di una nuova analisi sulla batch corrente
 - `GridSize`: lato della griglia quadrata
 - `RowOpen`: occupazione della riga corrente, in forma binaria compatta
-- `RowValid`: validita` della riga corrente
+- `RowValid`: strobe che presenta una nuova riga al blocco
 
 E deve produrre:
 
-- `Busy`: analisi in corso
-- `Done`: analisi conclusa
+- `Busy`: analisi della riga corrente in corso
+- `Done`: analisi conclusa per tutta la griglia
 - `Spanning`: cluster aperto sia in alto sia in basso
 - `ConnStepCount`: metrica di lavoro del modulo di connettivita`
 
 Per una griglia 128x128, il core puo` alimentare il modulo una riga alla volta, usando due burst da 64 bit per riga se la sorgente resta il bank RNG 64-wide.
+
+## Skeleton di controllo
+
+```text
+IDLE:
+    attende Start
+
+WAIT_ROW:
+    attende RowValid
+    lancia la scansione della riga corrente
+
+SCAN_ROW:
+    processa una cella per ciclo
+    aggiorna etichette, equivalenze e flag di bordo
+    quando la riga termina:
+        se ci sono altre righe -> WAIT_ROW
+        altrimenti -> COMPLETE
+
+COMPLETE:
+    alza Done
+    attende Start basso o CfgInit per ripartire
+```
 
 ## Stato interno minimo
 
@@ -84,43 +133,11 @@ Alla fine dell'ultima riga:
 
 1. reset o `CfgInit`
 2. inizializzazione della struttura union-find
-3. acquisizione della prima riga di occupazione
-4. scansione da sinistra a destra con assegnazione label
-5. passaggio alla riga successiva mantenendo solo la memoria necessaria
-6. completamento, compressione finale e decisione di spanning
-
-## Pseudocodice
-
-```text
-on Start:
-    clear labels and equivalence table
-    next_label := 1
-
-for each row in grid:
-    for each cell in row:
-        if cell is empty:
-            curr_labels[x] := 0
-        else:
-            left := curr_labels[x - 1] if x > 0 else 0
-            up   := prev_labels[x]
-
-            if left = 0 and up = 0:
-                curr_labels[x] := new_label()
-            elsif left /= 0 and up = 0:
-                curr_labels[x] := root(left)
-            elsif left = 0 and up /= 0:
-                curr_labels[x] := root(up)
-            else:
-                curr_labels[x] := union(left, up)
-
-            update boundary flags on the root
-
-    prev_labels := curr_labels
-
-at the last row:
-    spanning := any root with touch_top and touch_bottom
-    Done := 1
-```
+3. avvio batch con `Start`
+4. acquisizione di una riga alla volta con `RowValid`
+5. scansione da sinistra a destra con assegnazione label
+6. passaggio alla riga successiva mantenendo solo la memoria necessaria
+7. completamento, compressione finale e decisione di spanning
 
 ## Interfaccia con il resto del progetto
 
@@ -131,15 +148,15 @@ Il core applicativo deve:
 - avanzare solo quando il blocco segnala che la riga e` stata consumata
 - accumulare statistiche di run come occupazione e spanning
 
-Questo evita di costruire una BFS globale, che nel progetto attuale e` utile come riferimento funzionale ma non e` la forma finale da portare in RTL.
+Questo evita di costruire un flusso globale, che nel progetto attuale e` utile come riferimento funzionale ma non e` la forma finale da portare in RTL.
 
 ## Obiettivo di sintesi
 
 Il modulo deve essere scritto per una sintesi regolare:
 
-- niente coda BFS sull'intera griglia
+- niente coda globale sull'intera griglia
 - niente ricerca ricorsiva
 - niente traversali globali non deterministiche
 - stato locale e memoria esplicita, preferibilmente row-buffered
 
-La metrica finale da preservare e` la correttezza funzionale con un costo di controllo molto piu` prevedibile della BFS.
+La metrica finale da preservare e` la correttezza funzionale con un costo di controllo molto piu` prevedibile dell'approccio globale.
