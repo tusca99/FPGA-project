@@ -5,7 +5,7 @@ use IEEE.NUMERIC_STD.ALL;
 entity percolation_uart_top is
     generic (
         CLK_FREQ  : integer := 100_000_000;
-        BAUD_RATE : integer := 115200;
+        BAUD_RATE : integer := 921600;
         REQ_BYTES : positive := 12;
         RSP_BYTES : positive := 16
     );
@@ -84,6 +84,8 @@ begin
 
     rx_inst : entity work.uart_msg_rx
         generic map (
+            CLK_FREQ  => CLK_FREQ,
+            BAUD_RATE => BAUD_RATE,
             N_BYTES => REQ_BYTES
         )
         port map (

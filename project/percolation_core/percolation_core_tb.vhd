@@ -63,7 +63,7 @@ begin
         wait for 20 ns;
         Rst <= '1';
 
-        CfgGridSize <= x"0008"; -- 64x64
+        CfgGridSize <= x"0040"; -- 64x64
         CfgP <= x"970A3D70"; -- p ~= 0.59 in UQ32
         CfgSeed <= x"12345678";
         CfgRuns <= x"00000010"; -- 16 runs

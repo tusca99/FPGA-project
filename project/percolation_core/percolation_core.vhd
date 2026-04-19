@@ -33,8 +33,6 @@ architecture Behavioral of percolation_core is
     constant MAX_GRID   : integer := 128;
     constant MAX_CELLS  : integer := MAX_GRID * MAX_GRID;
 
-    signal grid_mem     : std_logic_vector(MAX_CELLS-1 downto 0) := (others => '0');
-
     signal grid_size    : integer range 1 to MAX_GRID := 64;
     signal grid_cells   : integer range 1 to MAX_CELLS := 64*64;
     signal runs_target  : unsigned(31 downto 0) := (others => '0');
@@ -46,12 +44,11 @@ architecture Behavioral of percolation_core is
     signal occupied_sum : unsigned(31 downto 0) := (others => '0');
     signal conn_steps_total : unsigned(31 downto 0) := (others => '0');
 
-    signal state        : integer range 0 to 5 := 0;
-    signal fill_index   : integer range 0 to MAX_CELLS := 0;
-    signal row_feed_index : integer range 0 to MAX_GRID := 0;
+    signal state        : integer range 0 to 1 := 0;
+    signal stream_index : integer range 0 to MAX_CELLS := 0;
     signal hk_start_s   : std_logic := '0';
-    signal hk_row_valid_s : std_logic := '0';
-    signal hk_row_open_s  : std_logic_vector(MAX_GRID - 1 downto 0) := (others => '0');
+    signal hk_chunk_valid_s : std_logic := '0';
+    signal hk_chunk_open_s  : std_logic_vector(N_ROWS - 1 downto 0) := (others => '0');
     signal hk_busy_s    : std_logic := '0';
     signal hk_done_s    : std_logic := '0';
     signal hk_spanning_s : std_logic := '0';
@@ -81,23 +78,31 @@ architecture Behavioral of percolation_core is
         end if;
     end function;
 
-    function extract_row(
-        grid      : std_logic_vector(MAX_CELLS - 1 downto 0);
-        row_index : integer;
-        row_size  : integer
-    ) return std_logic_vector is
-        variable row_bits : std_logic_vector(MAX_GRID - 1 downto 0) := (others => '0');
-        variable base_idx  : integer;
+    function count_ones_prefix(
+        flags : flag_array_t;
+        limit : integer
+    ) return integer is
+        variable total : integer := 0;
     begin
-        base_idx := row_index * row_size;
-
-        for col in 0 to MAX_GRID - 1 loop
-            if col < row_size then
-                row_bits(col) := grid(base_idx + col);
+        for index in 0 to N_ROWS - 1 loop
+            if index < limit then
+                if flags(index) = '1' then
+                    total := total + 1;
+                end if;
             end if;
         end loop;
 
-        return row_bits;
+        return total;
+    end function;
+
+    function flags_to_slv(flags : flag_array_t) return std_logic_vector is
+        variable bits : std_logic_vector(N_ROWS - 1 downto 0) := (others => '0');
+    begin
+        for index in flags'range loop
+            bits(index) := flags(index);
+        end loop;
+
+        return bits;
     end function;
 
     function seed_to_master_key(seed : std_logic_vector(31 downto 0)) return std_logic_vector is
@@ -137,8 +142,8 @@ begin
             CfgInit       => CfgInit,
             GridSize      => CfgGridSize,
             Start         => hk_start_s,
-            RowOpen       => hk_row_open_s,
-            RowValid      => hk_row_valid_s,
+            ChunkOpen     => hk_chunk_open_s,
+            ChunkValid    => hk_chunk_valid_s,
             Busy          => hk_busy_s,
             Done          => hk_done_s,
             Spanning      => hk_spanning_s,
@@ -153,13 +158,11 @@ begin
     Done          <= '1' when (runs_target /= 0) and (runs_done >= runs_target) else '0';
 
     process(Clk)
-        variable cfg_size_i    : integer;
-        variable new_runs_done  : unsigned(31 downto 0);
-        variable new_conn_total : unsigned(31 downto 0);
-        variable chunk_cols     : integer;
-        variable chunk_occupied : integer;
-        variable bit_index      : integer;
-        variable row_bits_v     : std_logic_vector(MAX_GRID - 1 downto 0);
+        variable cfg_size_i      : integer;
+        variable new_runs_done   : unsigned(31 downto 0);
+        variable new_conn_total  : unsigned(31 downto 0);
+        variable chunk_cells     : integer;
+        variable chunk_occupied  : integer;
     begin
         if rising_edge(Clk) then
             if Rst = '0' then
@@ -171,16 +174,14 @@ begin
                 runs_done         <= (others => '0');
                 spanning_cnt      <= (others => '0');
                 occupied_sum      <= (others => '0');
-                conn_steps_total  <= (others => '0');
+                conn_steps_total   <= (others => '0');
                 state             <= 0;
-                fill_index        <= 0;
-                row_feed_index    <= 0;
+                stream_index      <= 0;
                 run_occupied      <= (others => '0');
                 rng_arm_s         <= '0';
                 hk_start_s        <= '0';
-                hk_row_valid_s    <= '0';
-                hk_row_open_s     <= (others => '0');
-                grid_mem          <= (others => '0');
+                hk_chunk_valid_s  <= '0';
+                hk_chunk_open_s   <= (others => '0');
             else
                 if CfgInit = '1' then
                     cfg_size_i := min_int(to_integer(unsigned(CfgGridSize)), MAX_GRID);
@@ -196,16 +197,14 @@ begin
                     runs_done         <= (others => '0');
                     spanning_cnt      <= (others => '0');
                     occupied_sum      <= (others => '0');
-                    conn_steps_total  <= (others => '0');
+                    conn_steps_total   <= (others => '0');
                     state             <= 0;
-                    fill_index        <= 0;
-                    row_feed_index    <= 0;
+                    stream_index      <= 0;
                     run_occupied      <= (others => '0');
                     rng_arm_s         <= '0';
                     hk_start_s        <= '0';
-                    hk_row_valid_s    <= '0';
-                    hk_row_open_s     <= (others => '0');
-                    grid_mem          <= (others => '0');
+                    hk_chunk_valid_s  <= '0';
+                    hk_chunk_open_s   <= (others => '0');
                 end if;
 
                 if (CfgInit = '0') and (rng_busy_s = '1') then
@@ -222,119 +221,63 @@ begin
                     pending <= pending + unsigned(StepAddCount);
                 end if;
 
-                hk_start_s <= '0';
-                hk_row_valid_s <= '0';
+                hk_start_s       <= '0';
+                hk_chunk_valid_s <= '0';
 
                 case state is
-                    when 0 => -- IDLE
+                    when 0 =>
                         if (rng_arm_s = '1') and (rng_busy_s = '0') and (rng_all_valid_s = '1') and
                            ((run_enable = '1') or (pending /= 0)) and
                            ((runs_target = 0) or (runs_done < runs_target)) then
-                            fill_index    <= 0;
-                            run_occupied  <= (others => '0');
-                            row_feed_index <= 0;
-                            state         <= 1;
+                            stream_index <= 0;
+                            run_occupied <= (others => '0');
+                            hk_start_s   <= '1';
+                            state        <= 1;
                         end if;
 
-                    when 1 => -- GENERATE GRID IN LINEAR 64-CELL BLOCKS
-                        if (rng_busy_s = '0') and (rng_all_valid_s = '1') then
-                            chunk_cols := min_int(grid_cells - fill_index, N_ROWS);
-                            chunk_occupied := 0;
+                    when 1 =>
+                        if hk_done_s = '1' then
+                            new_runs_done := runs_done + 1;
+                            new_conn_total := conn_steps_total + unsigned(hk_conn_steps_s);
 
-                            for bit_index in 0 to N_ROWS - 1 loop
-                                if bit_index < chunk_cols then
-                                    grid_mem(fill_index + bit_index) <= rng_site_open_s(bit_index);
-                                    if rng_site_open_s(bit_index) = '1' then
-                                        chunk_occupied := chunk_occupied + 1;
-                                    end if;
-                                end if;
-                            end loop;
+                            runs_done <= new_runs_done;
+                            conn_steps_total <= new_conn_total;
 
-                            if fill_index = 0 then
-                                report "percolation_core first chunk: busy=" & std_logic'image(rng_busy_s) &
-                                       " all_valid=" & std_logic'image(rng_all_valid_s) &
-                                       " valid0=" & std_logic'image(rng_valid_mask_s(0)) &
-                                       " open0=" & std_logic'image(rng_site_open_s(0)) &
-                                       " open1=" & std_logic'image(rng_site_open_s(1)) &
-                                       " open2=" & std_logic'image(rng_site_open_s(2)) &
-                                       " open3=" & std_logic'image(rng_site_open_s(3)) &
-                                       " open4=" & std_logic'image(rng_site_open_s(4)) &
-                                       " open5=" & std_logic'image(rng_site_open_s(5)) &
-                                       " open6=" & std_logic'image(rng_site_open_s(6)) &
-                                       " open7=" & std_logic'image(rng_site_open_s(7)) &
-                                       " chunk_cells=" & integer'image(chunk_cols) &
-                                       " chunk_occupied=" & integer'image(chunk_occupied)
-                                    severity note;
+                            if hk_spanning_s = '1' then
+                                spanning_cnt <= spanning_cnt + 1;
                             end if;
 
-                            run_occupied <= run_occupied + to_unsigned(chunk_occupied, 32);
+                            occupied_sum <= occupied_sum + run_occupied;
 
-                            if fill_index + chunk_cols >= grid_cells then
-                                row_feed_index <= 0;
+                            report "percolation_core run complete: grid_size=" & integer'image(grid_size) &
+                                   " run_occupied=" & integer'image(to_integer(run_occupied)) &
+                                   " conn_steps=" & integer'image(to_integer(unsigned(hk_conn_steps_s))) &
+                                   " conn_total=" & integer'image(to_integer(new_conn_total)) &
+                                   " runs_done=" & integer'image(to_integer(new_runs_done)) &
+                                   " hk_busy=" & std_logic'image(hk_busy_s) &
+                                   " spanning=" & std_logic'image(hk_spanning_s)
+                                severity note;
+
+                            if (pending /= 0) then
+                                pending <= pending - 1;
+                            end if;
+
+                            if (((run_enable = '1') or (pending /= 0)) and
+                                ((runs_target = 0) or (new_runs_done < runs_target))) then
+                                stream_index <= 0;
+                                run_occupied <= (others => '0');
                                 hk_start_s <= '1';
-                                state <= 2;
+                                state <= 1;
                             else
-                                fill_index <= fill_index + chunk_cols;
+                                state <= 0;
                             end if;
-                        end if;
-
-                    when 2 => -- PULSE HK START
-                        state <= 3;
-
-                    when 3 => -- PRESENT ROW TO HK
-                        if (hk_busy_s = '0') and (hk_done_s = '0') then
-                            row_bits_v := extract_row(grid_mem, row_feed_index, grid_size);
-                            hk_row_open_s <= row_bits_v;
-                            hk_row_valid_s <= '1';
-                            state <= 4;
-                        end if;
-
-                    when 4 => -- WAIT FOR HK TO LATCH THE ROW
-                        if hk_busy_s = '1' then
-                            state <= 5;
-                        end if;
-
-                    when 5 => -- WAIT FOR HK TO COMPLETE THE ROW OR THE BATCH
-                        if hk_busy_s = '0' then
-                            if hk_done_s = '1' then
-                                new_runs_done := runs_done + 1;
-                                new_conn_total := conn_steps_total + unsigned(hk_conn_steps_s);
-
-                                runs_done <= new_runs_done;
-                                conn_steps_total <= new_conn_total;
-
-                                if hk_spanning_s = '1' then
-                                    spanning_cnt <= spanning_cnt + 1;
-                                end if;
-
-                                occupied_sum <= occupied_sum + run_occupied;
-
-                                report "percolation_core run complete: grid_size=" & integer'image(grid_size) &
-                                       " run_occupied=" & integer'image(to_integer(run_occupied)) &
-                                       " conn_steps=" & integer'image(to_integer(unsigned(hk_conn_steps_s))) &
-                                       " conn_total=" & integer'image(to_integer(new_conn_total)) &
-                                       " runs_done=" & integer'image(to_integer(new_runs_done)) &
-                                       " hk_busy=" & std_logic'image(hk_busy_s) &
-                                       " spanning=" & std_logic'image(hk_spanning_s)
-                                    severity note;
-
-                                if pending /= 0 then
-                                    pending <= pending - 1;
-                                end if;
-
-                                if ((run_enable = '1') or (pending /= 0)) and
-                                   ((runs_target = 0) or (new_runs_done < runs_target)) then
-                                    fill_index <= 0;
-                                    run_occupied <= (others => '0');
-                                    row_feed_index <= 0;
-                                    state <= 1;
-                                else
-                                    state <= 0;
-                                end if;
-                            else
-                                row_feed_index <= row_feed_index + 1;
-                                state <= 3;
-                            end if;
+                        elsif stream_index < grid_cells then
+                            chunk_cells := min_int(grid_cells - stream_index, N_ROWS);
+                            hk_chunk_open_s  <= flags_to_slv(rng_site_open_s);
+                            hk_chunk_valid_s <= '1';
+                            chunk_occupied := count_ones_prefix(rng_site_open_s, chunk_cells);
+                            run_occupied <= run_occupied + to_unsigned(chunk_occupied, 32);
+                            stream_index <= stream_index + chunk_cells;
                         end if;
 
                     when others =>

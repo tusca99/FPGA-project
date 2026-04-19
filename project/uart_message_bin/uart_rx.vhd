@@ -4,6 +4,10 @@ use IEEE.STD_LOGIC_1164.ALL;
 use IEEE.NUMERIC_STD.ALL;
 
 entity uart_rx is
+    generic (
+        CLK_FREQ  : integer := 100_000_000;
+        BAUD_RATE : integer := 115200
+    );
     Port (
         Clk        : in  std_logic;
         Rst        : in  std_logic; -- active low
@@ -16,7 +20,7 @@ entity uart_rx is
 end uart_rx;
 
 architecture Behavioral of uart_rx is
-    constant BIT_CLKS       : integer := 100_000_000 / 115200;
+    constant BIT_CLKS       : integer := CLK_FREQ / BAUD_RATE;
     constant HALF_BIT_CLKS  : integer := BIT_CLKS / 2;
 
     type state_type is (IDLE, START, DATA, STOP);

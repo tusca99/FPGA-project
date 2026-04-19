@@ -4,6 +4,8 @@ use IEEE.NUMERIC_STD.ALL;
 
 entity uart_msg_rx is
     generic (
+        CLK_FREQ  : integer := 100_000_000;
+        BAUD_RATE : integer := 115200;
         N_BYTES   : positive := 8
     );
     port (
@@ -31,6 +33,10 @@ architecture Behavioral of uart_msg_rx is
 begin
 
     rx_inst : entity work.uart_rx
+        generic map (
+            CLK_FREQ  => CLK_FREQ,
+            BAUD_RATE => BAUD_RATE
+        )
         port map (
             Clk       => Clk,
             Rst       => Rst,

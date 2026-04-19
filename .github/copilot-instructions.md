@@ -41,6 +41,7 @@
 - **Anti byte-loss (UART-controlled designs)**:
   - RX: `uart_rx` genera `rx_valid` “stirato`; catturare il byte su fronte di salita (edge-detect) e inserirlo nel wrapper del messaggio.
   - TX: accodare le risposte e trasmettere solo quando `tx_busy='0'`.
+  - Se si accelera o si parametrizza il baud rate nei testbench, il percorso RX deve restare coerente con `baud_gen`: evitare timing hardcoded nel ricevitore che assumono 115200 fisso.
 - **Testbench**: clock a 100 MHz, sequenze di reset e stimoli ben definite; per `percolation_core` fare prima validazione standalone e poi validazione via Python su UART appena esiste un flusso minimo end-to-end funzionante.
 - **Separazione funzionale**: LFSR, connettività e wrapper/top devono restare separati per facilitare lavoro parallelo, sostituzione dell’algoritmo di connettività e benchmark puliti.
 

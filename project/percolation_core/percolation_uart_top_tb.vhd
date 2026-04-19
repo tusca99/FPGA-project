@@ -7,7 +7,7 @@ end entity;
 
 architecture Behavioral of percolation_uart_top_tb is
     constant CLK_FREQ  : integer := 100_000_000;
-    constant BAUD_RATE : integer := 1_000_000; -- simulation-only speed-up
+    constant BAUD_RATE : integer := 1_000_000;
     constant REQ_BYTES : positive := 12;
     constant RSP_BYTES : positive := 16;
     constant ZERO_RSP  : std_logic_vector(RSP_BYTES*8-1 downto 0) := (others => '0');
@@ -91,6 +91,8 @@ begin
 
     rsp_rx_inst : entity work.uart_msg_rx
         generic map (
+            CLK_FREQ => CLK_FREQ,
+            BAUD_RATE => BAUD_RATE,
             N_BYTES => RSP_BYTES
         )
         port map (
