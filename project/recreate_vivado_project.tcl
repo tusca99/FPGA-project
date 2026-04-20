@@ -5,6 +5,9 @@ set part_name xc7a100tcsg324-1
 set project_root [file normalize [file join $repo_root project .vivado]]
 set project_dir [file join $project_root $project_name]
 
+# Keep Vivado from saturating the workstation during elaboration/synthesis.
+set_param general.maxThreads 2
+
 if {[file exists $project_dir]} {
     catch {close_project -quiet}
 

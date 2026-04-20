@@ -20,19 +20,19 @@ entity percolation_uart_top is
 end percolation_uart_top;
 
 architecture Behavioral of percolation_uart_top is
-    type state_t is (IDLE, WAIT_CORE, SEND_WAIT, TX_COMPLETE);
+    type state_t is (IDLE, WAIT_CORE, WAIT_DONE, SEND_WAIT, TX_COMPLETE);
     signal state : state_t := IDLE;
 
     signal baud_tick_s : std_logic := '0';
-    signal half_tick_s : std_logic := '0';
 
-    signal rx_msg_s        : std_logic_vector(REQ_BYTES*8-1 downto 0) := (others => '0');
-    signal rx_valid_s      : std_logic := '0';
-    signal rx_busy_s       : std_logic := '0';
+    signal rx_msg_s         : std_logic_vector(REQ_BYTES*8-1 downto 0) := (others => '0');
+    signal rx_msg_latched_s : std_logic_vector(REQ_BYTES*8-1 downto 0) := (others => '0');
+    signal rx_valid_s       : std_logic := '0';
+    signal rx_busy_s        : std_logic := '0';
 
-    signal tx_msg_s        : std_logic_vector(RSP_BYTES*8-1 downto 0) := (others => '0');
-    signal tx_start_s      : std_logic := '0';
-    signal tx_busy_s       : std_logic := '0';
+    signal tx_msg_s         : std_logic_vector(RSP_BYTES*8-1 downto 0) := (others => '0');
+    signal tx_start_s       : std_logic := '0';
+    signal tx_busy_s        : std_logic := '0';
 
     -- Button synchronizers (double-flip-flop)
     signal btn_init_sync1 : std_logic := '1';
@@ -78,8 +78,7 @@ begin
         port map (
             Clk       => Clk,
             Rst       => Rst,
-            baud_tick => baud_tick_s,
-            half_tick => half_tick_s
+            baud_tick => baud_tick_s
         );
 
     rx_inst : entity work.uart_msg_rx
@@ -91,8 +90,6 @@ begin
         port map (
             Clk       => Clk,
             Rst       => Rst,
-            baud_tick => baud_tick_s,
-            half_tick => half_tick_s,
             uart_rx_i => uart_rx_i,
             msg_data  => rx_msg_s,
             msg_valid => rx_valid_s,
@@ -173,27 +170,30 @@ begin
                 -- Only clear one-cycle pulses at start of cycle
                 tx_start_s <= '0';
                 core_cfg_init_s <= '0';
-                -- NOTE: core_run_en_s stays asserted in WAIT_CORE to let core keep running
+                -- NOTE: core_run_en_s stays asserted in WAIT_DONE while the core runs
 
                 case state is
                     when IDLE =>
                         core_run_en_s <= '0';  -- Deassert when idle
-                        -- UART message: Word0=CfgP, Word1=CfgSeed, Word2=GridSize[7:0] | CfgRuns[23:0]
                         if rx_valid_s = '1' then
-                            core_cfg_p_s    <= word_from_msg(rx_msg_s, 0);
-                            core_cfg_seed_s <= word_from_msg(rx_msg_s, 1);
-                            
-                            grid_runs := word_from_msg(rx_msg_s, 2);
+                            rx_msg_latched_s <= rx_msg_s;
+                            state <= WAIT_CORE;
+                        end if;
+
+                    when WAIT_CORE =>
+                        if rx_valid_s = '0' then
+                            core_cfg_p_s    <= word_from_msg(rx_msg_latched_s, 0);
+                            core_cfg_seed_s <= word_from_msg(rx_msg_latched_s, 1);
+
+                            grid_runs := word_from_msg(rx_msg_latched_s, 2);
                             core_cfg_grid_s <= std_logic_vector(resize(unsigned(grid_runs(31 downto 24)), 16));
                             core_cfg_runs_s <= std_logic_vector(resize(unsigned(grid_runs(23 downto 0)), 32));
-                            
-                            -- Auto-init and run on UART message
+
                             core_cfg_init_s <= '1';
-                            core_run_en_s   <= '1';  -- Keep high while in WAIT_CORE
-                            
-                            -- Reset timeout and transition to wait for core to complete
+                            core_run_en_s   <= '1';
+
                             wait_timeout_s <= (others => '0');
-                            state <= WAIT_CORE;
+                            state <= WAIT_DONE;
                         end if;
 
                         -- Button override (debug): check for button presses
@@ -204,7 +204,7 @@ begin
                             core_run_en_s <= '1';
                         end if;
 
-                    when WAIT_CORE =>
+                    when WAIT_DONE =>
                         -- Keep the core running until the core asserts Done.
                         core_run_en_s <= '1';
                         -- With timeout safety to avoid infinite wait

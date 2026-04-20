@@ -22,8 +22,6 @@ architecture Behavioral of percolation_uart_top_tb is
     signal btn_init  : std_logic := '1';
     signal btn_run   : std_logic := '1';
 
-    signal dec_baud_tick_s : std_logic := '0';
-    signal dec_half_tick_s : std_logic := '0';
 
     signal rsp_msg_s   : std_logic_vector(RSP_BYTES*8-1 downto 0);
     signal rsp_valid_s : std_logic := '0';
@@ -61,17 +59,6 @@ begin
         end loop;
     end process;
 
-    baud_dec_inst : entity work.baud_gen
-        generic map (
-            CLK_FREQ  => CLK_FREQ,
-            BAUD_RATE => BAUD_RATE
-        )
-        port map (
-            Clk       => Clk,
-            Rst       => Rst,
-            baud_tick => dec_baud_tick_s,
-            half_tick => dec_half_tick_s
-        );
 
     dut : entity work.percolation_uart_top
         generic map (
@@ -98,8 +85,6 @@ begin
         port map (
             Clk       => Clk,
             Rst       => Rst,
-            baud_tick => dec_baud_tick_s,
-            half_tick => dec_half_tick_s,
             uart_rx_i => uart_tx_o,
             msg_data  => rsp_msg_s,
             msg_valid => rsp_valid_s,

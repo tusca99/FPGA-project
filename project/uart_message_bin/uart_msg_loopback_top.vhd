@@ -26,7 +26,6 @@ end uart_msg_loopback_top;
 
 architecture Behavioral of uart_msg_loopback_top is
     signal baud_tick_s : std_logic := '0';
-    signal half_tick_s : std_logic := '0';
 
     signal rx_msg_s   : std_logic_vector(N_BYTES*8-1 downto 0) := (others => '0');
     signal rx_valid_s : std_logic := '0';
@@ -52,8 +51,7 @@ begin
         port map (
             Clk       => Clk,
             Rst       => Rst,
-            baud_tick => baud_tick_s,
-            half_tick => half_tick_s
+            baud_tick => baud_tick_s
         );
 
     rx_inst : entity work.uart_msg_rx
@@ -63,8 +61,6 @@ begin
         port map (
             Clk       => Clk,
             Rst       => Rst,
-            baud_tick => baud_tick_s,
-            half_tick => half_tick_s,
             uart_rx_i => uart_rx_i,
             msg_data  => rx_msg_s,
             msg_valid => rx_valid_s,

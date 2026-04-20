@@ -11,8 +11,6 @@ entity uart_msg_rx is
     port (
         Clk       : in  std_logic;
         Rst       : in  std_logic; -- active low
-        baud_tick : in  std_logic;
-        half_tick : in  std_logic;
         uart_rx_i : in  std_logic;
         msg_data  : out std_logic_vector(N_BYTES*8-1 downto 0);
         msg_valid : out std_logic;
@@ -41,8 +39,6 @@ begin
             Clk       => Clk,
             Rst       => Rst,
             uart_rx_i => uart_rx_i,
-            baud_tick => baud_tick,
-            half_tick => half_tick,
             rx_data   => rx_data_s,
             rx_valid  => rx_valid_s
         );

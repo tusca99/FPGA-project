@@ -5,7 +5,8 @@ Questo e` il data-plane MVP per il progetto di site percolation.
 ## Stato attuale
 
 - Il core lavora in single-clock e usa un generatore RNG dedicato per riempire la griglia.
-- La direzione di connettivita` target e` Hoshen-Kopelman / Union-Find row-wise; la baseline storica resta solo come confronto interno.
+- La direzione di connettivita` ha due varianti tenute separate: frontier row-wise a due righe come base principale e HK row-wise ridotto come alternativa per cluster statistics.
+- Il backend principale non materializza tutta la griglia: mantiene solo riga corrente e riga precedente.
 - `Done` indica che la batch richiesta e` terminata.
 - `ConnStepCount` e` cumulativo su tutte le run della richiesta, non per singola run.
 - Statistiche derivate come la media delle celle occupate vanno calcolate lato host dai contatori grezzi.
@@ -15,7 +16,8 @@ Questo e` il data-plane MVP per il progetto di site percolation.
 ## File chiave
 
 - `percolation_core.vhd`: core principale, configurazione, generazione griglia e statistiche.
-- `hk_row_wise.md`: documento di progetto per il modulo HK row-wise.
+- `bfs_frontier.md`: documento di progetto per il backend frontier row-wise / wavefront a due righe.
+- `hk_row_wise.md`: documento di progetto per il modulo HK row-wise ridotto.
 - `percolation_core_tb.vhd`: testbench standalone del core.
 - `percolation_uart_top.vhd`: wrapper sottile UART + core.
 - `percolation_uart_top_tb.vhd`: testbench end-to-end del wrapper UART.
@@ -24,7 +26,12 @@ Questo e` il data-plane MVP per il progetto di site percolation.
 
 ## Direzione di evoluzione
 
-La parte di connettivita` va portata verso Hoshen-Kopelman / Union-Find row-wise: il modulo deve restare sintetizzabile, streaming, e leggibile per riga, senza code globali sulla griglia intera.
+La parte di connettivita` ha due strade documentate:
+
+- Frontier row-wise / wavefront a due righe per reachability e percolazione semplice
+- HK row-wise ridotto per statistiche di cluster e label di componente
+
+In entrambi i casi il modulo deve restare sintetizzabile, streaming e con interfaccia stabile verso il core applicativo.
 
 ## Doc collegate
 

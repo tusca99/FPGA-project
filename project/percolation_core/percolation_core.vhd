@@ -33,7 +33,6 @@ architecture Behavioral of percolation_core is
     constant MAX_GRID   : integer := 128;
     constant MAX_CELLS  : integer := MAX_GRID * MAX_GRID;
 
-    signal grid_size    : integer range 1 to MAX_GRID := 64;
     signal grid_cells   : integer range 1 to MAX_CELLS := 64*64;
     signal runs_target  : unsigned(31 downto 0) := (others => '0');
 
@@ -135,7 +134,7 @@ begin
             busy       => rng_busy_s
         );
 
-    hk_inst : entity work.percolation_hk_row_wise
+    bfs_inst : entity work.percolation_bfs_frontier
         port map (
             Clk           => Clk,
             Rst           => Rst,
@@ -166,7 +165,6 @@ begin
     begin
         if rising_edge(Clk) then
             if Rst = '0' then
-                grid_size         <= 64;
                 grid_cells        <= 64 * 64;
                 runs_target       <= (others => '0');
                 run_enable        <= '0';
@@ -189,7 +187,6 @@ begin
                         cfg_size_i := 1;
                     end if;
 
-                    grid_size         <= cfg_size_i;
                     grid_cells        <= cfg_size_i * cfg_size_i;
                     runs_target       <= unsigned(CfgRuns);
                     run_enable        <= '0';
@@ -249,7 +246,7 @@ begin
 
                             occupied_sum <= occupied_sum + run_occupied;
 
-                            report "percolation_core run complete: grid_size=" & integer'image(grid_size) &
+                                report "percolation_core run complete: grid_size=" & integer'image(min_int(to_integer(unsigned(CfgGridSize)), MAX_GRID)) &
                                    " run_occupied=" & integer'image(to_integer(run_occupied)) &
                                    " conn_steps=" & integer'image(to_integer(unsigned(hk_conn_steps_s))) &
                                    " conn_total=" & integer'image(to_integer(new_conn_total)) &

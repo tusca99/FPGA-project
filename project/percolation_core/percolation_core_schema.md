@@ -1,6 +1,6 @@
 # Percolation Core - Schema Concettuale
 
-Questo file spiega, in modo semplice, cosa fa il core di percolazione in [percolation_core.vhd](percolation_core.vhd).
+Questo file spiega, in modo semplice, cosa fa il core di percolazione in [percolation_core.vhd](percolation_core.vhd) e fa da overview comune per i due backend di connettivita`, entrambi pensati in forma row-wise.
 
 ## Idea generale
 
@@ -46,12 +46,16 @@ La generazione casuale e la connettività devono restare separabili. Il contratt
     - `threshold`: soglia di occupazione `p`
     - `site_open(63 downto 0)`: 64 bit di occupazione per colonna
     - `busy`: vale `1` mentre il bank si inizializza
+- blocco di connettivita` / frontier row-wise
+    - consuma una riga alla volta dal RNG 64-wide
+    - mantiene solo riga corrente e riga precedente
+    - propaga la raggiungibilita` con due scan orizzontali e un seed verticale dalla riga precedente
 - blocco di connettivita` / HK row-wise
-    - consuma una riga di occupazione già confrontata con `p`
+    - consuma una riga di occupazione gia` confrontata con `p`
     - non conosce taps, seed o dettagli del RNG
     - usa etichette di riga, tabella union-find e flag di bordo per decidere lo spanning
 
-Questo contratto permette di sostituire il PRNG con un bank RNG diverso senza toccare la logica di spanning.
+Questo contratto permette di sostituire il PRNG con un bank RNG diverso senza toccare la logica di spanning e senza cambiare il controllo del core.
 
 ## Top applicativo sottile
 
@@ -89,10 +93,9 @@ Il core non fa una simulazione continua nel tempo.
 Fa sempre questo ciclo:
 
 - prepara una griglia casuale
-- prepara la griglia prendendo una riga alla volta dal bank RNG 64-wide
-- assegna etichette ai cluster occupati con una scansione row-wise
-- unisce le etichette equivalenti quando un cluster si connette in orizzontale o verticale
-- se una componente tocca bordo alto e basso, conta un evento di spanning
+- prende una riga alla volta dal bank RNG 64-wide
+- aggiorna la frontier di raggiungibilita` confrontando la riga corrente con quella precedente
+- se l'ultima riga ha almeno una cella raggiungibile, conta un evento di spanning
 - aggiorna i contatori
 - decide se rifare tutto da capo
 
@@ -113,10 +116,9 @@ if RunEn = 1 or ci sono step in coda:
         while non ho completato la riga corrente:
             prendi 64 bit di occupazione dal bank RNG
             scrivili nella riga corrente della griglia
-            assegna o unisci le etichette HK per le celle occupate
+            propaga la raggiungibilita` tra riga precedente e riga corrente
 
-        aggiorna le equivalenze tra etichette attive
-        verifica se una root tocca sia il bordo alto sia il bordo basso
+        verifica se la riga finale contiene almeno una cella raggiungibile
 
         incrementa StepCount
         se spanning = vero:
@@ -177,6 +179,9 @@ Per il benchmark conviene tenere fisso il messaggio UART e sottrarre il suo cost
 
 ## Nota importante
 
- La direzione target e` un **Hoshen-Kopelman / Union-Find row-wise**. Il vecchio approccio globale puo` restare solo come riferimento storico o test funzionale, ma non e` la forma finale da portare in RTL per una griglia grande.
+La direzione target non e` unica: il progetto mantiene due backend di connettivita` separati.
+
+- BFS migliorato / frontier wavefront: la base consigliata per reachability e percolazione semplice
+- HK row-wise ridotto: la variante da tenere solo se servono statistiche per cluster e label di componente
 
 La generazione casuale e` gia` separata nel bank `rng_hybrid_64`, quindi si puo` sostituire la connettivita` senza toccare la parte RNG.

@@ -1,6 +1,6 @@
 # HK Row-Wise - Skeleton RTL
 
-Questo documento definisce il contratto RTL target per il modulo di connettivita` del core di percolation: un Hoshen-Kopelman / Union-Find row-wise pensato per sintesi su FPGA.
+Questo documento definisce il contratto RTL target per la variante HK ridotta del modulo di connettivita` del core di percolation: un Hoshen-Kopelman / Union-Find row-wise pensato per sintetizzare statistiche di cluster su FPGA.
 
 ## Entity Target
 
@@ -31,7 +31,7 @@ end entity;
 
 ## Obiettivo
 
-Verificare se esiste un cluster che collega il bordo alto al bordo basso della griglia, senza usare un approccio globale con coda su tutta la matrice.
+Verificare se esiste un cluster che collega il bordo alto al bordo basso della griglia, senza usare un approccio globale con coda su tutta la matrice. Questa e` la variante da tenere quando servono anche label di componente e statistiche di cluster.
 
 L'idea e` processare la griglia una riga alla volta, mantenendo solo lo stato minimo necessario:
 

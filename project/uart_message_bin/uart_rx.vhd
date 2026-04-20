@@ -12,8 +12,6 @@ entity uart_rx is
         Clk        : in  std_logic;
         Rst        : in  std_logic; -- active low
         uart_rx_i  : in  std_logic;
-        baud_tick  : in  std_logic; -- single cycle
-        half_tick  : in  std_logic; -- single cycle at mid-bit
         rx_data    : out std_logic_vector(7 downto 0);
         rx_valid   : out std_logic
     );

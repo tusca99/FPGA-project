@@ -12,34 +12,36 @@ cp project/recreate_vivado_project.tcl project/recreate_vivado_project.tcl.backu
 
 2. Ricrea il progetto con lo script canonico:
 ```bash
-vivado -mode batch -source project/recreate_vivado_project.tcl
+VIVADO_MAX_GB=16 project/run_vivado_limited.sh -mode batch -source project/recreate_vivado_project.tcl
 ```
 
 3. Se Vivado ha cache vecchia, pulisci lo stato generato e riprova:
 ```bash
 rm -rf project/.vivado/FPGA-project/
-vivado -mode batch -source project/recreate_vivado_project.tcl
+VIVADO_MAX_GB=16 project/run_vivado_limited.sh -mode batch -source project/recreate_vivado_project.tcl
 ```
 
 ## Why this guide exists
 
 Il TCL attuale scansiona solo i tree attivi e lascia fuori la copia legacy `uart_modular/`. Questo evita duplicate design units come `baud_gen`, `uart_rx` e `uart_tx`.
 
+Se il problema e` la RAM, il wrapper [project/run_vivado_limited.sh](project/run_vivado_limited.sh) impone un cap di processo; alza `VIVADO_MAX_GB` a 18 solo se hai margine.
+
 ## Minimal run targets
 
 Quando il progetto e` stato ricreato, gli ingressi abituali sono:
 
 ```bash
-vivado -mode batch -source project/recreate_vivado_project.tcl -tclargs loopback
-vivado -mode batch -source project/recreate_vivado_project.tcl -tclargs rng
-vivado -mode batch -source project/recreate_vivado_project.tcl -tclargs percolation
-vivado -mode batch -source project/recreate_vivado_project.tcl -tclargs percolation_uart
+VIVADO_MAX_GB=18 project/run_vivado_limited.sh -mode batch -source project/recreate_vivado_project.tcl -tclargs loopback
+VIVADO_MAX_GB=18 project/run_vivado_limited.sh -mode batch -source project/recreate_vivado_project.tcl -tclargs rng
+VIVADO_MAX_GB=18 project/run_vivado_limited.sh -mode batch -source project/recreate_vivado_project.tcl -tclargs percolation
+VIVADO_MAX_GB=18 project/run_vivado_limited.sh -mode batch -source project/recreate_vivado_project.tcl -tclargs percolation_uart
 ```
 
 Per aprire il progetto generato:
 
 ```bash
-vivado project/.vivado/FPGA-project/FPGA-project.xpr
+VIVADO_MAX_GB=18 project/run_vivado_limited.sh project/.vivado/FPGA-project/FPGA-project.xpr
 ```
 
 ## Quick checks

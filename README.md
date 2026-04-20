@@ -16,23 +16,25 @@ Il progetto Vivado va ricreato quando necessario, invece di modificare a mano i 
 
 Lo script di ricostruzione vive in [project/recreate_vivado_project.tcl](project/recreate_vivado_project.tcl) e prende i sorgenti direttamente dalle cartelle della repo.
 
+Per evitare che Vivado saturi la RAM della macchina, usa il wrapper [project/run_vivado_limited.sh](project/run_vivado_limited.sh): di default impone un tetto di 16 GiB, regolabile con `VIVADO_MAX_GB`.
+
 Comando principale:
 
 ```bash
 cd /path/to/FPGA-project
-vivado -mode batch -source project/recreate_vivado_project.tcl
+VIVADO_MAX_GB=16 project/run_vivado_limited.sh -mode batch -source project/recreate_vivado_project.tcl
 ```
 
 Modalita` opzionali se vuoi cambiare il focus senza toccare i file a mano:
 
 ```bash
 cd /path/to/FPGA-project
-vivado -mode batch -source project/recreate_vivado_project.tcl -tclargs percolation
+VIVADO_MAX_GB=18 project/run_vivado_limited.sh -mode batch -source project/recreate_vivado_project.tcl -tclargs percolation
 ```
 
 ```bash
 cd /path/to/FPGA-project
-vivado -mode batch -source project/recreate_vivado_project.tcl -tclargs loopback
+VIVADO_MAX_GB=18 project/run_vivado_limited.sh -mode batch -source project/recreate_vivado_project.tcl -tclargs loopback
 ```
 
 Il progetto viene creato in `project/.vivado/FPGA-project/FPGA-project.xpr`.
@@ -40,7 +42,7 @@ Il progetto viene creato in `project/.vivado/FPGA-project/FPGA-project.xpr`.
 Per aprirlo in GUI:
 
 ```bash
-vivado project/.vivado/FPGA-project/FPGA-project.xpr
+VIVADO_MAX_GB=18 project/run_vivado_limited.sh project/.vivado/FPGA-project/FPGA-project.xpr
 ```
 
 Se vuoi rilanciare la simulazione dopo una ricostruzione, apri il progetto salvato e usa il top di simulazione corrispondente al modo scelto: `uart_msg_loopback_tb` per il loopback, `percolation_core_tb` per il core.
