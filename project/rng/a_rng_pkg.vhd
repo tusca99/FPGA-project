@@ -3,12 +3,12 @@ use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
 package rng_pkg is
-    constant N_ROWS : integer := 64;
+    constant N_ROWS : integer := 128;
     constant KEY_WIDTH : integer := 80;
     constant IV_WIDTH : integer := 80;
     constant WORD_WIDTH : integer := 32;
     constant AES_BLOCK_WIDTH : integer := 128;
-    constant AES_SEED_BLOCKS : integer := 128;
+    constant AES_SEED_BLOCKS : integer := 2 * N_ROWS;
     constant TRIVIUM_WARMUP_CYCLES : integer := 1152;
 
     subtype aes_block_t is std_logic_vector(AES_BLOCK_WIDTH - 1 downto 0);
