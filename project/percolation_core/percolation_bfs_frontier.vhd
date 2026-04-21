@@ -56,7 +56,7 @@ architecture Behavioral of percolation_bfs_frontier is
             return '0';
         end if;
 
-        if unsigned(row(width - 1 downto 0)) = to_unsigned(0, width) then
+        if unsigned(row) = to_unsigned(0, row'length) then
             return '0';
         end if;
 

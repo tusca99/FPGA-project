@@ -22,14 +22,14 @@ Comando principale:
 
 ```bash
 cd /path/to/FPGA-project
-VIVADO_MAX_GB=16 project/run_vivado_limited.sh -mode batch -source project/recreate_vivado_project.tcl
+vivado -mode batch -source project/recreate_vivado_project.tcl
 ```
 
 Modalita` opzionali se vuoi cambiare il focus senza toccare i file a mano:
 
 ```bash
 cd /path/to/FPGA-project
-VIVADO_MAX_GB=18 project/run_vivado_limited.sh -mode batch -source project/recreate_vivado_project.tcl -tclargs percolation
+vivado -mode batch -source project/recreate_vivado_project.tcl -tclargs percolation
 ```
 
 ```bash
@@ -42,7 +42,7 @@ Il progetto viene creato in `project/.vivado/FPGA-project/FPGA-project.xpr`.
 Per aprirlo in GUI:
 
 ```bash
-VIVADO_MAX_GB=18 project/run_vivado_limited.sh project/.vivado/FPGA-project/FPGA-project.xpr
+vivado project/.vivado/FPGA-project/FPGA-project.xpr
 ```
 
 Se vuoi rilanciare la simulazione dopo una ricostruzione, apri il progetto salvato e usa il top di simulazione corrispondente al modo scelto: `uart_msg_loopback_tb` per il loopback, `percolation_core_tb` per il core.
