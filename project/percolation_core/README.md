@@ -6,6 +6,7 @@ Questo e` il data-plane MVP per il progetto di site percolation.
 
 - Il core lavora in single-clock e usa un generatore RNG dedicato per riempire la griglia.
 - La direzione di connettivita` ha due varianti tenute separate: frontier row-wise a due righe come base principale e HK row-wise ridotto come alternativa per cluster statistics.
+- La variante frontier e` piu` adatta se la chiusura orizzontale della riga viene implementata come dilatazione bitmask a 7 stage fissi, non come catena combinatoria da 128 celle.
 - Il backend principale non materializza tutta la griglia: mantiene solo riga corrente e riga precedente.
 - `Done` indica che la batch richiesta e` terminata.
 - `ConnStepCount` e` cumulativo su tutte le run della richiesta, non per singola run.
@@ -32,6 +33,8 @@ La parte di connettivita` ha due strade documentate:
 - HK row-wise ridotto per statistiche di cluster e label di componente
 
 In entrambi i casi il modulo deve restare sintetizzabile, streaming e con interfaccia stabile verso il core applicativo.
+
+Per la frontier row-wise, il compromesso migliore su FPGA e` evitare sia il loop cella-per-cella completamente combinatorio sia una queue globale. Una dilatazione bitmask a pochi stage o una piccola pipeline danno la stessa semantica con timing piu` facile da chiudere.
 
 ## Doc collegate
 

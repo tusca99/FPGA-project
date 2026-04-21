@@ -126,3 +126,30 @@ Il modulo deve essere scritto per una sintesi regolare:
 - stato esplicito e frontiera bit-parallel
 
 La metrica finale da preservare e` la correttezza funzionale con un costo di controllo piu` prevedibile dell'approccio HK completo.
+
+## Variante piu` sintetizzabile
+
+La chiusura orizzontale della riga non va pensata come un loop da 128 celle dentro un unico processo combinatorio. L'implementazione attuale usa 7 stage espliciti di dilatazione bitmask, uno per ciascuna potenza di due fino a `64`, coerenti con `MAX_GRID = 128`.
+
+Regola per uno stage:
+
+$$
+reach \leftarrow reach \lor ((reach \ll d) \lor (reach \gg d)) \land open
+$$
+
+con `d = 1, 2, 4, 8, 16, 32, 64`.
+
+Questo approccio e` semanticamente equivalente alla chiusura della riga, ma non e` il loop naïve:
+
+- stesso risultato della scansione lineare, ma con pochi stage fissi
+- profondita` combinatoria molto piu` bassa
+- timing piu` facile da chiudere rispetto al blob cella-per-cella
+- area in genere piu` controllata, con un piccolo costo extra per la logica di stage rispetto a una riga sequenziale pura
+
+Per il target FPGA di questo progetto, il compromesso migliore e`:
+
+- evitare la catena cella-per-cella completamente combinatoria
+- usare un network bitmask a stage fissi
+- tenere la frontiera come mask bit-parallel, non come queue fine-grained
+
+In pratica: stesso risultato logico, costo di clock molto piu` prevedibile, area spesso migliore del blob combinatorio attuale, ma non identica in termini di risorse rispetto a una versione sequenziale a 1 cella per clock.

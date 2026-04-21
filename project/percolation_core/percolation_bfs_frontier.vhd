@@ -51,61 +51,16 @@ architecture Behavioral of percolation_bfs_frontier is
     end function;
 
     function any_set(row : std_logic_vector(MAX_GRID - 1 downto 0); width : integer) return std_logic is
-        variable result : std_logic := '0';
     begin
-        for index in 0 to MAX_GRID - 1 loop
-            if index < width then
-                result := result or row(index);
-            end if;
-        end loop;
+        if width <= 0 then
+            return '0';
+        end if;
 
-        return result;
-    end function;
+        if unsigned(row(width - 1 downto 0)) = to_unsigned(0, width) then
+            return '0';
+        end if;
 
-    function scan_left_to_right(
-        open_row : std_logic_vector(MAX_GRID - 1 downto 0);
-        seed_row : std_logic_vector(MAX_GRID - 1 downto 0);
-        width : integer
-    ) return std_logic_vector is
-        variable reach : std_logic_vector(MAX_GRID - 1 downto 0) := (others => '0');
-    begin
-        for index in 0 to MAX_GRID - 1 loop
-            if index < width then
-                if open_row(index) = '1' then
-                    if seed_row(index) = '1' then
-                        reach(index) := '1';
-                    elsif (index > 0) and (reach(index - 1) = '1') then
-                        reach(index) := '1';
-                    end if;
-                end if;
-            end if;
-        end loop;
-
-        return reach;
-    end function;
-
-    function scan_right_to_left(
-        open_row : std_logic_vector(MAX_GRID - 1 downto 0);
-        seed_row : std_logic_vector(MAX_GRID - 1 downto 0);
-        width : integer
-    ) return std_logic_vector is
-        variable reach : std_logic_vector(MAX_GRID - 1 downto 0) := (others => '0');
-        variable index : integer;
-    begin
-        for offset in 0 to MAX_GRID - 1 loop
-            if offset < width then
-                index := width - 1 - offset;
-                if open_row(index) = '1' then
-                    if seed_row(index) = '1' then
-                        reach(index) := '1';
-                    elsif (index < width - 1) and (reach(index + 1) = '1') then
-                        reach(index) := '1';
-                    end if;
-                end if;
-            end if;
-        end loop;
-
-        return reach;
+        return '1';
     end function;
 
     function reach_row(
@@ -113,10 +68,41 @@ architecture Behavioral of percolation_bfs_frontier is
         seed_row : std_logic_vector(MAX_GRID - 1 downto 0);
         width : integer
     ) return std_logic_vector is
-        variable left_reach : std_logic_vector(MAX_GRID - 1 downto 0);
+        variable stage_reach : unsigned(MAX_GRID - 1 downto 0);
+        variable open_u      : unsigned(MAX_GRID - 1 downto 0);
     begin
-        left_reach := scan_left_to_right(open_row, seed_row, width);
-        return scan_right_to_left(open_row, left_reach, width);
+        open_u := unsigned(open_row);
+        stage_reach := unsigned(open_row and seed_row);
+
+        if width > 1 then
+            stage_reach := stage_reach or ((shift_left(stage_reach, 1) or shift_right(stage_reach, 1)) and open_u);
+        end if;
+
+        if width > 2 then
+            stage_reach := stage_reach or ((shift_left(stage_reach, 2) or shift_right(stage_reach, 2)) and open_u);
+        end if;
+
+        if width > 4 then
+            stage_reach := stage_reach or ((shift_left(stage_reach, 4) or shift_right(stage_reach, 4)) and open_u);
+        end if;
+
+        if width > 8 then
+            stage_reach := stage_reach or ((shift_left(stage_reach, 8) or shift_right(stage_reach, 8)) and open_u);
+        end if;
+
+        if width > 16 then
+            stage_reach := stage_reach or ((shift_left(stage_reach, 16) or shift_right(stage_reach, 16)) and open_u);
+        end if;
+
+        if width > 32 then
+            stage_reach := stage_reach or ((shift_left(stage_reach, 32) or shift_right(stage_reach, 32)) and open_u);
+        end if;
+
+        if width > 64 then
+            stage_reach := stage_reach or ((shift_left(stage_reach, 64) or shift_right(stage_reach, 64)) and open_u);
+        end if;
+
+        return std_logic_vector(stage_reach);
     end function;
 
 begin
