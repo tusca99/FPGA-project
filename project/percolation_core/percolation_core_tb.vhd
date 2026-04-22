@@ -6,6 +6,7 @@ entity percolation_core_tb is
 end entity;
 
 architecture Behavioral of percolation_core_tb is
+    constant N_ROWS_G    : positive := 256;
     signal Clk          : std_logic := '0';
     signal Rst          : std_logic := '0';
 
@@ -13,21 +14,25 @@ architecture Behavioral of percolation_core_tb is
     signal StepAddValid : std_logic := '0';
     signal StepAddCount : std_logic_vector(31 downto 0) := (others => '0');
 
-    signal CfgP         : std_logic_vector(31 downto 0) := (others => '0');
-    signal CfgGridSize  : std_logic_vector(15 downto 0) := (others => '0');
-    signal CfgSeed      : std_logic_vector(31 downto 0) := (others => '0');
-    signal CfgRuns      : std_logic_vector(31 downto 0) := (others => '0');
-    signal CfgInit      : std_logic := '0';
+    signal CfgP          : std_logic_vector(31 downto 0) := (others => '0');
+    signal CfgStepsPerRun: std_logic_vector(15 downto 0) := (others => '0');
+    signal CfgSeed       : std_logic_vector(31 downto 0) := (others => '0');
+    signal CfgRuns       : std_logic_vector(31 downto 0) := (others => '0');
+    signal CfgInit       : std_logic := '0';
 
     signal StepCount    : std_logic_vector(31 downto 0);
     signal PendingSteps : std_logic_vector(31 downto 0);
     signal SpanningCount: std_logic_vector(31 downto 0);
     signal TotalOccupied: std_logic_vector(31 downto 0);
-    signal ConnStepCount : std_logic_vector(31 downto 0);
+    signal RngBusy      : std_logic;
+    signal RngAllValid  : std_logic;
     signal Done         : std_logic;
 
 begin
     dut: entity work.percolation_core
+        generic map (
+            N_ROWS_G => N_ROWS_G
+        )
         port map (
             Clk => Clk,
             Rst => Rst,
@@ -35,7 +40,7 @@ begin
             StepAddValid => StepAddValid,
             StepAddCount => StepAddCount,
             CfgP => CfgP,
-            CfgGridSize => CfgGridSize,
+            CfgStepsPerRun => CfgStepsPerRun,
             CfgSeed => CfgSeed,
             CfgRuns => CfgRuns,
             CfgInit => CfgInit,
@@ -43,7 +48,8 @@ begin
             PendingSteps => PendingSteps,
             SpanningCount => SpanningCount,
             TotalOccupied => TotalOccupied,
-            ConnStepCount => ConnStepCount,
+            RngBusy => RngBusy,
+            RngAllValid => RngAllValid,
             Done => Done
         );
 
@@ -63,7 +69,7 @@ begin
         wait for 20 ns;
         Rst <= '1';
 
-        CfgGridSize <= x"0040"; -- 64x64
+        CfgStepsPerRun <= x"0080"; -- 64 steps per run
         CfgP <= x"970A3D70"; -- p ~= 0.59 in UQ32
         CfgSeed <= x"12345678";
         CfgRuns <= x"00000010"; -- 16 runs
@@ -90,7 +96,6 @@ begin
         report "StepCount=" & integer'image(to_integer(unsigned(StepCount))) severity note;
         report "SpanningCount=" & integer'image(to_integer(unsigned(SpanningCount))) severity note;
         report "TotalOccupied=" & integer'image(to_integer(unsigned(TotalOccupied))) severity note;
-        report "ConnStepCount=" & integer'image(to_integer(unsigned(ConnStepCount))) severity note;
 
         wait;
     end process;

@@ -5,8 +5,6 @@ use work.rng_pkg.all;
 
 entity percolation_hk_row_wise is
         generic (
-            MAX_GRID   : integer := 128;
-            MAX_CELLS  : integer := 128 * 128;
             LABEL_BITS : integer := 16
         );
         port (
@@ -19,33 +17,31 @@ entity percolation_hk_row_wise is
             ChunkValid    : in std_logic;
             Busy          : out std_logic;
             Done          : out std_logic;
-            Spanning      : out std_logic;
-            ConnStepCount : out std_logic_vector(31 downto 0)
+              Spanning      : out std_logic
         );
     end entity percolation_hk_row_wise;
 
     architecture Behavioral of percolation_hk_row_wise is
-        subtype label_t is integer range 0 to MAX_CELLS;
+        subtype label_t is integer range 0 to N_ROWS * N_ROWS;
 
-        type label_row_t is array (0 to MAX_GRID - 1) of label_t;
-        type label_parent_t is array (0 to MAX_CELLS) of label_t;
-        type flag_t is array (0 to MAX_CELLS) of std_logic;
+        type label_row_t is array (0 to N_ROWS - 1) of label_t;
+        type label_parent_t is array (0 to N_ROWS * N_ROWS) of label_t;
+        type flag_t is array (0 to N_ROWS * N_ROWS) of std_logic;
 
         type state_t is (IDLE, RUN, COMPLETE);
 
-        signal grid_size        : integer range 1 to MAX_GRID := 64;
-        signal grid_cells       : integer range 1 to MAX_CELLS := 64 * 64;
-        signal row_index_s      : integer range 0 to MAX_GRID := 0;
-        signal col_index_s      : integer range 0 to MAX_GRID := 0;
-        signal stream_index_s   : integer range 0 to MAX_CELLS := 0;
-        signal next_label_s     : integer range 1 to MAX_CELLS := 1;
+        signal grid_size        : integer range 1 to N_ROWS := 64;
+        signal grid_cells       : integer range 1 to N_ROWS * N_ROWS := 64 * 64;
+        signal row_index_s      : integer range 0 to N_ROWS := 0;
+        signal col_index_s      : integer range 0 to N_ROWS := 0;
+        signal stream_index_s   : integer range 0 to N_ROWS * N_ROWS := 0;
+        signal next_label_s     : integer range 1 to N_ROWS * N_ROWS := 1;
         signal state            : state_t := IDLE;
         signal curr_labels_s    : label_row_t := (others => 0);
         signal prev_labels_s    : label_row_t := (others => 0);
         signal parent_mem       : label_parent_t := (others => 0);
         signal touch_top_mem    : flag_t := (others => '0');
         signal touch_bottom_mem : flag_t := (others => '0');
-        signal conn_steps_total : unsigned(31 downto 0) := (others => '0');
         signal p_spanning       : std_logic := '0';
 
         function min_int(a, b : integer) return integer is
@@ -64,7 +60,7 @@ entity percolation_hk_row_wise is
                 return 0;
             end if;
 
-            for hop in 0 to MAX_CELLS - 1 loop
+            for hop in 0 to N_ROWS * N_ROWS - 1 loop
                 if parent(current) = current then
                     return current;
                 end if;
@@ -78,7 +74,6 @@ entity percolation_hk_row_wise is
         Busy <= '1' when state = RUN else '0';
         Done <= '1' when state = COMPLETE else '0';
         Spanning <= p_spanning;
-        ConnStepCount <= std_logic_vector(conn_steps_total);
 
         process(Clk)
             variable cfg_size_i      : integer;
@@ -122,7 +117,7 @@ entity percolation_hk_row_wise is
                     p_spanning       <= '0';
                 else
                     if CfgInit = '1' then
-                        cfg_size_i := min_int(to_integer(unsigned(GridSize)), MAX_GRID);
+                        cfg_size_i := min_int(to_integer(unsigned(GridSize)), N_ROWS);
                         if cfg_size_i < 1 then
                             cfg_size_i := 1;
                         end if;
@@ -145,7 +140,7 @@ entity percolation_hk_row_wise is
                         case state is
                             when IDLE =>
                                 if Start = '1' then
-                                    cfg_size_i := min_int(to_integer(unsigned(GridSize)), MAX_GRID);
+                                    cfg_size_i := min_int(to_integer(unsigned(GridSize)), N_ROWS);
                                     if cfg_size_i < 1 then
                                         cfg_size_i := 1;
                                     end if;
@@ -204,11 +199,11 @@ entity percolation_hk_row_wise is
 
                                             if bit_is_open = '1' then
                                                 if left_label = 0 and up_label = 0 then
-                                                    if next_label_v < MAX_CELLS then
+                                                    if next_label_v < N_ROWS * N_ROWS then
                                                         next_label_v := next_label_v + 1;
                                                         current_label := next_label_v;
                                                     else
-                                                        current_label := MAX_CELLS;
+                                                        current_label := N_ROWS * N_ROWS;
                                                     end if;
 
                                                     parent_v(current_label) := current_label;

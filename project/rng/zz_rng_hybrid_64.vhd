@@ -5,15 +5,18 @@ use ieee.numeric_std.all;
 use work.rng_pkg.all;
 
 entity rng_hybrid_64 is
+    generic (
+        N_ROWS_G : positive := 64
+    );
     port (
         clk        : in  std_logic;
         rst        : in  std_logic;
         master_key : in  std_logic_vector(127 downto 0);
         run_tag    : in  std_logic_vector(31 downto 0);
         threshold  : in  std_logic_vector(31 downto 0);
-        words_out  : out word_array_t;
-        valid_mask : out flag_array_t;
-        site_open  : out flag_array_t;
+        words_out  : out word_array_t(0 to N_ROWS_G - 1);
+        valid_mask : out flag_array_t(0 to N_ROWS_G - 1);
+        site_open  : out flag_array_t(0 to N_ROWS_G - 1);
         all_valid  : out std_logic;
         busy       : out std_logic
     );
@@ -24,8 +27,8 @@ architecture rtl of rng_hybrid_64 is
 
     signal state : state_t := IDLE;
 
-    signal seed_keys_s : key_array_t := (others => (others => '0'));
-    signal seed_ivs_s  : iv_array_t := (others => (others => '0'));
+    signal seed_keys_s : key_array_t(0 to N_ROWS_G - 1) := (others => (others => '0'));
+    signal seed_ivs_s  : iv_array_t(0 to N_ROWS_G - 1) := (others => (others => '0'));
 
     signal aes_rst_n : std_logic := '1';
     signal aes_plain_s : std_logic_vector(127 downto 0) := (others => '0');
@@ -33,13 +36,14 @@ architecture rtl of rng_hybrid_64 is
     signal aes_done_s : std_logic := '0';
 
     signal load_rows_s : std_logic := '0';
-    signal seed_index : integer range 0 to AES_SEED_BLOCKS := 0;
+    constant AES_SEED_BLOCKS_C : integer := 2 * N_ROWS_G;
+    signal seed_index : integer range 0 to AES_SEED_BLOCKS_C := 0;
     signal counter_reg : unsigned(127 downto 0) := (others => '0');
     signal master_key_reg : std_logic_vector(127 downto 0) := (others => '0');
 
-    signal words_s : word_array_t := (others => (others => '0'));
-    signal valid_s : flag_array_t := (others => '0');
-    signal open_s : flag_array_t := (others => '0');
+    signal words_s : word_array_t(0 to N_ROWS_G - 1) := (others => (others => '0'));
+    signal valid_s : flag_array_t(0 to N_ROWS_G - 1) := (others => '0');
+    signal open_s : flag_array_t(0 to N_ROWS_G - 1) := (others => '0');
     signal all_valid_s : std_logic := '0';
 
     function run_tag_to_counter(tag : std_logic_vector(31 downto 0)) return unsigned is
@@ -60,6 +64,9 @@ begin
         );
 
     trivium_bank : entity work.trivium_array
+        generic map (
+            N_ROWS_G => N_ROWS_G
+        )
         port map (
             clk        => clk,
             rst        => rst,
@@ -113,7 +120,7 @@ begin
                                 seed_ivs_s(seed_index / 2) <= aes_cipher_s(79 downto 0);
                             end if;
 
-                            if seed_index = AES_SEED_BLOCKS - 1 then
+                            if seed_index = AES_SEED_BLOCKS_C - 1 then
                                 state <= TRIVIUM_LOAD;
                             else
                                 seed_index <= seed_index + 1;

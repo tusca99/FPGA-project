@@ -50,13 +50,13 @@ class PercolationClient:
         self,
         probability: float,
         seed: int,
-        grid_size: int,
+        steps_per_run: int,
         cfg_runs: int,
     ) -> PercolationResponse:
         request = PercolationRequest.from_probability(
             probability=probability,
             cfg_seed=seed,
-            grid_size=grid_size,
+            steps_per_run=steps_per_run,
             cfg_runs=cfg_runs,
         )
         return self.run(request)

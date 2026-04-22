@@ -6,8 +6,8 @@ from dataclasses import dataclass
 import math
 import struct
 
-REQUEST_BYTES = 12
-RESPONSE_BYTES = 16
+REQUEST_BYTES = 16
+RESPONSE_BYTES = 32
 WORD_BYTES = 4
 UQ32_SCALE = 1 << 32
 MAX_GRID_SIZE = 128
@@ -48,14 +48,14 @@ class PercolationRequest:
 
     cfg_p_uq32: int
     cfg_seed: int
-    grid_size: int
+    steps_per_run: int
     cfg_runs: int
 
     def __post_init__(self) -> None:
         _ensure_u32(self.cfg_p_uq32, "cfg_p_uq32")
         _ensure_u32(self.cfg_seed, "cfg_seed")
-        if not 1 <= self.grid_size <= MAX_GRID_SIZE:
-            raise ValueError(f"grid_size must be in the range 1..{MAX_GRID_SIZE}")
+        if not 1 <= self.steps_per_run <= MAX_GRID_SIZE:
+            raise ValueError(f"steps_per_run must be in the range 1..{MAX_GRID_SIZE}")
         if not 1 <= self.cfg_runs <= MAX_CFG_RUNS:
             raise ValueError(f"cfg_runs must be in the range 1..{MAX_CFG_RUNS}")
 
@@ -64,19 +64,23 @@ class PercolationRequest:
         cls,
         probability: float,
         cfg_seed: int,
-        grid_size: int,
+        steps_per_run: int,
         cfg_runs: int,
     ) -> "PercolationRequest":
         return cls(
             cfg_p_uq32=probability_to_uq32(probability),
             cfg_seed=cfg_seed,
-            grid_size=grid_size,
+            steps_per_run=steps_per_run,
             cfg_runs=cfg_runs,
         )
 
     @property
     def word2(self) -> int:
-        return ((self.grid_size & 0xFF) << 24) | (self.cfg_runs & MAX_CFG_RUNS)
+        return self.steps_per_run & 0xFFFFFFFF
+
+    @property
+    def grid_size(self) -> int:
+        return self.steps_per_run
 
 
 @dataclass(frozen=True)
@@ -86,25 +90,38 @@ class PercolationResponse:
     step_count: int
     spanning_count: int
     total_occupied: int
-    bfs_step_count: int
+    status: int
+    rng_init_cycles: int
+    core_run_cycles: int
+    batch_cycles: int
+    reserved: int = 0
+
+    @property
+    def is_error(self) -> bool:
+        return self.status != 0
 
     def as_tuple(self) -> tuple[int, int, int, int]:
         return (
             self.step_count,
             self.spanning_count,
             self.total_occupied,
-            self.bfs_step_count,
+            self.status,
+            self.rng_init_cycles,
+            self.core_run_cycles,
+            self.batch_cycles,
+            self.reserved,
         )
 
 
 def encode_request(request: PercolationRequest) -> bytes:
-    """Pack a request into the 12-byte wire format."""
+    """Pack a request into the 16-byte wire format."""
 
     return struct.pack(
-        ">III",
+        ">IIII",
         request.cfg_p_uq32 & 0xFFFFFFFF,
         request.cfg_seed & 0xFFFFFFFF,
         request.word2 & 0xFFFFFFFF,
+        request.cfg_runs & 0xFFFFFFFF,
     )
 
 
@@ -112,11 +129,15 @@ def encode_response(response: PercolationResponse) -> bytes:
     """Pack a response into the 16-byte wire format."""
 
     return struct.pack(
-        ">IIII",
+        ">IIIIIIII",
         response.step_count & 0xFFFFFFFF,
         response.spanning_count & 0xFFFFFFFF,
         response.total_occupied & 0xFFFFFFFF,
-        response.bfs_step_count & 0xFFFFFFFF,
+        response.status & 0xFFFFFFFF,
+        response.rng_init_cycles & 0xFFFFFFFF,
+        response.core_run_cycles & 0xFFFFFFFF,
+        response.batch_cycles & 0xFFFFFFFF,
+        response.reserved & 0xFFFFFFFF,
     )
 
 
@@ -126,12 +147,16 @@ def decode_response(payload: bytes) -> PercolationResponse:
     if len(payload) != RESPONSE_BYTES:
         raise ProtocolError(f"expected {RESPONSE_BYTES} response bytes, got {len(payload)}")
 
-    step_count, spanning_count, total_occupied, bfs_step_count = struct.unpack(
-        ">IIII", payload
+    step_count, spanning_count, total_occupied, status, rng_init_cycles, core_run_cycles, batch_cycles, reserved = struct.unpack(
+        ">IIIIIIII", payload
     )
     return PercolationResponse(
         step_count=step_count,
         spanning_count=spanning_count,
         total_occupied=total_occupied,
-        bfs_step_count=bfs_step_count,
+        status=status,
+        rng_init_cycles=rng_init_cycles,
+        core_run_cycles=core_run_cycles,
+        batch_cycles=batch_cycles,
+        reserved=reserved,
     )

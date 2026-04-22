@@ -5,9 +5,10 @@ use IEEE.NUMERIC_STD.ALL;
 entity percolation_uart_top is
     generic (
         CLK_FREQ  : integer := 100_000_000;
-        BAUD_RATE : integer := 921600;
-        REQ_BYTES : positive := 12;
-        RSP_BYTES : positive := 16
+        BAUD_RATE : integer := 115200;
+        N_ROWS_G  : positive := 64;
+        REQ_BYTES : positive := 16;
+        RSP_BYTES : positive := 32
     );
     port (
         Clk       : in  std_logic;
@@ -15,7 +16,8 @@ entity percolation_uart_top is
         uart_rx_i : in  std_logic;
         uart_tx_o : out std_logic;
         btn_init_i : in std_logic := '1'; -- button for manual init (active low)
-        btn_run_i  : in std_logic := '1'  -- button for manual run (active low)
+        btn_run_i  : in std_logic := '1'; -- button for manual run (active low)
+        led_rgb_o  : out std_logic_vector(2 downto 0)
     );
 end percolation_uart_top;
 
@@ -24,6 +26,7 @@ architecture Behavioral of percolation_uart_top is
     signal state : state_t := IDLE;
 
     signal baud_tick_s : std_logic := '0';
+    signal half_tick_s : std_logic := '0';
 
     signal rx_msg_s         : std_logic_vector(REQ_BYTES*8-1 downto 0) := (others => '0');
     signal rx_msg_latched_s : std_logic_vector(REQ_BYTES*8-1 downto 0) := (others => '0');
@@ -33,6 +36,7 @@ architecture Behavioral of percolation_uart_top is
     signal tx_msg_s         : std_logic_vector(RSP_BYTES*8-1 downto 0) := (others => '0');
     signal tx_start_s       : std_logic := '0';
     signal tx_busy_s        : std_logic := '0';
+    signal rx_msg_valid_seen_s : std_logic := '0';
 
     -- Button synchronizers (double-flip-flop)
     signal btn_init_sync1 : std_logic := '1';
@@ -40,23 +44,31 @@ architecture Behavioral of percolation_uart_top is
     signal btn_run_sync1  : std_logic := '1';
     signal btn_run_sync2  : std_logic := '1';
 
-    signal core_cfg_p_s        : std_logic_vector(31 downto 0) := (others => '0');
-    signal core_cfg_grid_s     : std_logic_vector(15 downto 0) := (others => '0');
-    signal core_cfg_seed_s     : std_logic_vector(31 downto 0) := (others => '0');
-    signal core_cfg_runs_s     : std_logic_vector(31 downto 0) := (others => '0');
-    signal core_cfg_init_s     : std_logic := '0';
-    signal core_run_en_s       : std_logic := '0';
-    signal core_step_count_s   : std_logic_vector(31 downto 0) := (others => '0');
-    signal core_spanning_s     : std_logic_vector(31 downto 0) := (others => '0');
-    signal core_total_s        : std_logic_vector(31 downto 0) := (others => '0');
-    signal core_conn_steps_s   : std_logic_vector(31 downto 0) := (others => '0');
-    signal core_done_s         : std_logic := '0';
+    signal core_cfg_p_s       : std_logic_vector(31 downto 0) := (others => '0');
+    signal core_cfg_steps_s   : std_logic_vector(15 downto 0) := (others => '0');
+    signal core_cfg_seed_s    : std_logic_vector(31 downto 0) := (others => '0');
+    signal core_cfg_runs_s    : std_logic_vector(31 downto 0) := (others => '0');
+    signal core_cfg_init_s    : std_logic := '0';
+    signal core_run_en_s      : std_logic := '0';
+    signal core_step_count_s  : std_logic_vector(31 downto 0) := (others => '0');
+    signal core_spanning_s    : std_logic_vector(31 downto 0) := (others => '0');
+    signal core_total_s       : std_logic_vector(31 downto 0) := (others => '0');
+    signal core_rng_busy_s    : std_logic := '1';
+    signal core_rng_all_valid_s : std_logic := '0';
+    signal core_done_s        : std_logic := '0';
+    signal error_flag_s       : std_logic := '0';
+
+    signal rng_init_cycles_s  : unsigned(31 downto 0) := (others => '0');
+    signal core_run_cycles_s  : unsigned(31 downto 0) := (others => '0');
+    signal batch_cycles_s     : unsigned(31 downto 0) := (others => '0');
 
     -- Add counter to prevent infinite wait in WAIT_CORE state
     signal wait_timeout_s : unsigned(31 downto 0) := (others => '0');
     constant WAIT_TIMEOUT_MAX : integer := 100_000; -- ~1ms at 100MHz (aggressive for quick feedback)
     
     signal tx_busy_prev : std_logic := '0';  -- Track previous busy state
+    signal batch_timing_active_s : std_logic := '0';
+    signal core_timing_active_s  : std_logic := '0';
 
     function word_from_msg(msg : std_logic_vector; word_index : natural) return std_logic_vector is
         variable word_hi : integer;
@@ -70,6 +82,11 @@ architecture Behavioral of percolation_uart_top is
     end function;
 
 begin
+    led_rgb_o <= "100" when error_flag_s = '1' else
+                 "010" when rx_msg_valid_seen_s = '1' else
+                 "001" when state = IDLE else
+                 "110";
+
     baud_inst : entity work.baud_gen
         generic map (
             CLK_FREQ  => CLK_FREQ,
@@ -78,7 +95,8 @@ begin
         port map (
             Clk       => Clk,
             Rst       => Rst,
-            baud_tick => baud_tick_s
+            baud_tick => baud_tick_s,
+            half_tick => half_tick_s
         );
 
     rx_inst : entity work.uart_msg_rx
@@ -91,6 +109,8 @@ begin
             Clk       => Clk,
             Rst       => Rst,
             uart_rx_i => uart_rx_i,
+            baud_tick => baud_tick_s,
+            half_tick => half_tick_s,
             msg_data  => rx_msg_s,
             msg_valid => rx_valid_s,
             busy      => rx_busy_s
@@ -111,6 +131,9 @@ begin
         );
 
     core_inst : entity work.percolation_core
+        generic map (
+            N_ROWS_G => N_ROWS_G
+        )
         port map (
             Clk           => Clk,
             Rst           => Rst,
@@ -118,7 +141,7 @@ begin
             StepAddValid  => '0',  -- no step control in this interface
             StepAddCount  => (others => '0'),
             CfgP          => core_cfg_p_s,
-            CfgGridSize   => core_cfg_grid_s,
+            CfgStepsPerRun => core_cfg_steps_s,
             CfgSeed       => core_cfg_seed_s,
             CfgRuns       => core_cfg_runs_s,
             CfgInit       => core_cfg_init_s,
@@ -126,7 +149,8 @@ begin
             PendingSteps  => open,  -- not used in response
             SpanningCount => core_spanning_s,
             TotalOccupied => core_total_s,
-            ConnStepCount => core_conn_steps_s,
+            RngBusy       => core_rng_busy_s,
+            RngAllValid   => core_rng_all_valid_s,
             Done          => core_done_s
         );
 
@@ -149,7 +173,7 @@ begin
     end process;
 
     process(Clk)
-        variable grid_runs : std_logic_vector(31 downto 0);
+        variable steps_word : std_logic_vector(31 downto 0);
     begin
         if rising_edge(Clk) then
             -- Track previous state of tx_busy for edge detection
@@ -159,18 +183,41 @@ begin
                 state <= IDLE;
                 tx_msg_s <= (others => '0');
                 tx_start_s <= '0';
+                rx_msg_valid_seen_s <= '0';
                 core_cfg_p_s <= (others => '0');
-                core_cfg_grid_s <= (others => '0');
+                core_cfg_steps_s <= (others => '0');
                 core_cfg_seed_s <= (others => '0');
                 core_cfg_runs_s <= (others => '0');
                 core_cfg_init_s <= '0';
                 core_run_en_s <= '0';
                 wait_timeout_s <= (others => '0');
+                error_flag_s <= '0';
+                rng_init_cycles_s <= (others => '0');
+                core_run_cycles_s <= (others => '0');
+                batch_cycles_s <= (others => '0');
+                batch_timing_active_s <= '0';
+                core_timing_active_s <= '0';
             else
                 -- Only clear one-cycle pulses at start of cycle
                 tx_start_s <= '0';
                 core_cfg_init_s <= '0';
                 -- NOTE: core_run_en_s stays asserted in WAIT_DONE while the core runs
+
+                if rx_valid_s = '1' then
+                    rx_msg_valid_seen_s <= '1';
+                end if;
+
+                if batch_timing_active_s = '1' then
+                    batch_cycles_s <= batch_cycles_s + 1;
+                end if;
+
+                if (batch_timing_active_s = '1') and (core_rng_busy_s = '1') then
+                    rng_init_cycles_s <= rng_init_cycles_s + 1;
+                end if;
+
+                if core_timing_active_s = '1' then
+                    core_run_cycles_s <= core_run_cycles_s + 1;
+                end if;
 
                 case state is
                     when IDLE =>
@@ -185,12 +232,18 @@ begin
                             core_cfg_p_s    <= word_from_msg(rx_msg_latched_s, 0);
                             core_cfg_seed_s <= word_from_msg(rx_msg_latched_s, 1);
 
-                            grid_runs := word_from_msg(rx_msg_latched_s, 2);
-                            core_cfg_grid_s <= std_logic_vector(resize(unsigned(grid_runs(31 downto 24)), 16));
-                            core_cfg_runs_s <= std_logic_vector(resize(unsigned(grid_runs(23 downto 0)), 32));
+                            steps_word := word_from_msg(rx_msg_latched_s, 2);
+                            core_cfg_steps_s <= steps_word(15 downto 0);
+                            core_cfg_runs_s <= word_from_msg(rx_msg_latched_s, 3);
 
                             core_cfg_init_s <= '1';
                             core_run_en_s   <= '1';
+                            error_flag_s    <= '0';
+                            rng_init_cycles_s <= (others => '0');
+                            core_run_cycles_s <= (others => '0');
+                            batch_cycles_s <= (others => '0');
+                            batch_timing_active_s <= '1';
+                            core_timing_active_s <= '0';
 
                             wait_timeout_s <= (others => '0');
                             state <= WAIT_DONE;
@@ -207,17 +260,29 @@ begin
                     when WAIT_DONE =>
                         -- Keep the core running until the core asserts Done.
                         core_run_en_s <= '1';
+                        if core_timing_active_s = '0' and core_done_s = '0' and core_rng_busy_s = '0' and core_rng_all_valid_s = '1' then
+                            core_timing_active_s <= '1';
+                        end if;
                         -- With timeout safety to avoid infinite wait
                         wait_timeout_s <= wait_timeout_s + 1;
                         
                         -- Transition when: core signals completion OR timeout
                         if core_done_s = '1' then
                             -- Core has completed the configured number of runs; capture and send
-                            tx_msg_s <= core_step_count_s & core_spanning_s & core_total_s & core_conn_steps_s;
+                            batch_timing_active_s <= '0';
+                            core_timing_active_s <= '0';
+                            tx_msg_s <= core_step_count_s & core_spanning_s & core_total_s & x"00000000" &
+                                        std_logic_vector(rng_init_cycles_s) & std_logic_vector(core_run_cycles_s) &
+                                        std_logic_vector(batch_cycles_s) & x"00000000";
                             state <= SEND_WAIT;
                         elsif wait_timeout_s >= WAIT_TIMEOUT_MAX then
                             -- Timeout: send whatever we have (may be zeros)
-                            tx_msg_s <= core_step_count_s & core_spanning_s & core_total_s & core_conn_steps_s;
+                            error_flag_s <= '1';
+                            batch_timing_active_s <= '0';
+                            core_timing_active_s <= '0';
+                            tx_msg_s <= core_step_count_s & core_spanning_s & core_total_s & x"00000001" &
+                                        std_logic_vector(rng_init_cycles_s) & std_logic_vector(core_run_cycles_s) &
+                                        std_logic_vector(batch_cycles_s) & x"00000000";
                             state <= SEND_WAIT;
                         end if;
 

@@ -1,6 +1,6 @@
-# BFS Frontier - Skeleton RTL
+# BFS Frontier - Current RTL Contract
 
-Questo documento definisce il contratto RTL target per il backend di connettivita` basato su BFS migliorato / frontier wavefront.
+Questo documento descrive il backend frontier row-wise attualmente usato dal core. Non e` una BFS full-grid: il modulo lavora a due righe, tenendo in memoria solo la riga corrente da riempire e la riga precedente gia` processata.
 
 ## Entity Target
 
@@ -21,7 +21,8 @@ entity percolation_bfs_frontier is
         CfgInit       : in std_logic;
         GridSize      : in std_logic_vector(15 downto 0);
         Start         : in std_logic;
-        GridData      : in std_logic_vector(MAX_CELLS - 1 downto 0);
+        ChunkOpen     : in std_logic_vector(N_ROWS - 1 downto 0);
+        ChunkValid    : in std_logic;
         Busy          : out std_logic;
         Done          : out std_logic;
         Spanning      : out std_logic;
@@ -34,12 +35,12 @@ end entity;
 
 Verificare se esiste almeno un percorso continuo nella griglia, senza usare union-find e senza mantenere etichette di componente complete.
 
-Il blocco lavora a frontiera:
+Il blocco lavora a frontiera row-wise:
 
-- conserva il fronte attivo della ricerca
-- marca le celle visitate
-- espande i vicini validi al ciclo successivo
-- si ferma quando la frontiera si svuota o quando raggiunge il bordo obiettivo
+- conserva solo la riga corrente e quella precedente
+- riceve una riga di occupazione gia` campionata dal RNG bank
+- prima riempie la riga, poi la processa nel ciclo successivo
+- si ferma quando la riga finale e` stata processata e non restano dati pendenti
 
 ## Perche wavefront
 
@@ -55,12 +56,13 @@ Wavefront e` la forma piu` naturale per questo progetto perche:
 Il modulo di connettivita` deve ricevere:
 
 - `Start`: avvio di una nuova analisi sulla batch corrente
-- `GridSize`: lato della griglia quadrata
-- `GridData`: occupazione della griglia gia` campionata
+- `GridSize`: lato della griglia quadrata, runtime-configurabile
+- `ChunkOpen`: occupazione della riga corrente, 128 bit nel build attuale
+- `ChunkValid`: indica quando `ChunkOpen` contiene una riga valida
 
 E deve produrre:
 
-- `Busy`: elaborazione in corso
+- `Busy`: elaborazione in corso o capture in corso
 - `Done`: analisi conclusa per tutta la griglia
 - `Spanning`: esiste un cammino tra sorgente e target
 - `ConnStepCount`: metrica di lavoro del modulo di connettivita`
@@ -69,21 +71,21 @@ E deve produrre:
 
 Il blocco puo` essere implementato con questi elementi:
 
-- `frontier_curr`: bitmask della frontiera attiva corrente
-- `frontier_next`: bitmask della frontiera del passo successivo
-- `visited`: bitmap delle celle gia` esplorate
-- `work_row`: buffer della riga o tile corrente
-- `dir_mask`: maschera dei vicini ammessi, diversa tra 2D e caso direzionato
+- `current_open_row`: buffer della riga corrente ancora in riempimento
+- `previous_reach_row`: buffer della riga precedente gia` processata
+- `seed_row`: riga di seed per la propagazione verticale
+- `conn_steps_total`: metrica cumulativa di lavoro
+- `p_spanning`: flag finale di spanning
 
 ## Regola di espansione
 
-Per ogni ciclo di espansione:
+Per ogni ciclo di clock utile:
 
-1. prendi la frontiera corrente
-2. calcola i vicini ammessi in base alla direzione del problema
-3. filtra solo le celle occupate e non ancora visitate
-4. aggiorna la frontiera successiva
-5. marca come visitate le nuove celle raggiunte
+1. se `ChunkValid = '1'`, latci la riga corrente dal RNG bank
+2. prepara il seed verticale dalla riga precedente
+3. nel ciclo successivo, processa la riga latcheata con la dilatazione bitmask a 7 stage
+4. aggiorna `previous_reach_row`
+5. incrementa `ConnStepCount`
 
 Per il caso 2D classico i vicini sono tipicamente quattro.
 Per il caso direzionato i vicini sono solo quelli in avanti nel grafo del problema.
@@ -99,11 +101,11 @@ Alla fine della ricerca:
 ## Sequenza operativa
 
 1. reset o `CfgInit`
-2. inizializzazione della frontiera iniziale
-3. avvio batch con `Start`
-4. espansione iterativa della frontiera
-5. aggiornamento visited e del bordo raggiunto
-6. completamento quando non resta piu` nulla da espandere
+2. `Start` porta il blocco in capture della prima riga
+3. al ciclo successivo la riga viene processata
+4. la riga seguente viene acquisita mentre quella precedente viene processata
+5. il blocco mantiene memoria solo di due righe, non dell'intera griglia
+6. completamento quando l'ultima riga e` stata processata e non resta nulla da espandere
 
 ## Interfaccia con il resto del progetto
 
@@ -153,3 +155,7 @@ Per il target FPGA di questo progetto, il compromesso migliore e`:
 - tenere la frontiera come mask bit-parallel, non come queue fine-grained
 
 In pratica: stesso risultato logico, costo di clock molto piu` prevedibile, area spesso migliore del blob combinatorio attuale, ma non identica in termini di risorse rispetto a una versione sequenziale a 1 cella per clock.
+
+## Nota su `N_ROWS`
+
+`N_ROWS` e` una larghezza di lane a compile time, non un parametro UART runtime. Se vuoi cambiare il numero di lane RNG via UART, serve un refactor architetturale: package parametrici o generics propagati a tutto il bank RNG, ai tipi array e ai moduli di connettivita`.

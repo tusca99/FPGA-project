@@ -5,44 +5,38 @@ use work.rng_pkg.all;
 
 entity percolation_bfs_frontier is
     generic (
-        MAX_GRID   : integer := 128;
-        MAX_CELLS  : integer := 128 * 128;
-        VISIT_BITS : integer := 16;
-        GRID_BITS  : integer := 7;
-        IDX_BITS   : integer := 14
+        N_ROWS_G : positive := 64
     );
     port (
         Clk           : in std_logic;
         Rst           : in std_logic; -- active low
         CfgInit       : in std_logic;
-        GridSize      : in std_logic_vector(15 downto 0);
+        GridSteps     : in std_logic_vector(15 downto 0);
         Start         : in std_logic;
-        ChunkOpen     : in std_logic_vector(N_ROWS - 1 downto 0);
+        ChunkOpen     : in std_logic_vector(N_ROWS_G - 1 downto 0);
         ChunkValid    : in std_logic;
         Busy          : out std_logic;
         Done          : out std_logic;
-        Spanning      : out std_logic;
-        ConnStepCount : out std_logic_vector(31 downto 0)
+        Spanning      : out std_logic
     );
 end entity percolation_bfs_frontier;
 
 architecture Behavioral of percolation_bfs_frontier is
-    signal grid_size          : integer range 1 to MAX_GRID := 64;
-    signal grid_cells         : integer range 1 to MAX_CELLS := 64 * 64;
-    signal conn_steps_total   : unsigned(31 downto 0) := (others => '0');
+    signal grid_steps         : integer range 1 to N_ROWS_G := N_ROWS_G;
+    signal grid_cells         : integer range 1 to N_ROWS_G * N_ROWS_G := N_ROWS_G * N_ROWS_G;
 
     type state_t is (IDLE, CAPTURE, COMPLETE);
     signal state : state_t := IDLE;
 
-    signal stream_index       : integer range 0 to MAX_CELLS := 0;
-    signal row_index          : integer range 0 to MAX_GRID - 1 := 0;
-    signal row_fill_index     : integer range 0 to MAX_GRID := 0;
+    signal stream_index       : integer range 0 to N_ROWS_G * N_ROWS_G := 0;
+    signal row_index          : integer range 0 to N_ROWS_G - 1 := 0;
+    signal row_fill_index     : integer range 0 to N_ROWS_G := 0;
     signal pending_row_valid  : std_logic := '0';
-    signal pending_row_index  : integer range 0 to MAX_GRID - 1 := 0;
+    signal pending_row_index  : integer range 0 to N_ROWS_G - 1 := 0;
     signal p_spanning         : std_logic := '0';
-    signal current_open_row   : std_logic_vector(MAX_GRID - 1 downto 0) := (others => '0');
-    signal pending_open_row   : std_logic_vector(MAX_GRID - 1 downto 0) := (others => '0');
-    signal previous_reach_row : std_logic_vector(MAX_GRID - 1 downto 0) := (others => '0');
+    signal current_open_row   : std_logic_vector(N_ROWS_G - 1 downto 0) := (others => '0');
+    signal pending_open_row   : std_logic_vector(N_ROWS_G - 1 downto 0) := (others => '0');
+    signal previous_reach_row : std_logic_vector(N_ROWS_G - 1 downto 0) := (others => '0');
 
     function min_int(a, b : integer) return integer is
     begin
@@ -54,9 +48,9 @@ architecture Behavioral of percolation_bfs_frontier is
     end function;
 
     function chunk_mask(width : integer) return std_logic_vector is
-        variable mask : std_logic_vector(N_ROWS - 1 downto 0) := (others => '0');
+        variable mask : std_logic_vector(N_ROWS_G - 1 downto 0) := (others => '0');
     begin
-        for index in 0 to N_ROWS - 1 loop
+        for index in 0 to N_ROWS_G - 1 loop
             if index < width then
                 mask(index) := '1';
             end if;
@@ -65,7 +59,7 @@ architecture Behavioral of percolation_bfs_frontier is
         return mask;
     end function;
 
-    function any_set(row : std_logic_vector(MAX_GRID - 1 downto 0); width : integer) return std_logic is
+    function any_set(row : std_logic_vector(N_ROWS_G - 1 downto 0); width : integer) return std_logic is
     begin
         if width <= 0 then
             return '0';
@@ -79,12 +73,12 @@ architecture Behavioral of percolation_bfs_frontier is
     end function;
 
     function reach_row(
-        open_row : std_logic_vector(MAX_GRID - 1 downto 0);
-        seed_row : std_logic_vector(MAX_GRID - 1 downto 0);
+        open_row : std_logic_vector(N_ROWS_G - 1 downto 0);
+        seed_row : std_logic_vector(N_ROWS_G - 1 downto 0);
         width : integer
     ) return std_logic_vector is
-        variable stage_reach : unsigned(MAX_GRID - 1 downto 0);
-        variable open_u      : unsigned(MAX_GRID - 1 downto 0);
+        variable stage_reach : unsigned(N_ROWS_G - 1 downto 0);
+        variable open_u      : unsigned(N_ROWS_G - 1 downto 0);
     begin
         open_u := unsigned(open_row);
         stage_reach := unsigned(open_row and seed_row);
@@ -124,29 +118,27 @@ begin
     Busy <= '1' when state = CAPTURE else '0';
     Done <= '1' when state = COMPLETE else '0';
     Spanning <= p_spanning;
-    ConnStepCount <= std_logic_vector(conn_steps_total);
 
     process(Clk)
-        variable cfg_size_i     : integer;
+        variable cfg_width_i    : integer;
+        variable cfg_steps_i    : integer;
         variable stream_index_v : integer;
         variable row_index_v    : integer;
         variable row_fill_v     : integer;
         variable pending_row_index_v : integer;
         variable pending_row_valid_v : std_logic;
         variable chunk_cols     : integer;
-        variable fill_row_v     : std_logic_vector(MAX_GRID - 1 downto 0);
-        variable pending_row_v  : std_logic_vector(MAX_GRID - 1 downto 0);
-        variable seed_row_v     : std_logic_vector(MAX_GRID - 1 downto 0);
-        variable row_reach_v    : std_logic_vector(MAX_GRID - 1 downto 0);
-        variable prev_reach_v   : std_logic_vector(MAX_GRID - 1 downto 0);
-        variable row_steps_v    : unsigned(31 downto 0);
+        variable fill_row_v     : std_logic_vector(N_ROWS_G - 1 downto 0);
+        variable pending_row_v  : std_logic_vector(N_ROWS_G - 1 downto 0);
+        variable seed_row_v     : std_logic_vector(N_ROWS_G - 1 downto 0);
+        variable row_reach_v    : std_logic_vector(N_ROWS_G - 1 downto 0);
+        variable prev_reach_v   : std_logic_vector(N_ROWS_G - 1 downto 0);
         variable row_has_reach  : std_logic;
     begin
         if rising_edge(Clk) then
             if Rst = '0' then
-                grid_size          <= 64;
-                grid_cells         <= 64 * 64;
-                conn_steps_total   <= (others => '0');
+                grid_steps         <= 64;
+                grid_cells         <= N_ROWS_G * N_ROWS_G;
                 stream_index       <= 0;
                 row_index          <= 0;
                 row_fill_index     <= 0;
@@ -159,14 +151,13 @@ begin
                 previous_reach_row <= (others => '0');
             else
                 if CfgInit = '1' then
-                    cfg_size_i := min_int(to_integer(unsigned(GridSize)), MAX_GRID);
-                    if cfg_size_i < 1 then
-                        cfg_size_i := 1;
+                    cfg_steps_i := min_int(to_integer(unsigned(GridSteps)), N_ROWS_G);
+                    if cfg_steps_i < 1 then
+                        cfg_steps_i := 1;
                     end if;
 
-                    grid_size          <= cfg_size_i;
-                    grid_cells         <= cfg_size_i * cfg_size_i;
-                    conn_steps_total   <= (others => '0');
+                    grid_steps         <= cfg_steps_i;
+                    grid_cells         <= N_ROWS_G * cfg_steps_i;
                     stream_index       <= 0;
                     row_index          <= 0;
                     row_fill_index     <= 0;
@@ -181,14 +172,13 @@ begin
                     case state is
                         when IDLE =>
                             if Start = '1' then
-                                cfg_size_i := min_int(to_integer(unsigned(GridSize)), MAX_GRID);
-                                if cfg_size_i < 1 then
-                                    cfg_size_i := 1;
+                                cfg_steps_i := min_int(to_integer(unsigned(GridSteps)), N_ROWS_G);
+                                if cfg_steps_i < 1 then
+                                    cfg_steps_i := 1;
                                 end if;
 
-                                grid_size          <= cfg_size_i;
-                                grid_cells         <= cfg_size_i * cfg_size_i;
-                                conn_steps_total   <= (others => '0');
+                                grid_steps         <= cfg_steps_i;
+                                grid_cells         <= N_ROWS_G * cfg_steps_i;
                                 stream_index       <= 0;
                                 row_index          <= 0;
                                 row_fill_index     <= 0;
@@ -210,7 +200,6 @@ begin
                             fill_row_v := current_open_row;
                             pending_row_v := pending_open_row;
                             prev_reach_v := previous_reach_row;
-                            row_steps_v := conn_steps_total;
                             row_has_reach := '0';
 
                             if pending_row_valid_v = '1' then
@@ -220,18 +209,17 @@ begin
                                     seed_row_v := pending_row_v and prev_reach_v;
                                 end if;
 
-                                row_reach_v := reach_row(pending_row_v, seed_row_v, grid_size);
+                                row_reach_v := reach_row(pending_row_v, seed_row_v, N_ROWS_G);
                                 prev_reach_v := row_reach_v;
-                                row_steps_v := row_steps_v + to_unsigned(grid_size * 2, 32);
 
-                                if pending_row_index_v = grid_size - 1 then
-                                    row_has_reach := any_set(row_reach_v, grid_size);
+                                if pending_row_index_v = grid_steps - 1 then
+                                    row_has_reach := any_set(row_reach_v, N_ROWS_G);
                                     if row_has_reach = '1' then
                                         p_spanning <= '1';
                                     end if;
 
-                                    report "percolation_bfs_frontier row-wise run complete: grid_size=" & integer'image(grid_size) &
-                                           " conn_steps=" & integer'image(to_integer(row_steps_v)) &
+                                    report "percolation_bfs_frontier row-wise run complete: grid_width=" & integer'image(N_ROWS_G) &
+                                           " grid_steps=" & integer'image(grid_steps) &
                                            " spanning=" & std_logic'image(row_has_reach)
                                         severity note;
 
@@ -242,22 +230,20 @@ begin
                             end if;
 
                             if ChunkValid = '1' and stream_index_v < grid_cells then
-                                chunk_cols := min_int(grid_cells - stream_index_v, N_ROWS);
+                                    chunk_cols := min_int(grid_cells - stream_index_v, N_ROWS_G);
 
                                 if row_fill_v = 0 then
-                                    fill_row_v(N_ROWS - 1 downto 0) := ChunkOpen and chunk_mask(chunk_cols);
-                                elsif row_fill_v = N_ROWS then
-                                    fill_row_v(MAX_GRID - 1 downto N_ROWS) := ChunkOpen and chunk_mask(chunk_cols);
+                                        fill_row_v := ChunkOpen and chunk_mask(chunk_cols);
                                 end if;
 
                                 row_fill_v := row_fill_v + chunk_cols;
                                 stream_index_v := stream_index_v + chunk_cols;
 
-                                if row_fill_v = grid_size then
+                                if row_fill_v = N_ROWS_G then
                                     pending_row_v := fill_row_v;
                                     pending_row_valid_v := '1';
                                     pending_row_index_v := row_index_v;
-                                    if row_index_v < grid_size - 1 then
+                                    if row_index_v < grid_steps - 1 then
                                         row_index_v := row_index_v + 1;
                                     end if;
                                     row_fill_v := 0;
@@ -273,7 +259,6 @@ begin
                             current_open_row <= fill_row_v;
                             pending_open_row <= pending_row_v;
                             previous_reach_row <= prev_reach_v;
-                            conn_steps_total <= row_steps_v;
 
                             if (stream_index_v = grid_cells) and (pending_row_valid_v = '0') and (row_fill_v = 0) then
                                 state <= COMPLETE;

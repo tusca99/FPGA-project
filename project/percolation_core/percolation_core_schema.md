@@ -7,7 +7,7 @@ Questo file spiega, in modo semplice, cosa fa il core di percolazione in [percol
 Il core esegue molte volte la stessa prova:
 
 1. costruisce una griglia quadrata di celle
-2. decide in modo pseudo-casuale quali celle sono occupate tramite un bank RNG separato 64-wide
+2. decide in modo pseudo-casuale quali celle sono occupate tramite un bank RNG separato a larghezza compile-time `N_ROWS_G` (nel build di debug corrente `N_ROWS_G = 64`)
 3. controlla se esiste un cluster che attraversa la griglia dall'alto al basso
 4. aggiorna alcune statistiche
 5. ripete per il numero di run richiesto
@@ -23,9 +23,10 @@ In pratica risponde a questa domanda:
 - `RunEn` dice al core di partire
 - `StepAddValid` e `StepAddCount` aggiungono run in coda
 - `CfgP` imposta la probabilità di occupazione
-- `CfgGridSize` imposta la dimensione della griglia
+- `CfgStepsPerRun` imposta quante righe processare per run
 - `CfgSeed` imposta il seed del bank RNG
 - `CfgRuns` imposta quanti run fare al massimo
+- la larghezza della riga resta fissata a compile-time dal generic `N_ROWS_G` del top
 
 Le uscite sono solo statistiche:
 
@@ -44,10 +45,10 @@ La generazione casuale e la connettività devono restare separabili. Il contratt
     - `rst`: re-inizializza il bank RNG e riparte dal seed configurato
     - `master_key` / `run_tag`: diversificazione iniziale della sequenza
     - `threshold`: soglia di occupazione `p`
-    - `site_open(63 downto 0)`: 64 bit di occupazione per colonna
+    - `site_open(N_ROWS_G-1 downto 0)`: bit di occupazione per la riga corrente
     - `busy`: vale `1` mentre il bank si inizializza
 - blocco di connettivita` / frontier row-wise
-    - consuma una riga alla volta dal RNG 64-wide
+    - consuma una riga alla volta dal RNG `N_ROWS_G`-wide
     - mantiene solo riga corrente e riga precedente
     - propaga la raggiungibilita` con due scan orizzontali e un seed verticale dalla riga precedente
 - blocco di connettivita` / HK row-wise
@@ -68,17 +69,17 @@ Il passo successivo e` un wrapper di integrazione che parla con UART e non conti
 
 Questo top non deve duplicare il lavoro del core: non costruisce la griglia, non fa connettivita` globale e non genera numeri casuali.
 
+La larghezza della riga e` fissata a compile-time dal generic `N_ROWS_G` del top applicativo. Il parametro runtime resta solo `CfgStepsPerRun`, che dice quante righe totali processare nel run corrente.
+
 ### Frame binari del wrapper
 
 Il top applicativo usa messaggi binari a lunghezza fissa:
 
-- request: 24 byte totali, organizzati in 6 word da 32 bit
+- request: 16 byte totali, organizzati in 4 word da 32 bit
     - word 0: `CfgP`
-    - word 1: `CfgGridSize` nei 16 bit meno significativi
-    - word 2: `CfgSeed`
+    - word 1: `CfgSeed`
+    - word 2: `CfgStepsPerRun` nei 16 bit meno significativi
     - word 3: `CfgRuns`
-    - word 4: `ctrl` con i bit di start/init/step
-    - word 5: `StepAddCount`
 - response: 16 byte totali, organizzati in 4 word da 32 bit
     - word 0: `StepCount`
     - word 1: `PendingSteps`
@@ -108,13 +109,13 @@ on reset:
     azzera stati e contatori
 
 on CfgInit:
-    carica grid size, p, seed e numero massimo di run
+    carica p, seed, numero massimo di run e steps per run
     azzera le statistiche
 
 if RunEn = 1 or ci sono step in coda:
     se non ho già finito tutti i run richiesti:
         while non ho completato la riga corrente:
-            prendi 64 bit di occupazione dal bank RNG
+            prendi `N_ROWS_G` bit di occupazione dal bank RNG
             scrivili nella riga corrente della griglia
             propaga la raggiungibilita` tra riga precedente e riga corrente
 

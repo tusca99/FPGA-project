@@ -2,11 +2,11 @@
 
 ## Overview
 
-This document describes a hardware RNG architecture designed for a 64×64 lattice percolation simulation on an Artix-7 FPGA. The goal is to generate a statistically independent 32-bit random word per site per percolation step, with low resource usage and high throughput.
+This document describes the hardware RNG architecture currently used by the percolation RTL. The design is parameterized by `N_ROWS` at compile time; in the current build `N_ROWS = 128`, so the bank exposes 128 parallel Trivium lanes and 128 32-bit words per cycle. The goal is to generate a statistically independent 32-bit random word per site per percolation step, with low resource usage and high throughput.
 
 The chosen solution combines:
 - **AES-128 in CTR mode** as a cryptographic entropy source for seeding
-- **64 independent Trivium stream cipher cores** (one per row) for high-throughput pseudorandom generation
+- **`N_ROWS` independent Trivium stream cipher cores** (one per lane) for high-throughput pseudorandom generation
 
 ---
 
@@ -19,22 +19,22 @@ The chosen solution combines:
 │                      AES-128 CTR Core                        │
 │                                                              │
 │  At init:                                                    │
-│  Generate 128 consecutive 128-bit blocks                     │
+│  Generate 2 × N_ROWS consecutive 128-bit blocks              │
 │  Block 2i   → Key_i  (bits 79:0)   for Trivium_i            │
 │  Block 2i+1 → IV_i   (bits 79:0)   for Trivium_i            │
-│  i = 0 .. 63                                                 │
+│  i = 0 .. N_ROWS - 1                                         │
 └─────────────────────────┬────────────────────────────────────┘
                           │ 64 × (80-bit Key + 80-bit IV)
                           ▼
 ┌──────────────────────────────────────────────────────────────┐
-│              64 × Trivium Cores  (unrolled ×32)              │
+│              `N_ROWS` × Trivium Cores  (unrolled ×32)        │
 │                                                              │
-│   Trivium_0  ──► 32 bits/cycle  →  Row 0,  all 64 columns   │
-│   Trivium_1  ──► 32 bits/cycle  →  Row 1,  all 64 columns   │
+│   Trivium_0  ──► 32 bits/cycle  →  Row 0,  all columns      │
+│   Trivium_1  ──► 32 bits/cycle  →  Row 1,  all columns      │
 │   ...                                                        │
-│   Trivium_63 ──► 32 bits/cycle  →  Row 63, all 64 columns   │
+│   Trivium_{N_ROWS-1} ──► 32 bits/cycle  →  Row N_ROWS-1     │
 │                                                              │
-│   Full 64×64 grid filled in 64 clock cycles                  │
+│   Full grid filled in ceil(grid_size / N_ROWS) clock cycles │
 └─────────────────────────┬────────────────────────────────────┘
                           │ 64 × 32-bit words per cycle
                           ▼
@@ -60,7 +60,7 @@ For generator i  (i = 0 .. 63):
   IV_i  = AES_CTR(master_key, counter = 2i+1)[79:0]
 ```
 
-This requires **128 AES evaluations** per initialization (64 generators × 2 blocks each).  
+This requires **2 × N_ROWS AES evaluations** per initialization. In the current RTL, with `N_ROWS = 128`, that means **256 AES evaluations**.  
 The upper 48 bits of each 128-bit AES block are discarded.
 
 ### Why Two Blocks?
@@ -71,7 +71,7 @@ A single 128-bit AES block can only provide 128 bits of output. Splitting it as 
 
 | Phase             | Duration                        | Notes                          |
 |-------------------|---------------------------------|--------------------------------|
-| AES block generation | 128 AES calls (sequential)   | AES core reused, ~128–256 cycles depending on pipeline |
+| AES block generation | `2 × N_ROWS` AES calls       | AES core reused, sequential init phase |
 | Trivium warm-up   | **1152 cycles** (mandatory)     | Output gated; discard all bits |
 | Normal operation  | Until reset / next init sequence | 32 bits/cycle per generator    |
 
@@ -110,7 +110,7 @@ State bits 178 – 287  ← 0x000 (110 bits, zero-padded)
 
 ### Spatial Correlation — Between Rows
 
-Each Trivium instance is seeded with a **distinct AES-derived Key+IV pair**. Since AES output at different counter values is computationally indistinguishable from independent uniform random, the 64 keystreams are **statistically independent**. No inter-row correlation is introduced by the seeding procedure.
+Each Trivium instance is seeded with a **distinct AES-derived Key+IV pair**. Since AES output at different counter values is computationally indistinguishable from independent uniform random, the keystreams are **statistically independent**. No inter-row correlation is introduced by the seeding procedure.
 
 ### Spatial Correlation — Within a Row (Between Columns)
 
@@ -180,13 +180,13 @@ Runtime reseed is disabled in the current MVP.
 
 ## Implementation Checklist
 
-- [ ] AES-128 CTR core generates 128 blocks at init (counter 0 to 127)
+- [ ] AES-128 CTR core generates `2 × N_ROWS` blocks at init
 - [ ] Block `2i` bits `[79:0]` → `Key_i` for Trivium instance i
 - [ ] Block `2i+1` bits `[79:0]` → `IV_i` for Trivium instance i
 - [ ] Upper 48 bits of each AES block discarded
 - [ ] Trivium output enable gated low for 1152 cycles after the init key/IV load
 - [ ] 1152-cycle warm-up counter resets at init
-- [ ] All 64 Trivium instances loaded in parallel from stored seed registers
+- [ ] All `N_ROWS` Trivium instances loaded in parallel from stored seed registers
 - [ ] 32-bit output word per Trivium compared against threshold register each cycle
 - [ ] No runtime reseed in the current MVP
 - [ ] Optional run tag can still be used to diversify the initial seed per simulation run

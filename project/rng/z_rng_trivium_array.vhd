@@ -5,26 +5,29 @@ use ieee.numeric_std.all;
 use work.rng_pkg.all;
 
 entity trivium_array is
+    generic (
+        N_ROWS_G : positive := 64
+    );
     port (
         clk        : in  std_logic;
         rst        : in  std_logic;
         load       : in  std_logic;
         threshold  : in  std_logic_vector(31 downto 0);
-        keys       : in  key_array_t;
-        ivs        : in  iv_array_t;
-        words_out  : out word_array_t;
-        valid_mask : out flag_array_t;
-        site_open  : out flag_array_t;
+        keys       : in  key_array_t(0 to N_ROWS_G - 1);
+        ivs        : in  iv_array_t(0 to N_ROWS_G - 1);
+        words_out  : out word_array_t(0 to N_ROWS_G - 1);
+        valid_mask : out flag_array_t(0 to N_ROWS_G - 1);
+        site_open  : out flag_array_t(0 to N_ROWS_G - 1);
         all_valid  : out std_logic
     );
 end entity trivium_array;
 
 architecture rtl of trivium_array is
-    signal row_words_s : word_array_t := (others => (others => '0'));
-    signal row_valid_s : flag_array_t := (others => '0');
-    signal row_open_s  : flag_array_t := (others => '0');
+    signal row_words_s : word_array_t(0 to N_ROWS_G - 1) := (others => (others => '0'));
+    signal row_valid_s : flag_array_t(0 to N_ROWS_G - 1) := (others => '0');
+    signal row_open_s  : flag_array_t(0 to N_ROWS_G - 1) := (others => '0');
 begin
-    gen_rows : for index in 0 to N_ROWS - 1 generate
+    gen_rows : for index in 0 to N_ROWS_G - 1 generate
         row_rng : entity work.rng_trivium
             generic map (
                 num_bits => WORD_WIDTH,

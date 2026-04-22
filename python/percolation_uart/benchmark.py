@@ -27,7 +27,10 @@ class BenchmarkRow:
     step_count: int
     spanning_count: int
     total_occupied: int
-    bfs_step_count: int
+    status: int
+    rng_init_cycles: int
+    core_run_cycles: int
+    batch_cycles: int
 
 
 def _parse_int_list(values: Iterable[str]) -> list[int]:
@@ -80,7 +83,7 @@ def run_sweep(
                     request = PercolationRequest.from_probability(
                         probability=probability,
                         cfg_seed=seed_base + sample_index,
-                        grid_size=grid_size,
+                        steps_per_run=grid_size,
                         cfg_runs=cfg_runs,
                     )
 
@@ -103,7 +106,10 @@ def run_sweep(
                             step_count=response.step_count,
                             spanning_count=response.spanning_count,
                             total_occupied=response.total_occupied,
-                            bfs_step_count=response.bfs_step_count,
+                            status=response.status,
+                            rng_init_cycles=response.rng_init_cycles,
+                            core_run_cycles=response.core_run_cycles,
+                            batch_cycles=response.batch_cycles,
                         )
                     )
     finally:
@@ -124,7 +130,10 @@ def write_csv(rows: Iterable[BenchmarkRow], output_path: Path) -> None:
         "step_count",
         "spanning_count",
         "total_occupied",
-        "bfs_step_count",
+        "status",
+        "rng_init_cycles",
+        "core_run_cycles",
+        "batch_cycles",
     ]
     with output_path.open("w", newline="", encoding="utf-8") as csv_file:
         writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
@@ -141,10 +150,14 @@ def summarize(rows: Iterable[BenchmarkRow]) -> str:
     lines = []
     for (backend, grid_size, probability), group in sorted(grouped.items()):
         elapsed_mean = fmean(row.elapsed_us for row in group)
-        bfs_mean = fmean(row.bfs_step_count for row in group)
+        error_rate = fmean(row.status for row in group)
+        rng_mean = fmean(row.rng_init_cycles for row in group)
+        core_mean = fmean(row.core_run_cycles for row in group)
+        batch_mean = fmean(row.batch_cycles for row in group)
         lines.append(
             f"{backend:9s} N={grid_size:3d} p={probability:.4f} "
-            f"samples={len(group):4d} elapsed_us={elapsed_mean:10.3f} bfs_mean={bfs_mean:10.3f}"
+            f"samples={len(group):4d} elapsed_us={elapsed_mean:10.3f} error_rate={error_rate:8.4f} "
+            f"rng={rng_mean:10.3f} core={core_mean:10.3f} batch={batch_mean:10.3f}"
         )
     return "\n".join(lines)
 
