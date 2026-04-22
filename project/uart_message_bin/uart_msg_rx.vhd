@@ -33,6 +33,10 @@ architecture Behavioral of uart_msg_rx is
 begin
 
     rx_inst : entity work.uart_rx
+        generic map (
+            CLK_FREQ  => CLK_FREQ,
+            BAUD_RATE => BAUD_RATE
+        )
         port map (
             Clk       => Clk,
             Rst       => Rst,
