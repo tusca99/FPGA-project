@@ -61,11 +61,8 @@ architecture Behavioral of percolation_uart_top is
     signal rng_init_cycles_s  : unsigned(31 downto 0) := (others => '0');
     signal core_run_cycles_s  : unsigned(31 downto 0) := (others => '0');
     signal batch_cycles_s     : unsigned(31 downto 0) := (others => '0');
-
-    -- Add counter to prevent infinite wait in WAIT_CORE state
-    signal wait_timeout_s : unsigned(31 downto 0) := (others => '0');
-    constant WAIT_TIMEOUT_MAX : integer := 100_000; -- ~1ms at 100MHz (aggressive for quick feedback)
     
+    signal rx_valid_prev : std_logic := '0';  -- Track previous rx_valid for edge detection
     signal tx_busy_prev : std_logic := '0';  -- Track previous busy state
     signal batch_timing_active_s : std_logic := '0';
     signal core_timing_active_s  : std_logic := '0';
@@ -176,7 +173,8 @@ begin
         variable steps_word : std_logic_vector(31 downto 0);
     begin
         if rising_edge(Clk) then
-            -- Track previous state of tx_busy for edge detection
+            -- Track previous states for edge detection
+            rx_valid_prev <= rx_valid_s;
             tx_busy_prev <= tx_busy_s;
             
             if Rst = '0' then
@@ -190,7 +188,6 @@ begin
                 core_cfg_runs_s <= (others => '0');
                 core_cfg_init_s <= '0';
                 core_run_en_s <= '0';
-                wait_timeout_s <= (others => '0');
                 error_flag_s <= '0';
                 rng_init_cycles_s <= (others => '0');
                 core_run_cycles_s <= (others => '0');
@@ -245,7 +242,6 @@ begin
                             batch_timing_active_s <= '1';
                             core_timing_active_s <= '0';
 
-                            wait_timeout_s <= (others => '0');
                             state <= WAIT_DONE;
                         end if;
 
@@ -263,24 +259,13 @@ begin
                         if core_timing_active_s = '0' and core_done_s = '0' and core_rng_busy_s = '0' and core_rng_all_valid_s = '1' then
                             core_timing_active_s <= '1';
                         end if;
-                        -- With timeout safety to avoid infinite wait
-                        wait_timeout_s <= wait_timeout_s + 1;
                         
-                        -- Transition when: core signals completion OR timeout
+                        -- Transition when: core signals completion
                         if core_done_s = '1' then
                             -- Core has completed the configured number of runs; capture and send
                             batch_timing_active_s <= '0';
                             core_timing_active_s <= '0';
                             tx_msg_s <= core_step_count_s & core_spanning_s & core_total_s & x"00000000" &
-                                        std_logic_vector(rng_init_cycles_s) & std_logic_vector(core_run_cycles_s) &
-                                        std_logic_vector(batch_cycles_s) & x"00000000";
-                            state <= SEND_WAIT;
-                        elsif wait_timeout_s >= WAIT_TIMEOUT_MAX then
-                            -- Timeout: send whatever we have (may be zeros)
-                            error_flag_s <= '1';
-                            batch_timing_active_s <= '0';
-                            core_timing_active_s <= '0';
-                            tx_msg_s <= core_step_count_s & core_spanning_s & core_total_s & x"00000001" &
                                         std_logic_vector(rng_init_cycles_s) & std_logic_vector(core_run_cycles_s) &
                                         std_logic_vector(batch_cycles_s) & x"00000000";
                             state <= SEND_WAIT;

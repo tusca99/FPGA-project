@@ -265,9 +265,7 @@ begin
                             end if;
 
                         when COMPLETE =>
-                            if Start = '0' then
-                                state <= IDLE;
-                            end if;
+                            state <= IDLE;
                     end case;
                 end if;
             end if;

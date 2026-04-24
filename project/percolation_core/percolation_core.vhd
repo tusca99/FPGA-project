@@ -228,7 +228,7 @@ begin
 
                 case state is
                     when 0 =>
-                        if (rng_arm_s = '1') and (rng_busy_s = '0') and (rng_all_valid_s = '1') and
+                        if (rng_busy_s = '0') and (rng_all_valid_s = '1') and
                            ((run_enable = '1') or (pending /= 0)) and
                            ((runs_target = 0) or (runs_done < runs_target)) then
                             stream_index <= 0;
