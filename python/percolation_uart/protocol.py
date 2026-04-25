@@ -7,7 +7,7 @@ import math
 import struct
 
 REQUEST_BYTES = 16
-RESPONSE_BYTES = 32
+RESPONSE_BYTES = 16
 WORD_BYTES = 4
 UQ32_SCALE = 1 << 32
 MAX_GRID_SIZE = 128
@@ -91,10 +91,6 @@ class PercolationResponse:
     spanning_count: int
     total_occupied: int
     status: int
-    rng_init_cycles: int
-    core_run_cycles: int
-    batch_cycles: int
-    reserved: int = 0
 
     @property
     def is_error(self) -> bool:
@@ -106,10 +102,6 @@ class PercolationResponse:
             self.spanning_count,
             self.total_occupied,
             self.status,
-            self.rng_init_cycles,
-            self.core_run_cycles,
-            self.batch_cycles,
-            self.reserved,
         )
 
 
@@ -129,15 +121,11 @@ def encode_response(response: PercolationResponse) -> bytes:
     """Pack a response into the 16-byte wire format."""
 
     return struct.pack(
-        ">IIIIIIII",
+        ">IIII",
         response.step_count & 0xFFFFFFFF,
         response.spanning_count & 0xFFFFFFFF,
         response.total_occupied & 0xFFFFFFFF,
         response.status & 0xFFFFFFFF,
-        response.rng_init_cycles & 0xFFFFFFFF,
-        response.core_run_cycles & 0xFFFFFFFF,
-        response.batch_cycles & 0xFFFFFFFF,
-        response.reserved & 0xFFFFFFFF,
     )
 
 
@@ -147,16 +135,12 @@ def decode_response(payload: bytes) -> PercolationResponse:
     if len(payload) != RESPONSE_BYTES:
         raise ProtocolError(f"expected {RESPONSE_BYTES} response bytes, got {len(payload)}")
 
-    step_count, spanning_count, total_occupied, status, rng_init_cycles, core_run_cycles, batch_cycles, reserved = struct.unpack(
-        ">IIIIIIII", payload
+    step_count, spanning_count, total_occupied, status = struct.unpack(
+        ">IIII", payload
     )
     return PercolationResponse(
         step_count=step_count,
         spanning_count=spanning_count,
         total_occupied=total_occupied,
         status=status,
-        rng_init_cycles=rng_init_cycles,
-        core_run_cycles=core_run_cycles,
-        batch_cycles=batch_cycles,
-        reserved=reserved,
     )

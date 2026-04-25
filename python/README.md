@@ -48,8 +48,8 @@ with PercolationClient(port="/dev/ttyUSB0") as client:
 
 ## Notes
 
-- The FPGA response is 16 bytes: `StepCount`, `SpanningCount`, `TotalOccupied`, `BfsStepCount`.
-- `StepCount` is the number of completed runs in the batch, while `BfsStepCount` is cumulative across the batch.
+- The FPGA response is 32 bytes: `StepCount`, `SpanningCount`, `TotalOccupied`, `Status`, `RngInitCycles`, `CoreRunCycles`, `BatchCycles`, `Reserved`.
+- `StepCount` is the number of completed runs in the batch; `BatchCycles` covers request-to-done timing on the FPGA side.
 - For per-run statistics, keep `cfg_runs = 1` and repeat requests.
 - The `requirements.txt` file keeps the editable install minimal; `requirements-analysis.txt` adds the plotting and numerical stack.
 - `bootstrap.sh` creates the venv, installs `uv` inside it, and installs the base requirements.
