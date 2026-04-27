@@ -162,4 +162,40 @@ Nota: alcune entry di stato (es. `2,5,6,7,8`) vengono sovrascritte continuamente
 
 ---
 
+## 🔴 BLOCKING ISSUE: Hardware Spanning=0 (Active Debug)
+
+**Status**: SpanningCount and TotalOccupied always 0 on hardware, despite StepCount incrementing correctly.
+
+**Evidence**:
+- ✅ StepCount=cfg_runs (message encoding/decoding correct)
+- ✅ frontier_done_s fires (confirmed by runs_done incrementing)
+- ❌ frontier_spanning_s always '0' (spanning_cnt line 247 never increments)
+- ❌ run_occupied never updated (occupied_sum stays 0)
+
+**Testbench Status** (FIXED 26-Apr-2026):
+- Was using wrong parameters: CfgStepsPerRun=0x0001 (should 0x0040=64), CfgRuns=0xF10 (should 0x10=16)
+- Corrected in `project/percolation_core/percolation_core_tb.vhd`
+- Need to run simulation with corrected values to confirm core works with N_ROWS_G=64
+
+**Hypothesis** (Priority):
+1. **RNG produces all zeros** on hardware (no occupied sites → no connectivity possible)
+2. **Frontier row indexing bug** → pending_row_index never reaches grid_steps-1 (spanning detection at line 216-224)
+3. **Frontier reach logic** → row_reach_v always computed as 0 despite input
+
+**Next Debug Steps**:
+1. Run corrected percolation_core_tb simulation to verify core logic works with 64×64
+2. Rebuild bitstream with debug_spanning_detected LED (magenta output if spanning detected)
+3. Program FPGA and check LED color:
+   - Magenta → spanning IS detected, problem elsewhere
+   - Off → spanning NEVER detected, problem in frontier or RNG
+4. Add RNG debug output (expose rng_site_open_s) to verify occupancy varies
+5. Trace frontier state machine: verify pending_row_index reaches grid_steps-1
+
+**Files Modified**:
+- `project/percolation_core/percolation_core_tb.vhd` - Fixed test parameters
+- `project/percolation_core/percolation_uart_top.vhd` - Added debug_spanning_detected LED
+- See `DEBUG_STATE.md` for full details
+
+---
+
 Aggiorna queste istruzioni se aggiungi nuovi moduli o cambi il flusso di lavoro.

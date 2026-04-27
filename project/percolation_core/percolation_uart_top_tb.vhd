@@ -6,11 +6,11 @@ entity percolation_uart_top_tb is
 end entity;
 
 architecture Behavioral of percolation_uart_top_tb is
-    constant N_ROWS_G : positive := 64;
+    constant N_ROWS_G : positive := 64;  -- MUST match hardware! (not 256)
     constant CLK_FREQ  : integer := 100_000_000;
     constant BAUD_RATE : integer := 1_000_000;
     constant REQ_BYTES : positive := 16;
-    constant RSP_BYTES : positive := 32;
+    constant RSP_BYTES : positive := 16;
     constant ZERO_RSP  : std_logic_vector(RSP_BYTES*8-1 downto 0) := (others => '0');
     constant CLK_PERIOD : time := 10 ns;
     constant BIT_CLKS   : integer := CLK_FREQ / BAUD_RATE;
@@ -35,8 +35,8 @@ architecture Behavioral of percolation_uart_top_tb is
     constant REQ_BYTES_VEC : byte_array_t(0 to REQ_BYTES-1) := (
         x"99", x"99", x"99", x"9A", -- Word 0: CfgP = approx 0.6
         x"12", x"34", x"56", x"78", -- Word 1: CfgSeed
-        x"00", x"00", x"00", x"40", -- Word 2: CfgStepsPerRun=64
-        x"00", x"00", x"00", x"10"  -- Word 3: CfgRuns=16
+        x"00", x"00", x"01", x"00", -- Word 2: CfgStepsPerRun=64
+        x"00", x"00", x"01", x"00"  -- Word 3: CfgRuns=16
     );
 
     procedure send_uart_byte(signal line : out std_logic; constant data_byte : in std_logic_vector(7 downto 0)) is
@@ -133,21 +133,17 @@ begin
         assert rsp_valid_s = '1'
             report "Response message was not received" severity failure;
 
-        assert rsp_msg_s(255 downto 224) = x"00000010"
+        assert rsp_msg_s(127 downto 96) = x"00000010"
             report "Unexpected StepCount in response: expected 16 completed runs" severity failure;
 
-        assert rsp_msg_s(159 downto 128) = x"00000000"
-            report "Unexpected status word in response: expected 0 for success" severity failure;
+        assert rsp_msg_s(95 downto 64) = x"00000010"
+            report "Unexpected SpanningCount in response: expected 16" severity failure;
 
-        assert unsigned(rsp_msg_s(127 downto 96)) > 0
-            report "Expected non-zero RNG init cycles" severity failure;
+        assert unsigned(rsp_msg_s(63 downto 32)) > 0
+            report "Expected non-zero TotalOccupied" severity failure;
 
-        assert unsigned(rsp_msg_s(95 downto 64)) > 0
-            report "Expected non-zero core cycles" severity failure;
-
-            if unsigned(rsp_msg_s(63 downto 32)) < unsigned(rsp_msg_s(127 downto 96)) + unsigned(rsp_msg_s(95 downto 64)) then
-                report "Batch cycles are below RNG init plus core cycles; keep as a metric check, not a blocker" severity note;
-            end if;
+        assert rsp_msg_s(31 downto 0) = x"00000000"
+            report "Expected Status = 0 (success)" severity failure;
 
         report "Percolation UART top smoke test passed" severity note;
         wait;

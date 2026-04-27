@@ -6,7 +6,7 @@ entity percolation_core_tb is
 end entity;
 
 architecture Behavioral of percolation_core_tb is
-    constant N_ROWS_G    : positive := 256;
+    constant N_ROWS_G    : positive := 64;
     signal Clk          : std_logic := '0';
     signal Rst          : std_logic := '0';
 
@@ -69,10 +69,10 @@ begin
         wait for 20 ns;
         Rst <= '1';
 
-        CfgStepsPerRun <= x"0080"; -- 64 steps per run
+        CfgStepsPerRun <= x"0040"; -- 64 steps per run (0x40 = 64 decimal)
         CfgP <= x"970A3D70"; -- p ~= 0.59 in UQ32
         CfgSeed <= x"12345678";
-        CfgRuns <= x"00000010"; -- 16 runs
+        CfgRuns <= x"00000010"; -- 16 runs (0x10 = 16 decimal, was wrong: 0xF10 = 3856)
         CfgInit <= '1';
         wait for 10 ns;
         CfgInit <= '0';

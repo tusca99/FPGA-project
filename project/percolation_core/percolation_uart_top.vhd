@@ -5,10 +5,10 @@ use IEEE.NUMERIC_STD.ALL;
 entity percolation_uart_top is
     generic (
         CLK_FREQ  : integer := 100_000_000;
-        BAUD_RATE : integer := 115200;
+        BAUD_RATE : integer := 9600;
         N_ROWS_G  : positive := 64;
         REQ_BYTES : positive := 16;
-        RSP_BYTES : positive := 32
+        RSP_BYTES : positive := 16
     );
     port (
         Clk       : in  std_logic;
@@ -37,12 +37,20 @@ architecture Behavioral of percolation_uart_top is
     signal tx_start_s       : std_logic := '0';
     signal tx_busy_s        : std_logic := '0';
     signal rx_msg_valid_seen_s : std_logic := '0';
+    
+    -- Capture core outputs BEFORE reset
+    signal captured_step_count : std_logic_vector(31 downto 0) := (others => '0');
+    signal captured_spanning   : std_logic_vector(31 downto 0) := (others => '0');
+    signal captured_total      : std_logic_vector(31 downto 0) := (others => '0');
 
     -- Button synchronizers (double-flip-flop)
     signal btn_init_sync1 : std_logic := '1';
     signal btn_init_sync2 : std_logic := '1';
     signal btn_run_sync1  : std_logic := '1';
     signal btn_run_sync2  : std_logic := '1';
+    
+    -- Extra state to ensure RX/TX separation
+    signal idle_settle_count : integer range 0 to 3 := 0;
 
     signal core_cfg_p_s       : std_logic_vector(31 downto 0) := (others => '0');
     signal core_cfg_steps_s   : std_logic_vector(15 downto 0) := (others => '0');
@@ -57,15 +65,12 @@ architecture Behavioral of percolation_uart_top is
     signal core_rng_all_valid_s : std_logic := '0';
     signal core_done_s        : std_logic := '0';
     signal error_flag_s       : std_logic := '0';
-
-    signal rng_init_cycles_s  : unsigned(31 downto 0) := (others => '0');
-    signal core_run_cycles_s  : unsigned(31 downto 0) := (others => '0');
-    signal batch_cycles_s     : unsigned(31 downto 0) := (others => '0');
     
-    signal rx_valid_prev : std_logic := '0';  -- Track previous rx_valid for edge detection
-    signal tx_busy_prev : std_logic := '0';  -- Track previous busy state
-    signal batch_timing_active_s : std_logic := '0';
-    signal core_timing_active_s  : std_logic := '0';
+    signal rx_valid_prev : std_logic := '0';
+    signal tx_busy_prev : std_logic := '0';
+    
+    -- Debug: track if any spanning detected during this run
+    signal debug_spanning_detected : std_logic := '0';
 
     function word_from_msg(msg : std_logic_vector; word_index : natural) return std_logic_vector is
         variable word_hi : integer;
@@ -79,10 +84,11 @@ architecture Behavioral of percolation_uart_top is
     end function;
 
 begin
-    led_rgb_o <= "100" when error_flag_s = '1' else
-                 "010" when rx_msg_valid_seen_s = '1' else
-                 "001" when state = IDLE else
-                 "110";
+    led_rgb_o <= "101" when debug_spanning_detected = '1' else  -- Magenta: spanning was detected at least once
+                 "100" when error_flag_s = '1' else              -- Red: error
+                 "010" when rx_msg_valid_seen_s = '1' else       -- Green: message received
+                 "001" when state = IDLE else                    -- Blue: idle/waiting
+                 "110";                                          -- Yellow: processing
 
     baud_inst : entity work.baud_gen
         generic map (
@@ -189,11 +195,7 @@ begin
                 core_cfg_init_s <= '0';
                 core_run_en_s <= '0';
                 error_flag_s <= '0';
-                rng_init_cycles_s <= (others => '0');
-                core_run_cycles_s <= (others => '0');
-                batch_cycles_s <= (others => '0');
-                batch_timing_active_s <= '0';
-                core_timing_active_s <= '0';
+                idle_settle_count <= 0;
             else
                 -- Only clear one-cycle pulses at start of cycle
                 tx_start_s <= '0';
@@ -204,22 +206,14 @@ begin
                     rx_msg_valid_seen_s <= '1';
                 end if;
 
-                if batch_timing_active_s = '1' then
-                    batch_cycles_s <= batch_cycles_s + 1;
-                end if;
-
-                if (batch_timing_active_s = '1') and (core_rng_busy_s = '1') then
-                    rng_init_cycles_s <= rng_init_cycles_s + 1;
-                end if;
-
-                if core_timing_active_s = '1' then
-                    core_run_cycles_s <= core_run_cycles_s + 1;
-                end if;
-
                 case state is
                     when IDLE =>
                         core_run_en_s <= '0';  -- Deassert when idle
-                        if rx_valid_s = '1' then
+                        -- After TX completes, wait for settle counter to reach 0 before accepting new RX
+                        if idle_settle_count > 0 then
+                            idle_settle_count <= idle_settle_count - 1;
+                        elsif rx_valid_s = '1' and tx_busy_s = '0' and rx_busy_s = '0' then
+                            -- New message ready and both RX/TX settled
                             rx_msg_latched_s <= rx_msg_s;
                             state <= WAIT_CORE;
                         end if;
@@ -236,11 +230,6 @@ begin
                             core_cfg_init_s <= '1';
                             core_run_en_s   <= '1';
                             error_flag_s    <= '0';
-                            rng_init_cycles_s <= (others => '0');
-                            core_run_cycles_s <= (others => '0');
-                            batch_cycles_s <= (others => '0');
-                            batch_timing_active_s <= '1';
-                            core_timing_active_s <= '0';
 
                             state <= WAIT_DONE;
                         end if;
@@ -256,24 +245,32 @@ begin
                     when WAIT_DONE =>
                         -- Keep the core running until the core asserts Done.
                         core_run_en_s <= '1';
-                        if core_timing_active_s = '0' and core_done_s = '0' and core_rng_busy_s = '0' and core_rng_all_valid_s = '1' then
-                            core_timing_active_s <= '1';
-                        end if;
                         
                         -- Transition when: core signals completion
                         if core_done_s = '1' then
-                            -- Core has completed the configured number of runs; capture and send
-                            batch_timing_active_s <= '0';
-                            core_timing_active_s <= '0';
-                            tx_msg_s <= core_step_count_s & core_spanning_s & core_total_s & x"00000000" &
-                                        std_logic_vector(rng_init_cycles_s) & std_logic_vector(core_run_cycles_s) &
-                                        std_logic_vector(batch_cycles_s) & x"00000000";
+                            -- CAPTURE the core output values before they can be corrupted by next init
+                            captured_step_count <= core_step_count_s;
+                            captured_spanning   <= core_spanning_s;
+                            captured_total      <= core_total_s;
+                            
+                            -- DEBUG: track if spanning was detected (non-zero)
+                            if unsigned(core_spanning_s) > 0 then
+                                debug_spanning_detected <= '1';
+                            end if;
+                            
+                            report "UART_TOP: core_done_s fired! StepCount=" & integer'image(to_integer(unsigned(core_step_count_s))) &
+                                   " Spanning=" & integer'image(to_integer(unsigned(core_spanning_s))) &
+                                   " Total=" & integer'image(to_integer(unsigned(core_total_s)))
+                                severity note;
+                            
                             state <= SEND_WAIT;
                         end if;
 
                     when SEND_WAIT =>
                         core_run_en_s <= '0';  -- Deassert when sending response
                         if tx_busy_s = '0' then
+                            -- Pack response using CAPTURED values (prevents corruption from core reset)
+                            tx_msg_s <= captured_step_count & captured_spanning & captured_total & x"00000000";
                             -- tx_busy is idle, safe to pulse msg_start
                             tx_start_s <= '1';
                             state <= TX_COMPLETE;
@@ -284,7 +281,8 @@ begin
                         -- uart_msg_tx.busy goes: 0 -> 1 (on msg_start edge) -> 0 (when done)
                         -- We detect falling edge: tx_busy_prev = '1' and tx_busy_s = '0'
                         if tx_busy_prev = '1' and tx_busy_s = '0' then
-                            -- Transmission just completed
+                            -- Transmission just completed; enforce settlement period before accepting next RX
+                            idle_settle_count <= 2;
                             state <= IDLE;
                         end if;
                 end case;
