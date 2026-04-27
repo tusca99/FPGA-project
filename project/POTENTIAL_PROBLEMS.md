@@ -58,6 +58,39 @@ Remove declaration and all references to `p_spanning`.
 ✓ RNG init cycles > 0 (counts while RNG busy during init)  
 ✓ Core run cycles > 0 (counts during core execution)
 
+## 4. RX Frame Width / Observability Confusion
+
+### Observed Issue
+In implementation debug, some probes looked like 8-bit values only:
+- `rx_msg_s` appeared as `000000000000000000000000000000ff`
+- `core_cfg_runs_s` appeared as `ff`
+- `captured_step_count` and `core_step_count_s` still looked 32-bit
+
+### What the RTL Actually Says
+The source does **not** define these as 8-bit signals:
+- `rx_msg_s` is `std_logic_vector(REQ_BYTES*8-1 downto 0)` with `REQ_BYTES = 16`, so it is **128 bits**
+- `tx_msg_s` is also **128 bits**
+- `core_cfg_runs_s` is `std_logic_vector(31 downto 0)`, so it is **32 bits**
+- `core_cfg_steps_s` is `std_logic_vector(15 downto 0)`, so it is **16 bits**
+
+### Likely Explanation
+This is likely not a literal 8-bit RTL definition bug. More likely one of these:
+1. The ILA or implementation probe is attached to a truncated fragment or optimized net
+2. The RX path is only capturing the last byte before the frame is considered valid
+3. The top-level message assembly is not holding the full 16-byte payload in practice
+
+### Why It Matters
+If only the low byte is visible in debug, the top may still unpack `CfgRuns` as the low byte only in practice. That would explain the observed `0x000000ff`-style behavior and the zeroed response path.
+
+### Immediate Checks
+1. Probe the full bus slices explicitly: `rx_msg_s(127 downto 96)`, `rx_msg_s(95 downto 64)`, `rx_msg_s(63 downto 32)`, `rx_msg_s(31 downto 0)`
+2. Probe `core_cfg_runs_s(31 downto 0)` and `core_cfg_steps_s(15 downto 0)` explicitly
+3. Confirm request bytes on wire are `e6666666 | 12345678 | 00000064 | 000000ff` for current Python test
+4. If ILA still shows only one byte changing, inspect `uart_msg_rx.vhd` capture timing and trigger point, not core datapath
+
+### Current Status
+⚠️ **Not yet proven as an RTL width bug**. Source-level widths are correct; remaining question is whether debug probe or RX/message assembly path is only exposing one byte in practice.
+
 ---
 
 ## Action Items

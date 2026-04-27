@@ -1,0 +1,38 @@
+Copyright 1986-2022 Xilinx, Inc. All Rights Reserved. Copyright 2022-2025 Advanced Micro Devices, Inc. All Rights Reserved.
+---------------------------------------------------------------------------------------------------------------------------------------------
+| Tool Version : Vivado v.2025.2 (lin64) Build 6299465 Fri Nov 14 12:34:56 MST 2025
+| Date         : Mon Apr 27 17:50:57 2026
+| Host         : fedora.fritz.box running 64-bit unknown
+| Command      : report_utilization -hierarchical -file hierarchical_utilization.rpt
+| Design       : percolation_uart_top
+| Device       : xc7a100tcsg324-1
+| Speed File   : -1
+| Design State : Synthesized
+---------------------------------------------------------------------------------------------------------------------------------------------
+
+Utilization Design Information
+
+Table of Contents
+-----------------
+1. Utilization by Hierarchy
+
+1. Utilization by Hierarchy
+---------------------------
+
++--------------------------+--------------------------+------------+------------+---------+------+------+--------+--------+------------+
+|         Instance         |          Module          | Total LUTs | Logic LUTs | LUTRAMs | SRLs |  FFs | RAMB36 | RAMB18 | DSP Blocks |
++--------------------------+--------------------------+------------+------------+---------+------+------+--------+--------+------------+
+| percolation_uart_top     |                    (top) |       1019 |       1019 |       0 |    0 | 1090 |      0 |      0 |          0 |
+|   (percolation_uart_top) |                    (top) |          2 |          2 |       0 |    0 |   97 |      0 |      0 |          0 |
+|   core_inst              |         percolation_core |        889 |        889 |       0 |    0 |  858 |      0 |      0 |          0 |
+|     (core_inst)          |         percolation_core |         75 |         75 |       0 |    0 |   53 |      0 |      0 |          0 |
+|     frontier_inst        | percolation_bfs_frontier |         75 |         75 |       0 |    0 |   13 |      0 |      0 |          0 |
+|     rng_inst             |            rng_hybrid_64 |        739 |        739 |       0 |    0 |  792 |      0 |      0 |          0 |
+|       trivium_bank       |            trivium_array |        720 |        720 |       0 |    0 |  768 |      0 |      0 |          0 |
+|   rx_inst                |              uart_msg_rx |         88 |         88 |       0 |    0 |   54 |      0 |      0 |          0 |
+|     rx_inst              |                  uart_rx |         51 |         51 |       0 |    0 |   39 |      0 |      0 |          0 |
+|   tx_inst                |              uart_msg_tx |         35 |         35 |       0 |    0 |   66 |      0 |      0 |          0 |
+|     (tx_inst)            |              uart_msg_tx |         22 |         22 |       0 |    0 |   51 |      0 |      0 |          0 |
++--------------------------+--------------------------+------------+------------+---------+------+------+--------+--------+------------+
+
+

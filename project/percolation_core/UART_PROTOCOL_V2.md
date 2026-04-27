@@ -20,11 +20,16 @@ Compact binary protocol with hybrid UART + button control for debug.
 
 ### Byte Layout (Word 2):
 ```
-Byte 11 (MSB):  CfgStepsPerRun[15:8] (0x00)
-Byte 10:        CfgStepsPerRun[7:0]  (0x40 = 64 rows)
-Byte 9:         reserved[15:8]    (0x00)
-Byte 8 (LSB):   reserved[7:0]     (0x00)
+Byte 11 (MSB):  reserved[31:24]      (0x00)
+Byte 10:        reserved[23:16]      (0x00)
+Byte 9:         reserved[15:8]       (0x00)
+Byte 8 (LSB):   CfgStepsPerRun[7:0]  (0x40 = 64 rows)
 ```
+
+In the current RTL, word 2 is still transmitted as a full 32-bit big-endian word.
+Only the lower 16 bits are consumed by `percolation_uart_top.vhd`, so the wire
+encoding for 64 steps is `00 00 00 40`, which becomes `0x00000040` at the word
+level and `0x0040` after the top-level truncation.
 
 The row width is compile-time fixed by the top-level generic `N_ROWS_G` (default build: 64). UART only carries the variable part: how many rows/steps to process.
 
@@ -124,7 +129,7 @@ For precise timing, use Python wall-clock measurement or simulation waveform ana
  - `RSP_BYTES` generic = 16
  - `N_ROWS_G` generic controls the compile-time width of both the bank RNG and the core (default build: 64)
  - `btn_init_i`, `btn_run_i` ports (active low, default '1')
- - Unpacking: `CfgStepsPerRun <= word2[15:0]`, `CfgRuns <= word3`
+- Unpacking: `CfgStepsPerRun <= word2[15:0]`, `CfgRuns <= word3[31:0]`
 - Completion is driven by the core `Done` trigger, not by `RunEn`
 - `Status` is a 1-bit return code in word 3: `0` means success, `1` means error/timeout
 - Response: `StepCount`, `SpanningCount`, `TotalOccupied`, `Status`

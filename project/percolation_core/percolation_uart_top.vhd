@@ -22,6 +22,8 @@ entity percolation_uart_top is
 end percolation_uart_top;
 
 architecture Behavioral of percolation_uart_top is
+    attribute MARK_DEBUG : string;
+
     type state_t is (IDLE, WAIT_CORE, WAIT_DONE, SEND_WAIT, TX_COMPLETE);
     signal state : state_t := IDLE;
 
@@ -212,8 +214,8 @@ begin
                         -- After TX completes, wait for settle counter to reach 0 before accepting new RX
                         if idle_settle_count > 0 then
                             idle_settle_count <= idle_settle_count - 1;
-                        elsif rx_valid_s = '1' and tx_busy_s = '0' and rx_busy_s = '0' then
-                            -- New message ready and both RX/TX settled
+                        elsif rx_valid_prev = '1' and rx_valid_s = '0' and tx_busy_s = '0' and rx_busy_s = '0' then
+                            -- RX valid just fell: msg_data is now stable and contains the full frame
                             rx_msg_latched_s <= rx_msg_s;
                             state <= WAIT_CORE;
                         end if;

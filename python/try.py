@@ -4,7 +4,7 @@ import time
 import serial
 
 # Test with manual serial to see raw bytes
-test_runs = [1, 10, 100, 255]
+test_runs = [1, 10, 100, 255, 1500]
 
 with serial.Serial(port="/dev/ttyUSB1", baudrate=9600, timeout=2.0) as ser:
     for cfg_runs in test_runs:
@@ -17,7 +17,7 @@ with serial.Serial(port="/dev/ttyUSB1", baudrate=9600, timeout=2.0) as ser:
         req = PercolationRequest.from_probability(
             probability=0.9,
             cfg_seed=0x12345678,
-            steps_per_run=100,
+            steps_per_run=106,
             cfg_runs=cfg_runs,
         )
         req_bytes = encode_request(req)
