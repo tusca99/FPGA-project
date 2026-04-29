@@ -6,10 +6,10 @@ Questo e` il data-plane MVP per il progetto di site percolation.
 
 - Il core lavora in single-clock e usa un generatore RNG dedicato per riempire la griglia.
 - La direzione di connettivita` ha due varianti tenute separate: frontier row-wise a due righe come base principale e HK row-wise ridotto come alternativa per cluster statistics.
-- La variante frontier e` piu` adatta se la chiusura orizzontale della riga viene implementata come dilatazione bitmask a 7 stage fissi, non come catena combinatoria da 128 celle.
+- La variante frontier e` piu` adatta se la chiusura orizzontale della riga viene implementata come dilatazione bitmask a potenze di due, con numero di stage che cresce automaticamente con `N_ROWS_G`.
 - Il backend principale non materializza tutta la griglia: mantiene solo riga corrente e riga precedente.
 - La forma runtime del problema e` una striscia a larghezza fissa `N_ROWS_G` e altezza richiesta da `CfgStepsPerRun`.
-- La larghezza del campo `CfgStepsPerRun` si controlla dal top con il generic `CFG_STEPS_BITS_G` (default 32).
+- Il campo `CfgStepsPerRun` viaggia nel frame UART come word unsigned a 32 bit.
 - `Done` indica che la batch richiesta e` terminata.
 - `ConnStepCount` e` cumulativo su tutte le run della richiesta, non per singola run.
 - Statistiche derivate come la media delle celle occupate vanno calcolate lato host dai contatori grezzi.
@@ -22,7 +22,7 @@ Questo e` il data-plane MVP per il progetto di site percolation.
 - `bfs_frontier.md`: documento di progetto per il backend frontier row-wise / wavefront a due righe.
 - `hk_row_wise.md`: documento di progetto per il modulo HK row-wise ridotto.
 - `percolation_core_tb.vhd`: testbench standalone del core.
-- `percolation_uart_top.vhd`: wrapper sottile UART + core.
+- `percolation_uart_top.vhd`: top applicativo UART + core.
 - `percolation_uart_top_tb.vhd`: testbench end-to-end del wrapper UART.
 - `UART_PROTOCOL_V2.md`: contratto request/response del control-plane.
 - `percolation_core_schema.md`: schema e note di progetto.

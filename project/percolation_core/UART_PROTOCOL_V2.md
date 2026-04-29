@@ -15,7 +15,7 @@ Compact binary protocol with UART request/response. Button ports stay only for b
 |------|-------|-------|------|-------|---------|
 | 0 | 0–3 | `CfgP` | uint32 | Fixed-point 0.0–1.0 | Occupation probability |
 | 1 | 4–7 | `CfgSeed` | uint32 | Any | RNG seed |
-| 2 | 8–11 | `CfgStepsPerRun` | uint32 | Requested rows, 1–4294967295 | 32-bit on wire, top consumes the low `CFG_STEPS_BITS_G` bits |
+| 2 | 8–11 | `CfgStepsPerRun` | uint32 | Requested rows, 1–4294967295 | 32-bit unsigned step count |
 | 3 | 12–15 | `CfgRuns` | uint32 | Runs: 1–4294967295 | Batch size |
 
 Word 2 is transmitted as a full 32-bit big-endian word.
@@ -30,7 +30,7 @@ So the live contract is:
 - width: fixed at `N_ROWS_G`
 - requested height: `CfgStepsPerRun`
 - effective height in RTL: `CfgStepsPerRun` (with a minimum of 1)
-- step-field width from the top: `CFG_STEPS_BITS_G` (default 32)
+
 
 If you ask for more than `N_ROWS_G` rows, the request is not expanded in width. The core keeps the strip width fixed and extends the run in the vertical direction.
 
@@ -125,10 +125,9 @@ For precise timing, use Python wall-clock measurement or simulation waveform ana
  - `REQ_BYTES` generic = 16
  - `RSP_BYTES` generic = 16
  - `N_ROWS_G` generic controls the compile-time width of both the bank RNG and the core (default build: 64)
- - `CFG_STEPS_BITS_G` generic controls the width of `CfgStepsPerRun` from the top (default build: 32)
  - `CfgStepsPerRun` is runtime-configurable and sets the run height directly
  - `btn_init_i`, `btn_run_i` ports kept for board compatibility, but the slim wrapper ignores them
-- Unpacking: `CfgStepsPerRun <= word2[CFG_STEPS_BITS_G-1:0]`, `CfgRuns <= word3[31:0]`
+- Unpacking: `CfgStepsPerRun <= word2`, `CfgRuns <= word3`
 - Completion is driven by the core `Done` trigger, not by `RunEn`
 - `Status` is a 1-bit return code in word 3: `0` means success, `1` means error
 - Response: `StepCount`, `SpanningCount`, `TotalOccupied`, `Status`

@@ -85,7 +85,7 @@ Per ogni ciclo di clock utile:
 
 1. se `ChunkValid = '1'`, latci la riga corrente dal RNG bank
 2. prepara il seed verticale dalla riga precedente
-3. nel ciclo successivo, processa la riga latcheata con la dilatazione bitmask a 7 stage
+3. nel ciclo successivo, processa la riga latcheata con la dilatazione bitmask generata a potenze di due
 4. aggiorna `previous_reach_row`
 5. incrementa `ConnStepCount`
 
@@ -133,7 +133,7 @@ La metrica finale da preservare e` la correttezza funzionale con un costo di con
 
 ## Variante piu` sintetizzabile
 
-La chiusura orizzontale della riga non va pensata come un loop da 128 celle dentro un unico processo combinatorio. L'implementazione attuale usa 7 stage espliciti di dilatazione bitmask, uno per ciascuna potenza di due fino a `64`, coerenti con `MAX_GRID = 128`.
+La chiusura orizzontale della riga non va pensata come un loop da 128 celle dentro un unico processo combinatorio. L'implementazione attuale usa una dilatazione bitmask a potenze di due, con numero di stage determinato da `N_ROWS_G`.
 
 Regola per uno stage:
 
@@ -141,11 +141,11 @@ $$
 reach \leftarrow reach \lor ((reach \ll d) \lor (reach \gg d)) \land open
 $$
 
-con `d = 1, 2, 4, 8, 16, 32, 64`.
+con `d = 1, 2, 4, 8, ...` finche` `d < N_ROWS_G`.
 
 Questo approccio e` semanticamente equivalente alla chiusura della riga, ma non e` il loop naïve:
 
-- stesso risultato della scansione lineare, ma con pochi stage fissi
+- stesso risultato della scansione lineare, ma con pochi stage generati
 - profondita` combinatoria molto piu` bassa
 - timing piu` facile da chiudere rispetto al blob cella-per-cella
 - area in genere piu` controllata, con un piccolo costo extra per la logica di stage rispetto a una riga sequenziale pura
@@ -153,7 +153,7 @@ Questo approccio e` semanticamente equivalente alla chiusura della riga, ma non 
 Per il target FPGA di questo progetto, il compromesso migliore e`:
 
 - evitare la catena cella-per-cella completamente combinatoria
-- usare un network bitmask a stage fissi
+- usare un network bitmask a stage che crescono automaticamente con la larghezza della riga
 - tenere la frontiera come mask bit-parallel, non come queue fine-grained
 
 In pratica: stesso risultato logico, costo di clock molto piu` prevedibile, area spesso migliore del blob combinatorio attuale, ma non identica in termini di risorse rispetto a una versione sequenziale a 1 cella per clock.
@@ -164,4 +164,6 @@ In pratica: stesso risultato logico, costo di clock molto piu` prevedibile, area
 
 Il backend corrente usa `GridSteps` come altezza della striscia: la larghezza resta fissa, la profondita` cresce con il parametro runtime.
 
-Il network bitmask attuale ha 7 stage espliciti con shift 1, 2, 4, 8, 16, 32 e 64: questo copre correttamente larghezze fino a circa 128 colonne. Se vuoi andare in migliaia di colonne, il frontend va rifatto con piu` stage o con un'altra architettura di propagazione.
+Il network bitmask attuale e` generico su `N_ROWS_G`: applica shift a potenze di due finche` la potenza resta minore di `N_ROWS_G`. Quindi il numero di stage non e` piu` fissato a mano; cresce automaticamente con la larghezza della riga.
+
+Per `N_ROWS_G = 128` ottieni 7 stage effettivi. Per `N_ROWS_G = 512` diventano 9, per `N_ROWS_G = 1024` diventano 10. Questo e` ancora il bitmask a dilatazione, non un nuovo algoritmo.

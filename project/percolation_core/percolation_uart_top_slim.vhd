@@ -7,7 +7,6 @@ entity percolation_uart_top_slim is
         CLK_FREQ  : integer := 100_000_000;
         BAUD_RATE : integer := 9600;
         N_ROWS_G  : positive := 64;
-        CFG_STEPS_BITS_G : positive := 32;
         REQ_BYTES : positive := 16;
         RSP_BYTES : positive := 16
     );
@@ -24,6 +23,7 @@ architecture Behavioral of percolation_uart_top_slim is
     constant REQ_BITS : natural := REQ_BYTES * 8;
     constant RSP_BITS : natural := RSP_BYTES * 8;
 
+
     type state_t is (IDLE, WAIT_CLEAR, RUN_WAIT, TX_PULSE, TX_WAIT_BUSY, TX_WAIT_DONE);
     signal state : state_t := IDLE;
 
@@ -38,7 +38,7 @@ architecture Behavioral of percolation_uart_top_slim is
     signal tx_busy_s  : std_logic := '0';
 
     signal core_cfg_p_s        : std_logic_vector(31 downto 0) := (others => '0');
-    signal core_cfg_steps_s    : unsigned(CFG_STEPS_BITS_G - 1 downto 0) := (others => '0');
+        signal core_cfg_steps_s    : unsigned(31 downto 0) := (others => '0');
     signal core_cfg_seed_s     : std_logic_vector(31 downto 0) := (others => '0');
     signal core_cfg_runs_s     : std_logic_vector(31 downto 0) := (others => '0');
     signal core_cfg_init_s     : std_logic := '0';
@@ -97,8 +97,7 @@ begin
 
     core_inst : entity work.percolation_core
         generic map (
-            N_ROWS_G => N_ROWS_G,
-            CFG_STEPS_BITS_G => CFG_STEPS_BITS_G
+            N_ROWS_G => N_ROWS_G
         )
         port map (
             Clk            => Clk,
@@ -143,7 +142,7 @@ begin
                         if req_valid_s = '1' then
                             core_cfg_p_s    <= req_msg_s(127 downto 96);
                             core_cfg_seed_s <= req_msg_s(95 downto 64);
-                            core_cfg_steps_s <= unsigned(req_msg_s(32 + CFG_STEPS_BITS_G - 1 downto 32));
+                            core_cfg_steps_s <= unsigned(req_msg_s(63 downto 32));
                             core_cfg_runs_s  <= req_msg_s(31 downto 0);
                             core_cfg_init_s  <= '1';
                             state <= WAIT_CLEAR;

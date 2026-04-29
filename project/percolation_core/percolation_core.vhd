@@ -5,8 +5,7 @@ use work.rng_pkg.all;
 
 entity percolation_core is
     generic (
-        N_ROWS_G : positive := 64;
-        CFG_STEPS_BITS_G : positive := 32
+        N_ROWS_G : positive := 64
     );
     port (
         Clk            : in std_logic;
@@ -18,7 +17,7 @@ entity percolation_core is
 
         -- configuration
         CfgP           : in std_logic_vector(31 downto 0); -- threshold fixed point [0,1) as 32-bit UQ32
-        CfgStepsPerRun : in unsigned(CFG_STEPS_BITS_G - 1 downto 0); -- rows / temporal steps per run
+        CfgStepsPerRun : in unsigned(31 downto 0); -- rows / temporal steps per run
         CfgSeed        : in std_logic_vector(31 downto 0); -- seeds the RNG bank
         CfgRuns        : in std_logic_vector(31 downto 0);
         CfgInit        : in std_logic; -- reload config + reset state
@@ -35,7 +34,6 @@ entity percolation_core is
 end percolation_core;
 
 architecture Behavioral of percolation_core is
-    signal grid_steps   : integer := N_ROWS_G;
     signal grid_cells   : integer := N_ROWS_G * N_ROWS_G;
     signal runs_target  : unsigned(31 downto 0) := (others => '0');
 
@@ -136,8 +134,7 @@ begin
 
     frontier_inst : entity work.percolation_bfs_frontier
         generic map (
-            N_ROWS_G => N_ROWS_G,
-            CFG_STEPS_BITS_G => CFG_STEPS_BITS_G
+            N_ROWS_G => N_ROWS_G
         )
         port map (
             Clk           => Clk,
@@ -168,7 +165,6 @@ begin
     begin
         if rising_edge(Clk) then
             if Rst = '0' then
-                grid_steps        <= N_ROWS_G;
                 grid_cells        <= N_ROWS_G * N_ROWS_G;
                 runs_target       <= (others => '0');
                 run_enable        <= '0';
@@ -189,7 +185,6 @@ begin
                         cfg_steps_i := 1;
                     end if;
 
-                    grid_steps        <= cfg_steps_i;
                     grid_cells        <= N_ROWS_G * cfg_steps_i;
                     runs_target       <= unsigned(CfgRuns);
                     run_enable        <= '0';
@@ -242,7 +237,7 @@ begin
                             occupied_sum <= occupied_sum + run_occupied;
 
                                           report "percolation_core run complete: grid_width=" & integer'image(N_ROWS_G) &
-                                              " grid_steps=" & integer'image(grid_steps) &
+                                              " grid_steps=" & integer'image(grid_cells / N_ROWS_G) &
                                    " run_occupied=" & integer'image(to_integer(run_occupied)) &
                                    " runs_done=" & integer'image(to_integer(new_runs_done)) &
                                               " frontier_busy=" & std_logic'image(frontier_busy_s) &

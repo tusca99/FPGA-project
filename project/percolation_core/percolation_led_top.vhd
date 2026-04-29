@@ -4,8 +4,7 @@ use IEEE.NUMERIC_STD.ALL;
 
 entity percolation_led_top is
     generic (
-        N_ROWS_G : positive := 64;
-        CFG_STEPS_BITS_G : positive := 32
+        N_ROWS_G : positive := 64
     );
     port (
         Clk       : in  std_logic;
@@ -20,7 +19,7 @@ architecture Behavioral of percolation_led_top is
     type state_t is (IDLE, RUNNING, PASS, FAIL);
 
     constant CFG_P_C           : std_logic_vector(31 downto 0) := x"9999999A";
-    constant CFG_STEPS_C       : unsigned(CFG_STEPS_BITS_G - 1 downto 0) := to_unsigned(64, CFG_STEPS_BITS_G);
+    constant CFG_STEPS_C       : unsigned(31 downto 0) := to_unsigned(64, 32);
     constant CFG_SEED_C        : std_logic_vector(31 downto 0) := x"12345678";
     constant CFG_RUNS_C        : std_logic_vector(31 downto 0) := x"00000F10";
 
@@ -58,8 +57,7 @@ begin
 
     core_inst : entity work.percolation_core_top
         generic map (
-            N_ROWS_G => N_ROWS_G,
-            CFG_STEPS_BITS_G => CFG_STEPS_BITS_G
+            N_ROWS_G => N_ROWS_G
         )
         port map (
             Clk           => Clk,

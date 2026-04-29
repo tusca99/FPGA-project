@@ -5,14 +5,13 @@ use work.rng_pkg.all;
 
 entity percolation_bfs_frontier is
     generic (
-        N_ROWS_G : positive := 64;
-        CFG_STEPS_BITS_G : positive := 32
+        N_ROWS_G : positive := 64
     );
     port (
         Clk           : in std_logic;
         Rst           : in std_logic; -- active low
         CfgInit       : in std_logic;
-        GridSteps     : in unsigned(CFG_STEPS_BITS_G - 1 downto 0);
+        GridSteps     : in unsigned(31 downto 0);
         Start         : in std_logic;
         ChunkOpen     : in std_logic_vector(N_ROWS_G - 1 downto 0);
         ChunkValid    : in std_logic;
@@ -80,37 +79,18 @@ architecture Behavioral of percolation_bfs_frontier is
     ) return std_logic_vector is
         variable stage_reach : unsigned(N_ROWS_G - 1 downto 0);
         variable open_u      : unsigned(N_ROWS_G - 1 downto 0);
+        variable step        : integer := 1;
     begin
         open_u := unsigned(open_row);
         stage_reach := unsigned(open_row and seed_row);
 
-        if width > 1 then
-            stage_reach := stage_reach or ((shift_left(stage_reach, 1) or shift_right(stage_reach, 1)) and open_u);
-        end if;
+        while step < N_ROWS_G loop
+            if step < width then
+                stage_reach := stage_reach or ((shift_left(stage_reach, step) or shift_right(stage_reach, step)) and open_u);
+            end if;
 
-        if width > 2 then
-            stage_reach := stage_reach or ((shift_left(stage_reach, 2) or shift_right(stage_reach, 2)) and open_u);
-        end if;
-
-        if width > 4 then
-            stage_reach := stage_reach or ((shift_left(stage_reach, 4) or shift_right(stage_reach, 4)) and open_u);
-        end if;
-
-        if width > 8 then
-            stage_reach := stage_reach or ((shift_left(stage_reach, 8) or shift_right(stage_reach, 8)) and open_u);
-        end if;
-
-        if width > 16 then
-            stage_reach := stage_reach or ((shift_left(stage_reach, 16) or shift_right(stage_reach, 16)) and open_u);
-        end if;
-
-        if width > 32 then
-            stage_reach := stage_reach or ((shift_left(stage_reach, 32) or shift_right(stage_reach, 32)) and open_u);
-        end if;
-
-        if width > 64 then
-            stage_reach := stage_reach or ((shift_left(stage_reach, 64) or shift_right(stage_reach, 64)) and open_u);
-        end if;
+            step := step * 2;
+        end loop;
 
         return std_logic_vector(stage_reach);
     end function;

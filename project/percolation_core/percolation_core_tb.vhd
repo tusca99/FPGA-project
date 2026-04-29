@@ -6,8 +6,7 @@ entity percolation_core_tb is
 end entity;
 
 architecture Behavioral of percolation_core_tb is
-    constant N_ROWS_G    : positive := 64;
-    constant CFG_STEPS_BITS_G : positive := 32;
+    constant N_ROWS_G    : positive := 4;
     signal Clk          : std_logic := '0';
     signal Rst          : std_logic := '0';
 
@@ -16,7 +15,7 @@ architecture Behavioral of percolation_core_tb is
     signal StepAddCount : std_logic_vector(31 downto 0) := (others => '0');
 
     signal CfgP          : std_logic_vector(31 downto 0) := (others => '0');
-    signal CfgStepsPerRun: unsigned(CFG_STEPS_BITS_G - 1 downto 0) := (others => '0');
+    signal CfgStepsPerRun: unsigned(31 downto 0) := (others => '0');
     signal CfgSeed       : std_logic_vector(31 downto 0) := (others => '0');
     signal CfgRuns       : std_logic_vector(31 downto 0) := (others => '0');
     signal CfgInit       : std_logic := '0';
@@ -32,8 +31,7 @@ architecture Behavioral of percolation_core_tb is
 begin
     dut: entity work.percolation_core
         generic map (
-            N_ROWS_G => N_ROWS_G,
-            CFG_STEPS_BITS_G => CFG_STEPS_BITS_G
+            N_ROWS_G => N_ROWS_G
         )
         port map (
             Clk => Clk,
@@ -71,7 +69,7 @@ begin
         wait for 20 ns;
         Rst <= '1';
 
-        CfgStepsPerRun <= to_unsigned(64, CFG_STEPS_BITS_G);
+        CfgStepsPerRun <= to_unsigned(64, 32);
         CfgP <= x"970A3D70"; -- p ~= 0.59 in UQ32
         CfgSeed <= x"12345678";
         CfgRuns <= x"00000010"; -- 16 runs (0x10 = 16 decimal, was wrong: 0xF10 = 3856)

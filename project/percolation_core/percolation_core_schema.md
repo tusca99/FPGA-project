@@ -23,7 +23,7 @@ In pratica risponde a questa domanda:
 - `RunEn` dice al core di partire
 - `StepAddValid` e `StepAddCount` aggiungono run in coda
 - `CfgP` imposta la probabilità di occupazione
-- `CfgStepsPerRun` imposta quante righe processare per run; la sua larghezza si controlla dal top con `CFG_STEPS_BITS_G` (default 32)
+- `CfgStepsPerRun` imposta quante righe processare per run; nel frame UART attuale e` un word unsigned da 32 bit
 - `CfgSeed` imposta il seed del bank RNG
 - `CfgRuns` imposta quanti run fare al massimo
 - la larghezza della riga resta fissata a compile-time dal generic `N_ROWS_G` del top
@@ -69,7 +69,7 @@ Il passo successivo e` un wrapper di integrazione che parla con UART e non conti
 
 Questo top non deve duplicare il lavoro del core: non costruisce la griglia, non fa connettivita` globale e non genera numeri casuali.
 
-La larghezza della riga e` fissata a compile-time dal generic `N_ROWS_G` del top applicativo. Il parametro runtime resta solo `CfgStepsPerRun`, che dice quante righe totali processare nel run corrente. La sua larghezza di rappresentazione la scegli dal top con `CFG_STEPS_BITS_G`.
+La larghezza della riga e` fissata a compile-time dal generic `N_ROWS_G` del top applicativo. Il parametro runtime resta solo `CfgStepsPerRun`, che dice quante righe totali processare nel run corrente. Nel frame UART attuale il campo e` trasportato come word unsigned da 32 bit.
 
 In altre parole, il backend attuale usa una griglia rettangolare `N_ROWS_G x CfgStepsPerRun`. Se vuoi un caso quadrato per confrontarlo con il modello 2D standard, imposta `CfgStepsPerRun = N_ROWS_G`.
 
