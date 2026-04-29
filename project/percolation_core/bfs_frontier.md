@@ -2,6 +2,8 @@
 
 Questo documento descrive il backend frontier row-wise attualmente usato dal core. Non e` una BFS full-grid: il modulo lavora a due righe, tenendo in memoria solo la riga corrente da riempire e la riga precedente gia` processata.
 
+Nel core attuale il parametro runtime `GridSteps` / `CfgStepsPerRun` non cambia la larghezza del problema: la larghezza resta fissata dal generic `N_ROWS_G`. Il valore runtime decide quante righe processare.
+
 ## Entity Target
 
 Il blocco target e` un motore di reachability a frontiera, pensato per percolazione 2D e per eventuali varianti direzionate.
@@ -56,7 +58,7 @@ Wavefront e` la forma piu` naturale per questo progetto perche:
 Il modulo di connettivita` deve ricevere:
 
 - `Start`: avvio di una nuova analisi sulla batch corrente
-- `GridSize`: lato della griglia quadrata, runtime-configurabile
+- `GridSize`: altezza richiesta della run, runtime-configurabile
 - `ChunkOpen`: occupazione della riga corrente, 128 bit nel build attuale
 - `ChunkValid`: indica quando `ChunkOpen` contiene una riga valida
 
@@ -159,3 +161,7 @@ In pratica: stesso risultato logico, costo di clock molto piu` prevedibile, area
 ## Nota su `N_ROWS`
 
 `N_ROWS` e` una larghezza di lane a compile time, non un parametro UART runtime. Se vuoi cambiare il numero di lane RNG via UART, serve un refactor architetturale: package parametrici o generics propagati a tutto il bank RNG, ai tipi array e ai moduli di connettivita`.
+
+Il backend corrente usa `GridSteps` come altezza della striscia: la larghezza resta fissa, la profondita` cresce con il parametro runtime.
+
+Il network bitmask attuale ha 7 stage espliciti con shift 1, 2, 4, 8, 16, 32 e 64: questo copre correttamente larghezze fino a circa 128 colonne. Se vuoi andare in migliaia di colonne, il frontend va rifatto con piu` stage o con un'altra architettura di propagazione.

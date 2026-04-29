@@ -5,13 +5,14 @@ use work.rng_pkg.all;
 
 entity percolation_bfs_frontier is
     generic (
-        N_ROWS_G : positive := 64
+        N_ROWS_G : positive := 64;
+        CFG_STEPS_BITS_G : positive := 32
     );
     port (
         Clk           : in std_logic;
         Rst           : in std_logic; -- active low
         CfgInit       : in std_logic;
-        GridSteps     : in std_logic_vector(15 downto 0);
+        GridSteps     : in unsigned(CFG_STEPS_BITS_G - 1 downto 0);
         Start         : in std_logic;
         ChunkOpen     : in std_logic_vector(N_ROWS_G - 1 downto 0);
         ChunkValid    : in std_logic;
@@ -22,17 +23,17 @@ entity percolation_bfs_frontier is
 end entity percolation_bfs_frontier;
 
 architecture Behavioral of percolation_bfs_frontier is
-    signal grid_steps         : integer range 1 to N_ROWS_G := N_ROWS_G;
-    signal grid_cells         : integer range 1 to N_ROWS_G * N_ROWS_G := N_ROWS_G * N_ROWS_G;
+    signal grid_steps         : integer := N_ROWS_G;
+    signal grid_cells         : integer := N_ROWS_G * N_ROWS_G;
 
     type state_t is (IDLE, CAPTURE, COMPLETE);
     signal state : state_t := IDLE;
 
-    signal stream_index       : integer range 0 to N_ROWS_G * N_ROWS_G := 0;
-    signal row_index          : integer range 0 to N_ROWS_G - 1 := 0;
+    signal stream_index       : integer := 0;
+    signal row_index          : integer := 0;
     signal row_fill_index     : integer range 0 to N_ROWS_G := 0;
     signal pending_row_valid  : std_logic := '0';
-    signal pending_row_index  : integer range 0 to N_ROWS_G - 1 := 0;
+    signal pending_row_index  : integer := 0;
     signal p_spanning         : std_logic := '0';
     signal current_open_row   : std_logic_vector(N_ROWS_G - 1 downto 0) := (others => '0');
     signal pending_open_row   : std_logic_vector(N_ROWS_G - 1 downto 0) := (others => '0');
@@ -120,7 +121,6 @@ begin
     Spanning <= p_spanning;
 
     process(Clk)
-        variable cfg_width_i    : integer;
         variable cfg_steps_i    : integer;
         variable stream_index_v : integer;
         variable row_index_v    : integer;
@@ -137,7 +137,7 @@ begin
     begin
         if rising_edge(Clk) then
             if Rst = '0' then
-                grid_steps         <= 64;
+                grid_steps         <= N_ROWS_G;
                 grid_cells         <= N_ROWS_G * N_ROWS_G;
                 stream_index       <= 0;
                 row_index          <= 0;
@@ -151,7 +151,7 @@ begin
                 previous_reach_row <= (others => '0');
             else
                 if CfgInit = '1' then
-                    cfg_steps_i := min_int(to_integer(unsigned(GridSteps)), N_ROWS_G);
+                    cfg_steps_i := to_integer(GridSteps);
                     if cfg_steps_i < 1 then
                         cfg_steps_i := 1;
                     end if;
@@ -172,7 +172,7 @@ begin
                     case state is
                         when IDLE =>
                             if Start = '1' then
-                                cfg_steps_i := min_int(to_integer(unsigned(GridSteps)), N_ROWS_G);
+                                cfg_steps_i := to_integer(GridSteps);
                                 if cfg_steps_i < 1 then
                                     cfg_steps_i := 1;
                                 end if;

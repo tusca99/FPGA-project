@@ -5,7 +5,8 @@ use work.rng_pkg.all;
 
 entity percolation_core is
     generic (
-        N_ROWS_G : positive := 64
+        N_ROWS_G : positive := 64;
+        CFG_STEPS_BITS_G : positive := 32
     );
     port (
         Clk            : in std_logic;
@@ -17,7 +18,7 @@ entity percolation_core is
 
         -- configuration
         CfgP           : in std_logic_vector(31 downto 0); -- threshold fixed point [0,1) as 32-bit UQ32
-        CfgStepsPerRun : in std_logic_vector(15 downto 0); -- rows / temporal steps per run
+        CfgStepsPerRun : in unsigned(CFG_STEPS_BITS_G - 1 downto 0); -- rows / temporal steps per run
         CfgSeed        : in std_logic_vector(31 downto 0); -- seeds the RNG bank
         CfgRuns        : in std_logic_vector(31 downto 0);
         CfgInit        : in std_logic; -- reload config + reset state
@@ -34,8 +35,8 @@ entity percolation_core is
 end percolation_core;
 
 architecture Behavioral of percolation_core is
-    signal grid_steps   : integer range 1 to N_ROWS_G := N_ROWS_G;
-    signal grid_cells   : integer range 1 to N_ROWS_G * N_ROWS_G := N_ROWS_G * N_ROWS_G;
+    signal grid_steps   : integer := N_ROWS_G;
+    signal grid_cells   : integer := N_ROWS_G * N_ROWS_G;
     signal runs_target  : unsigned(31 downto 0) := (others => '0');
 
     signal run_enable   : std_logic := '0';
@@ -45,7 +46,7 @@ architecture Behavioral of percolation_core is
     signal occupied_sum : unsigned(31 downto 0) := (others => '0');
 
     signal state        : integer range 0 to 1 := 0;
-    signal stream_index : integer range 0 to N_ROWS_G * N_ROWS_G := 0;
+    signal stream_index : integer := 0;
     signal frontier_start_s   : std_logic := '0';
     signal hk_chunk_valid_s : std_logic := '0';
     signal hk_chunk_open_s  : std_logic_vector(N_ROWS_G - 1 downto 0) := (others => '0');
@@ -54,13 +55,9 @@ architecture Behavioral of percolation_core is
     signal frontier_spanning_s : std_logic := '0';
     signal p_spanning   : std_logic := '0';
     signal run_occupied : unsigned(31 downto 0) := (others => '0');
-
-    signal rng_words_s       : word_array_t(0 to N_ROWS_G - 1) := (others => (others => '0'));
-    signal rng_valid_mask_s  : flag_array_t(0 to N_ROWS_G - 1) := (others => '0');
     signal rng_site_open_s   : flag_array_t(0 to N_ROWS_G - 1) := (others => '0');
     signal rng_all_valid_s   : std_logic := '0';
     signal rng_busy_s        : std_logic := '1';
-    signal rng_arm_s         : std_logic := '0';
     signal rng_rst_s         : std_logic := '1';
     signal rng_master_key_s  : std_logic_vector(127 downto 0) := (others => '0');
     signal rng_run_tag_s     : std_logic_vector(31 downto 0) := (others => '0');
@@ -130,8 +127,8 @@ begin
             master_key => rng_master_key_s,
             run_tag    => rng_run_tag_s,
             threshold  => CfgP,
-            words_out  => rng_words_s,
-            valid_mask => rng_valid_mask_s,
+            words_out  => open,
+            valid_mask => open,
             site_open  => rng_site_open_s,
             all_valid  => rng_all_valid_s,
             busy       => rng_busy_s
@@ -139,7 +136,8 @@ begin
 
     frontier_inst : entity work.percolation_bfs_frontier
         generic map (
-            N_ROWS_G => N_ROWS_G
+            N_ROWS_G => N_ROWS_G,
+            CFG_STEPS_BITS_G => CFG_STEPS_BITS_G
         )
         port map (
             Clk           => Clk,
@@ -181,13 +179,12 @@ begin
                 state             <= 0;
                 stream_index      <= 0;
                 run_occupied      <= (others => '0');
-                rng_arm_s         <= '0';
                 frontier_start_s  <= '0';
                 hk_chunk_valid_s  <= '0';
                 hk_chunk_open_s   <= (others => '0');
             else
                 if CfgInit = '1' then
-                    cfg_steps_i := min_int(to_integer(unsigned(CfgStepsPerRun)), N_ROWS_G);
+                    cfg_steps_i := to_integer(CfgStepsPerRun);
                     if cfg_steps_i < 1 then
                         cfg_steps_i := 1;
                     end if;
@@ -203,14 +200,9 @@ begin
                     state             <= 0;
                     stream_index      <= 0;
                     run_occupied      <= (others => '0');
-                    rng_arm_s         <= '0';
                     frontier_start_s  <= '0';
                     hk_chunk_valid_s  <= '0';
                     hk_chunk_open_s   <= (others => '0');
-                end if;
-
-                if (CfgInit = '0') and (rng_busy_s = '1') then
-                    rng_arm_s <= '1';
                 end if;
 
                 if RunEn = '1' then

@@ -4,7 +4,8 @@ use IEEE.NUMERIC_STD.ALL;
 
 entity percolation_core_top is
     generic (
-        N_ROWS_G : positive := 64
+        N_ROWS_G : positive := 64;
+        CFG_STEPS_BITS_G : positive := 32
     );
     port (
         Clk            : in std_logic;
@@ -15,7 +16,7 @@ entity percolation_core_top is
         StepAddCount   : in std_logic_vector(31 downto 0);
 
         CfgP           : in std_logic_vector(31 downto 0);
-        CfgStepsPerRun : in std_logic_vector(15 downto 0);
+        CfgStepsPerRun : in unsigned(CFG_STEPS_BITS_G - 1 downto 0);
         CfgSeed        : in std_logic_vector(31 downto 0);
         CfgRuns        : in std_logic_vector(31 downto 0);
         CfgInit        : in std_logic;
@@ -34,7 +35,8 @@ architecture Behavioral of percolation_core_top is
 begin
     core_inst : entity work.percolation_core
         generic map (
-            N_ROWS_G => N_ROWS_G
+            N_ROWS_G => N_ROWS_G,
+            CFG_STEPS_BITS_G => CFG_STEPS_BITS_G
         )
         port map (
             Clk           => Clk,

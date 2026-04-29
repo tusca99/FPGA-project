@@ -6,9 +6,9 @@ Questo file spiega, in modo semplice, cosa fa il core di percolazione in [percol
 
 Il core esegue molte volte la stessa prova:
 
-1. costruisce una griglia quadrata di celle
+1. costruisce una striscia di celle a larghezza fissa `N_ROWS_G`
 2. decide in modo pseudo-casuale quali celle sono occupate tramite un bank RNG separato a larghezza compile-time `N_ROWS_G` (nel build di debug corrente `N_ROWS_G = 64`)
-3. controlla se esiste un cluster che attraversa la griglia dall'alto al basso
+3. controlla se esiste un cluster che attraversa la striscia dall'alto al basso
 4. aggiorna alcune statistiche
 5. ripete per il numero di run richiesto
 
@@ -23,7 +23,7 @@ In pratica risponde a questa domanda:
 - `RunEn` dice al core di partire
 - `StepAddValid` e `StepAddCount` aggiungono run in coda
 - `CfgP` imposta la probabilità di occupazione
-- `CfgStepsPerRun` imposta quante righe processare per run
+- `CfgStepsPerRun` imposta quante righe processare per run; la sua larghezza si controlla dal top con `CFG_STEPS_BITS_G` (default 32)
 - `CfgSeed` imposta il seed del bank RNG
 - `CfgRuns` imposta quanti run fare al massimo
 - la larghezza della riga resta fissata a compile-time dal generic `N_ROWS_G` del top
@@ -69,7 +69,9 @@ Il passo successivo e` un wrapper di integrazione che parla con UART e non conti
 
 Questo top non deve duplicare il lavoro del core: non costruisce la griglia, non fa connettivita` globale e non genera numeri casuali.
 
-La larghezza della riga e` fissata a compile-time dal generic `N_ROWS_G` del top applicativo. Il parametro runtime resta solo `CfgStepsPerRun`, che dice quante righe totali processare nel run corrente.
+La larghezza della riga e` fissata a compile-time dal generic `N_ROWS_G` del top applicativo. Il parametro runtime resta solo `CfgStepsPerRun`, che dice quante righe totali processare nel run corrente. La sua larghezza di rappresentazione la scegli dal top con `CFG_STEPS_BITS_G`.
+
+In altre parole, il backend attuale usa una griglia rettangolare `N_ROWS_G x CfgStepsPerRun`. Se vuoi un caso quadrato per confrontarlo con il modello 2D standard, imposta `CfgStepsPerRun = N_ROWS_G`.
 
 ### Frame binari del wrapper
 
@@ -93,8 +95,8 @@ Questo layout mantiene il wrapper molto semplice e permette di fare un controllo
 Il core non fa una simulazione continua nel tempo.
 Fa sempre questo ciclo:
 
-- prepara una griglia casuale
-- prende una riga alla volta dal bank RNG 64-wide
+- prepara una striscia casuale alta `CfgStepsPerRun` righe
+- prende una riga alla volta dal bank RNG `N_ROWS_G`-wide
 - aggiorna la frontier di raggiungibilita` confrontando la riga corrente con quella precedente
 - se l'ultima riga ha almeno una cella raggiungibile, conta un evento di spanning
 - aggiorna i contatori
@@ -114,9 +116,9 @@ on CfgInit:
 
 if RunEn = 1 or ci sono step in coda:
     se non ho già finito tutti i run richiesti:
-        while non ho completato la riga corrente:
+        while non ho completato la striscia corrente:
             prendi `N_ROWS_G` bit di occupazione dal bank RNG
-            scrivili nella riga corrente della griglia
+            scrivili nella riga corrente della striscia
             propaga la raggiungibilita` tra riga precedente e riga corrente
 
         verifica se la riga finale contiene almeno una cella raggiungibile

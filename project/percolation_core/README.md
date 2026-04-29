@@ -8,6 +8,8 @@ Questo e` il data-plane MVP per il progetto di site percolation.
 - La direzione di connettivita` ha due varianti tenute separate: frontier row-wise a due righe come base principale e HK row-wise ridotto come alternativa per cluster statistics.
 - La variante frontier e` piu` adatta se la chiusura orizzontale della riga viene implementata come dilatazione bitmask a 7 stage fissi, non come catena combinatoria da 128 celle.
 - Il backend principale non materializza tutta la griglia: mantiene solo riga corrente e riga precedente.
+- La forma runtime del problema e` una striscia a larghezza fissa `N_ROWS_G` e altezza richiesta da `CfgStepsPerRun`.
+- La larghezza del campo `CfgStepsPerRun` si controlla dal top con il generic `CFG_STEPS_BITS_G` (default 32).
 - `Done` indica che la batch richiesta e` terminata.
 - `ConnStepCount` e` cumulativo su tutte le run della richiesta, non per singola run.
 - Statistiche derivate come la media delle celle occupate vanno calcolate lato host dai contatori grezzi.
@@ -33,6 +35,12 @@ La parte di connettivita` ha due strade documentate:
 - HK row-wise ridotto per statistiche di cluster e label di componente
 
 In entrambi i casi il modulo deve restare sintetizzabile, streaming e con interfaccia stabile verso il core applicativo.
+
+Limite importante del path attuale:
+
+- `CfgStepsPerRun` estende solo l'altezza della run, non la larghezza
+- il core mantiene la larghezza fissa `N_ROWS_G`
+- per un caso quadrato, imposta `CfgStepsPerRun = N_ROWS_G`
 
 Per la frontier row-wise, il compromesso migliore su FPGA e` evitare sia il loop cella-per-cella completamente combinatorio sia una queue globale. Una dilatazione bitmask a pochi stage o una piccola pipeline danno la stessa semantica con timing piu` facile da chiudere.
 
