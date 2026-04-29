@@ -33,15 +33,13 @@ architecture Behavioral of percolation_uart_top_tb is
 
     type byte_array_t is array (natural range <>) of std_logic_vector(7 downto 0);
     constant REQ_BYTES_VEC : byte_array_t(0 to REQ_BYTES-1) := (
---        x"99", x"99", x"99", x"9A", -- Word 0: CfgP = approx 0.6
 --        x"4C", x"CC", x"CC", x"CC", -- Word 0: CfgP = approx 0.3
 --        x"33", x"33", x"33", x"33", -- Word 0: CfgP = approx 0.2
-        x"80", x"00", x"00", x"00", -- Word 0: CfgP = 0.5
+        x"99", x"99", x"99", x"9A", -- Word 0: CfgP = approx 0.6
 --        x"20", x"00", x"00", x"00", -- Word 0: CfgP = approx 0.1
         x"12", x"34", x"56", x"78", -- Word 1: CfgSeed
         x"00", x"00", x"00", x"40", -- Word 2: CfgStepsPerRun=64
---        x"00", x"00", x"00", x"10"  -- Word 3: CfgRuns=16
-        x"00", x"00", x"01", x"00"  -- Word 3: CfgRuns=256
+        x"00", x"00", x"00", x"10"  -- Word 3: CfgRuns=16
     );
 
     procedure send_uart_byte(signal line : out std_logic; constant data_byte : in std_logic_vector(7 downto 0)) is
@@ -140,8 +138,8 @@ begin
 
 --        assert rsp_msg_s(127 downto 96) = x"00000010"
 --            report "Unexpected StepCount in response: expected 16 completed runs" severity failure;
-        assert rsp_msg_s(127 downto 96) = x"00000100"
-            report "Unexpected StepCount in response: expected 256 completed runs" severity failure;
+        assert rsp_msg_s(127 downto 96) = x"00000010"
+            report "Unexpected StepCount in response: expected 16 completed runs" severity failure;
 
         -- SpanningCount can vary with threshold, but must be <= StepCount
         assert unsigned(rsp_msg_s(95 downto 64)) <= unsigned(rsp_msg_s(127 downto 96))

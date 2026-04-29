@@ -21,11 +21,13 @@ entity uart_msg_rx is
 end uart_msg_rx;
 
 architecture Behavioral of uart_msg_rx is
+    constant MSG_BITS : natural := N_BYTES * 8;
+
     signal rx_data_s   : std_logic_vector(7 downto 0) := (others => '0');
     signal rx_valid_s  : std_logic := '0';
     signal rx_valid_prev_s : std_logic := '0';
 
-    signal msg_reg     : std_logic_vector(N_BYTES*8-1 downto 0) := (others => '0');
+    signal msg_reg     : std_logic_vector(MSG_BITS-1 downto 0) := (others => '0');
     signal byte_idx    : integer range 0 to N_BYTES-1 := 0;
     signal msg_valid_s : std_logic := '0';
     signal receiving_s : std_logic := '0';
@@ -48,9 +50,6 @@ begin
         );
 
     process(Clk)
-        variable byte_lo : integer;
-        variable byte_hi : integer;
-        variable packed_byte : integer;
     begin
         if rising_edge(Clk) then
             if Rst = '0' then
@@ -64,10 +63,7 @@ begin
 
                 if rx_valid_s = '1' and rx_valid_prev_s = '0' then
                     receiving_s <= '1';
-                    packed_byte := (N_BYTES - 1) - byte_idx;
-                    byte_lo := packed_byte * 8;
-                    byte_hi := byte_lo + 7;
-                    msg_reg(byte_hi downto byte_lo) <= rx_data_s;
+                    msg_reg <= msg_reg(MSG_BITS-9 downto 0) & rx_data_s;
 
                     if byte_idx = N_BYTES - 1 then
                         msg_valid_s <= '1';

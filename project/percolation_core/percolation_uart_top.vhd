@@ -15,281 +15,33 @@ entity percolation_uart_top is
         Rst       : in  std_logic; -- active low
         uart_rx_i : in  std_logic;
         uart_tx_o : out std_logic;
-        btn_init_i : in std_logic := '1'; -- button for manual init (active low)
-        btn_run_i  : in std_logic := '1'; -- button for manual run (active low)
+        btn_init_i : in  std_logic := '1'; -- button for manual init (active low)
+        btn_run_i  : in  std_logic := '1'; -- button for manual run (active low)
         led_rgb_o  : out std_logic_vector(2 downto 0)
     );
 end percolation_uart_top;
 
 architecture Behavioral of percolation_uart_top is
-    attribute MARK_DEBUG : string;
-
-    type state_t is (IDLE, WAIT_CORE, WAIT_DONE, SEND_WAIT, TX_COMPLETE);
-    signal state : state_t := IDLE;
-
-    signal baud_tick_s : std_logic := '0';
-    signal half_tick_s : std_logic := '0';
-
-    signal rx_msg_s         : std_logic_vector(REQ_BYTES*8-1 downto 0) := (others => '0');
-    signal rx_msg_latched_s : std_logic_vector(REQ_BYTES*8-1 downto 0) := (others => '0');
-    signal rx_valid_s       : std_logic := '0';
-    signal rx_busy_s        : std_logic := '0';
-
-    signal tx_msg_s         : std_logic_vector(RSP_BYTES*8-1 downto 0) := (others => '0');
-    signal tx_start_s       : std_logic := '0';
-    signal tx_busy_s        : std_logic := '0';
-    signal rx_msg_valid_seen_s : std_logic := '0';
-    
-    -- Capture core outputs BEFORE reset
-    signal captured_step_count : std_logic_vector(31 downto 0) := (others => '0');
-    signal captured_spanning   : std_logic_vector(31 downto 0) := (others => '0');
-    signal captured_total      : std_logic_vector(31 downto 0) := (others => '0');
-
-    -- Button synchronizers (double-flip-flop)
-    signal btn_init_sync1 : std_logic := '1';
-    signal btn_init_sync2 : std_logic := '1';
-    signal btn_run_sync1  : std_logic := '1';
-    signal btn_run_sync2  : std_logic := '1';
-    
-    -- Extra state to ensure RX/TX separation
-    signal idle_settle_count : integer range 0 to 3 := 0;
-
-    signal core_cfg_p_s       : std_logic_vector(31 downto 0) := (others => '0');
-    signal core_cfg_steps_s   : std_logic_vector(15 downto 0) := (others => '0');
-    signal core_cfg_seed_s    : std_logic_vector(31 downto 0) := (others => '0');
-    signal core_cfg_runs_s    : std_logic_vector(31 downto 0) := (others => '0');
-    signal core_cfg_init_s    : std_logic := '0';
-    signal core_run_en_s      : std_logic := '0';
-    signal core_step_count_s  : std_logic_vector(31 downto 0) := (others => '0');
-    signal core_spanning_s    : std_logic_vector(31 downto 0) := (others => '0');
-    signal core_total_s       : std_logic_vector(31 downto 0) := (others => '0');
-    signal core_rng_busy_s    : std_logic := '1';
-    signal core_rng_all_valid_s : std_logic := '0';
-    signal core_done_s        : std_logic := '0';
-    signal error_flag_s       : std_logic := '0';
-    
-    signal rx_valid_prev : std_logic := '0';
-    signal tx_busy_prev : std_logic := '0';
-    
-    -- Debug: track if any spanning detected during this run
-    signal debug_spanning_detected : std_logic := '0';
-
-    function word_from_msg(msg : std_logic_vector; word_index : natural) return std_logic_vector is
-        variable word_hi : integer;
-        variable word_lo : integer;
-        variable result  : std_logic_vector(31 downto 0);
-    begin
-        word_hi := msg'left - integer(word_index) * 32;
-        word_lo := word_hi - 31;
-        result := msg(word_hi downto word_lo);
-        return result;
-    end function;
-
+    signal slim_led_rgb_s : std_logic_vector(2 downto 0) := (others => '0');
+    signal btn_any_s : std_logic := '1';
 begin
-    led_rgb_o <= "101" when debug_spanning_detected = '1' else  -- Magenta: spanning was detected at least once
-                 "100" when error_flag_s = '1' else              -- Red: error
-                 "010" when rx_msg_valid_seen_s = '1' else       -- Green: message received
-                 "001" when state = IDLE else                    -- Blue: idle/waiting
-                 "110";                                          -- Yellow: processing
+    btn_any_s <= btn_init_i and btn_run_i;
 
-    baud_inst : entity work.baud_gen
-        generic map (
-            CLK_FREQ  => CLK_FREQ,
-            BAUD_RATE => BAUD_RATE
-        )
-        port map (
-            Clk       => Clk,
-            Rst       => Rst,
-            baud_tick => baud_tick_s,
-            half_tick => half_tick_s
-        );
-
-    rx_inst : entity work.uart_msg_rx
+    slim_inst : entity work.percolation_uart_top_slim
         generic map (
             CLK_FREQ  => CLK_FREQ,
             BAUD_RATE => BAUD_RATE,
-            N_BYTES => REQ_BYTES
+            N_ROWS_G  => N_ROWS_G,
+            REQ_BYTES => REQ_BYTES,
+            RSP_BYTES => RSP_BYTES
         )
         port map (
             Clk       => Clk,
             Rst       => Rst,
             uart_rx_i => uart_rx_i,
-            baud_tick => baud_tick_s,
-            half_tick => half_tick_s,
-            msg_data  => rx_msg_s,
-            msg_valid => rx_valid_s,
-            busy      => rx_busy_s
+            uart_tx_o => uart_tx_o,
+            led_rgb_o => slim_led_rgb_s
         );
 
-    tx_inst : entity work.uart_msg_tx
-        generic map (
-            N_BYTES => RSP_BYTES
-        )
-        port map (
-            Clk       => Clk,
-            Rst       => Rst,
-            baud_tick => baud_tick_s,
-            msg_start => tx_start_s,
-            msg_data  => tx_msg_s,
-            busy      => tx_busy_s,
-            uart_tx_o => uart_tx_o
-        );
-
-    core_inst : entity work.percolation_core
-        generic map (
-            N_ROWS_G => N_ROWS_G
-        )
-        port map (
-            Clk           => Clk,
-            Rst           => Rst,
-            RunEn         => core_run_en_s,
-            StepAddValid  => '0',  -- no step control in this interface
-            StepAddCount  => (others => '0'),
-            CfgP          => core_cfg_p_s,
-            CfgStepsPerRun => core_cfg_steps_s,
-            CfgSeed       => core_cfg_seed_s,
-            CfgRuns       => core_cfg_runs_s,
-            CfgInit       => core_cfg_init_s,
-            StepCount     => core_step_count_s,
-            PendingSteps  => open,  -- not used in response
-            SpanningCount => core_spanning_s,
-            TotalOccupied => core_total_s,
-            RngBusy       => core_rng_busy_s,
-            RngAllValid   => core_rng_all_valid_s,
-            Done          => core_done_s
-        );
-
-    -- Button synchronization (double-flip-flop for metastability)
-    process(Clk)
-    begin
-        if rising_edge(Clk) then
-            if Rst = '0' then
-                btn_init_sync1 <= '1';
-                btn_init_sync2 <= '1';
-                btn_run_sync1  <= '1';
-                btn_run_sync2  <= '1';
-            else
-                btn_init_sync1 <= btn_init_i;
-                btn_init_sync2 <= btn_init_sync1;
-                btn_run_sync1  <= btn_run_i;
-                btn_run_sync2  <= btn_run_sync1;
-            end if;
-        end if;
-    end process;
-
-    process(Clk)
-        variable steps_word : std_logic_vector(31 downto 0);
-    begin
-        if rising_edge(Clk) then
-            -- Track previous states for edge detection
-            rx_valid_prev <= rx_valid_s;
-            tx_busy_prev <= tx_busy_s;
-            
-            if Rst = '0' then
-                state <= IDLE;
-                tx_msg_s <= (others => '0');
-                tx_start_s <= '0';
-                rx_msg_valid_seen_s <= '0';
-                core_cfg_p_s <= (others => '0');
-                core_cfg_steps_s <= (others => '0');
-                core_cfg_seed_s <= (others => '0');
-                core_cfg_runs_s <= (others => '0');
-                core_cfg_init_s <= '0';
-                core_run_en_s <= '0';
-                error_flag_s <= '0';
-                idle_settle_count <= 0;
-            else
-                -- Only clear one-cycle pulses at start of cycle
-                tx_start_s <= '0';
-                core_cfg_init_s <= '0';
-                -- NOTE: core_run_en_s stays asserted in WAIT_DONE while the core runs
-
-                if rx_valid_s = '1' then
-                    rx_msg_valid_seen_s <= '1';
-                end if;
-
-                case state is
-                    when IDLE =>
-                        core_run_en_s <= '0';  -- Deassert when idle
-                        -- After TX completes, wait for settle counter to reach 0 before accepting new RX
-                        if idle_settle_count > 0 then
-                            idle_settle_count <= idle_settle_count - 1;
-                        elsif rx_valid_prev = '1' and rx_valid_s = '0' and tx_busy_s = '0' and rx_busy_s = '0' then
-                            -- RX valid just fell: msg_data is now stable and contains the full frame
-                            rx_msg_latched_s <= rx_msg_s;
-                            state <= WAIT_CORE;
-                        end if;
-
-                    when WAIT_CORE =>
-                        if rx_valid_s = '0' then
-                            core_cfg_p_s    <= word_from_msg(rx_msg_latched_s, 0);
-                            core_cfg_seed_s <= word_from_msg(rx_msg_latched_s, 1);
-
-                            steps_word := word_from_msg(rx_msg_latched_s, 2);
-                            core_cfg_steps_s <= steps_word(15 downto 0);
-                            core_cfg_runs_s <= word_from_msg(rx_msg_latched_s, 3);
-
-                            core_cfg_init_s <= '1';
-                            core_run_en_s   <= '1';
-                            error_flag_s    <= '0';
-
-                            state <= WAIT_DONE;
-                        end if;
-
-                        -- Button override (debug): check for button presses
-                        if btn_init_sync2 = '0' then
-                            core_cfg_init_s <= '1';
-                        end if;
-                        if btn_run_sync2 = '0' then
-                            core_run_en_s <= '1';
-                        end if;
-
-                    when WAIT_DONE =>
-                        -- Keep the core running until the core asserts Done.
-                        core_run_en_s <= '1';
-                        
-                        -- Transition when: core signals completion
-                        if core_done_s = '1' then
-                            -- CAPTURE the core output values before they can be corrupted by next init
-                            captured_step_count <= core_step_count_s;
-                            captured_spanning   <= core_spanning_s;
-                            captured_total      <= core_total_s;
-                            
-                            -- DEBUG: track if spanning was detected (non-zero)
-                            if unsigned(core_spanning_s) > 0 then
-                                debug_spanning_detected <= '1';
-                            end if;
-                            
-                            report "UART_TOP: core_done_s fired! StepCount=" & integer'image(to_integer(unsigned(core_step_count_s))) &
-                                   " Spanning=" & integer'image(to_integer(unsigned(core_spanning_s))) &
-                                   " Total=" & integer'image(to_integer(unsigned(core_total_s)))
-                                severity note;
-                            
-                            state <= SEND_WAIT;
-                        end if;
-
-                    when SEND_WAIT =>
-                        core_run_en_s <= '0';  -- Deassert when sending response
-                        if tx_busy_s = '0' then
-                            -- Pack response using CAPTURED values (prevents corruption from core reset)
-                            tx_msg_s <= captured_step_count & captured_spanning & captured_total & x"00000000";
-                            -- tx_busy is idle, safe to pulse msg_start
-                            tx_start_s <= '1';
-                            state <= TX_COMPLETE;
-                        end if;
-
-                    when TX_COMPLETE =>
-                        -- Wait for uart_msg_tx to complete transmission
-                        -- uart_msg_tx.busy goes: 0 -> 1 (on msg_start edge) -> 0 (when done)
-                        -- We detect falling edge: tx_busy_prev = '1' and tx_busy_s = '0'
-                        if tx_busy_prev = '1' and tx_busy_s = '0' then
-                            -- Transmission just completed; enforce settlement period before accepting next RX
-                            idle_settle_count <= 2;
-                            state <= IDLE;
-                        end if;
-                end case;
-            end if;
-        end if;
-    end process;
-
+    led_rgb_o <= slim_led_rgb_s when btn_any_s = '1' else "100";
 end Behavioral;

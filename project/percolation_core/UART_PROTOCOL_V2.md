@@ -1,11 +1,11 @@
 # Percolation UART Protocol v3.0 (Simplified: no timing counters)
 
 ## Overview
-Compact binary protocol with hybrid UART + button control for debug.
+Compact binary protocol with UART request/response. Button ports stay only for board compatibility.
 - **Request:** 16 bytes (4 words)
 - **Response:** 16 bytes (4 words)
 - **Baud rate:** 115200 (configurable)
-- **Control:** Auto-init/run on UART + optional button override
+- **Control:** Auto-init/run on UART
 
 ---
 
@@ -15,21 +15,13 @@ Compact binary protocol with hybrid UART + button control for debug.
 |------|-------|-------|------|-------|---------|
 | 0 | 0–3 | `CfgP` | uint32 | Fixed-point 0.0–1.0 | Occupation probability |
 | 1 | 4–7 | `CfgSeed` | uint32 | Any | RNG seed |
-| 2 | 8–11 | `CfgStepsPerRun[15:0]` | uint16 | Rows: 1–128 | Steps / rows per run |
+| 2 | 8–11 | `CfgStepsPerRun` | uint32 | Rows: 1–128 | 32-bit on wire, low 16 bits used by top |
 | 3 | 12–15 | `CfgRuns` | uint32 | Runs: 1–4294967295 | Batch size |
 
-### Byte Layout (Word 2):
-```
-Byte 11 (MSB):  reserved[31:24]      (0x00)
-Byte 10:        reserved[23:16]      (0x00)
-Byte 9:         reserved[15:8]       (0x00)
-Byte 8 (LSB):   CfgStepsPerRun[7:0]  (0x40 = 64 rows)
-```
-
-In the current RTL, word 2 is still transmitted as a full 32-bit big-endian word.
-Only the lower 16 bits are consumed by `percolation_uart_top.vhd`, so the wire
-encoding for 64 steps is `00 00 00 40`, which becomes `0x00000040` at the word
-level and `0x0040` after the top-level truncation.
+Word 2 is transmitted as a full 32-bit big-endian word.
+`percolation_uart_top.vhd` keeps only the lower 16 bits after unpacking, so the
+wire encoding for 64 steps is `00 00 00 40`, which becomes `0x00000040` on the
+bus and `0x0040` inside the core wrapper.
 
 The row width is compile-time fixed by the top-level generic `N_ROWS_G` (default build: 64). UART only carries the variable part: how many rows/steps to process.
 
@@ -52,7 +44,7 @@ Bytes (HEX):  99 99 99 9A | 12 34 56 78 | 00 00 00 40 | 00 00 00 10
 | 0 | 0–3 | `StepCount` | Number of completed runs in the current batch |
 | 1 | 4–7 | `SpanningCount` | Number of spanning clusters found |
 | 2 | 8–11 | `TotalOccupied` | Total occupied sites across all runs |
-| 3 | 12–15 | `Status` | `0 = OK`, `1 = error/timeout` |
+| 3 | 12–15 | `Status` | `0 = OK`, `1 = error` |
 
 ### Example Response:
 ```
@@ -70,19 +62,15 @@ Bytes (HEX):  00 00 00 10 | 00 00 00 08 | 00 00 01 F8 | 00 00 00 00
 
 ### Automatic Control (UART)
 - On **each valid UART message received**:
-    1. Load configuration (CfgP, CfgSeed, CfgStepsPerRun, CfgRuns)
-  2. Assert `CfgInit` for 1 cycle (reset percolation core)
-  3. Assert `RunEn` while waiting for the core completion trigger (`Done`) (start execution and keep it running)
+    1. Load configuration (`CfgP`, `CfgSeed`, `CfgStepsPerRun`, `CfgRuns`)
+    2. Assert `CfgInit` for 1 cycle
+    3. Assert `RunEn` while waiting for `Done`
     4. Capture response from core outputs when the requested run count completes
     5. Transmit 16-byte response via UART
 
-- A timeout safety net is present in the wrapper; if the core does not finish in time, the current snapshot is transmitted for debug instead of stalling forever.
-
 ### Manual Control (Button Debug)
-- **BTN0 (btn_init_i):** When pressed (active low), trigger `CfgInit`
-- **BTN1 (btn_run_i):** When pressed (active low), trigger `RunEn`
-- Synchronizers (double-flip-flop) prevent metastability
-- Buttons **do not override** UART, just add independent pulses
+The slim top keeps button ports for board compatibility, but the default wrapper
+does not use them in the UART request/response flow.
 
 ---
 
@@ -128,22 +116,14 @@ For precise timing, use Python wall-clock measurement or simulation waveform ana
  - `REQ_BYTES` generic = 16
  - `RSP_BYTES` generic = 16
  - `N_ROWS_G` generic controls the compile-time width of both the bank RNG and the core (default build: 64)
- - `btn_init_i`, `btn_run_i` ports (active low, default '1')
+ - `btn_init_i`, `btn_run_i` ports kept for board compatibility, but the slim wrapper ignores them
 - Unpacking: `CfgStepsPerRun <= word2[15:0]`, `CfgRuns <= word3[31:0]`
 - Completion is driven by the core `Done` trigger, not by `RunEn`
-- `Status` is a 1-bit return code in word 3: `0` means success, `1` means error/timeout
+- `Status` is a 1-bit return code in word 3: `0` means success, `1` means error
 - Response: `StepCount`, `SpanningCount`, `TotalOccupied`, `Status`
 - Timing measurement delegated to Python/simulation (RTL counters removed for simplicity)
 
-### Button Synchronization:
-```vhdl
-btn_init_sync1 <= btn_init_i;      -- Stage 1
-btn_init_sync2 <= btn_init_sync1;  -- Stage 2 (synchronized)
-
-if btn_init_sync2 = '0' then
-    core_cfg_init_s <= '1';  -- Pulse on detection
-end if;
-```
+The default slim wrapper does not implement a timeout path or button override.
 
 ---
 

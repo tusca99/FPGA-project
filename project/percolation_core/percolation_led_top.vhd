@@ -21,7 +21,7 @@ architecture Behavioral of percolation_led_top is
     constant CFG_P_C           : std_logic_vector(31 downto 0) := x"9999999A";
     constant CFG_STEPS_C       : std_logic_vector(15 downto 0) := x"0040";
     constant CFG_SEED_C        : std_logic_vector(31 downto 0) := x"12345678";
-    constant CFG_RUNS_C        : std_logic_vector(31 downto 0) := x"00000010";
+    constant CFG_RUNS_C        : std_logic_vector(31 downto 0) := x"00000F10";
 
     signal state : state_t := IDLE;
     signal boot_pending_s : std_logic := '1';
