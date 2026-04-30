@@ -15,8 +15,6 @@ entity percolation_uart_top is
         Rst       : in  std_logic; -- active low
         uart_rx_i : in  std_logic;
         uart_tx_o : out std_logic;
-        btn_init_i : in  std_logic := '1'; -- button for manual init (active low)
-        btn_run_i  : in  std_logic := '1'; -- button for manual run (active low)
         led_rgb_o  : out std_logic_vector(2 downto 0)
     );
 end percolation_uart_top;
@@ -29,7 +27,6 @@ architecture Behavioral of percolation_uart_top is
     signal state : state_t := IDLE;
 
     signal baud_tick_s : std_logic := '0';
-    signal half_tick_s : std_logic := '0';
 
     signal req_msg_s   : std_logic_vector(REQ_BITS-1 downto 0) := (others => '0');
     signal req_valid_s : std_logic := '0';
@@ -61,7 +58,7 @@ begin
             Clk       => Clk,
             Rst       => Rst,
             baud_tick => baud_tick_s,
-            half_tick => half_tick_s
+            half_tick => open
         );
 
     rx_inst : entity work.uart_msg_rx
@@ -74,8 +71,6 @@ begin
             Clk       => Clk,
             Rst       => Rst,
             uart_rx_i => uart_rx_i,
-            baud_tick => baud_tick_s,
-            half_tick => half_tick_s,
             msg_data  => req_msg_s,
             msg_valid => req_valid_s,
             busy      => open

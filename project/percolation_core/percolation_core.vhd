@@ -266,8 +266,6 @@ begin
                             stream_index <= stream_index + chunk_cells;
                         end if;
 
-                    when others =>
-                        state <= 0;
                 end case;
             end if;
         end if;

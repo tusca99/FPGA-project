@@ -20,11 +20,8 @@ architecture Behavioral of percolation_uart_top_tb is
     signal Rst       : std_logic := '0';
     signal uart_rx_i : std_logic := '1';
     signal uart_tx_o : std_logic;
-    signal btn_init  : std_logic := '1';
-    signal btn_run   : std_logic := '1';
     signal led_rgb_o  : std_logic_vector(2 downto 0);
     signal baud_tick_s : std_logic := '0';
-    signal half_tick_s : std_logic := '0';
 
 
     signal rsp_msg_s   : std_logic_vector(RSP_BYTES*8-1 downto 0);
@@ -81,8 +78,6 @@ begin
             Rst       => Rst,
             uart_rx_i => uart_rx_i,
             uart_tx_o => uart_tx_o,
-            btn_init_i => btn_init,
-            btn_run_i  => btn_run,
             led_rgb_o  => led_rgb_o
         );
 
@@ -95,7 +90,7 @@ begin
             Clk       => Clk,
             Rst       => Rst,
             baud_tick => baud_tick_s,
-            half_tick => half_tick_s
+            half_tick => open
         );
 
     rsp_rx_inst : entity work.uart_msg_rx
@@ -108,8 +103,6 @@ begin
             Clk       => Clk,
             Rst       => Rst,
             uart_rx_i => uart_tx_o,
-            baud_tick => baud_tick_s,
-            half_tick => half_tick_s,
             msg_data  => rsp_msg_s,
             msg_valid => rsp_valid_s,
             busy      => rsp_busy_s

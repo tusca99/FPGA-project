@@ -5,7 +5,7 @@ import time
 # Test with manual serial to see raw bytes
 test_runs = [1, 10, 100, 255, 1500]
 
-with UartTransport(port="/dev/ttyUSB1", baudrate=9600, timeout=2.0) as ser:
+with UartTransport(port="/dev/ttyUSB1", baudrate=115200, timeout=2.0) as ser:
     for cfg_runs in test_runs:
         # Flush any pending data
         ser.reset_input_buffer()
