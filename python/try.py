@@ -14,9 +14,9 @@ with UartTransport(port="/dev/ttyUSB1", baudrate=115200, timeout=2.0) as ser:
         
         # Build and send request
         req = PercolationRequest.from_probability(
-            probability=0.9,
+            probability=0.9999,
             cfg_seed=0x12345678,
-            steps_per_run=106,
+            steps_per_run=128,
             cfg_runs=cfg_runs,
         )
         req_bytes = encode_request(req)

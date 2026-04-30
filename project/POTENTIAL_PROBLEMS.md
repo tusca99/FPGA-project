@@ -46,32 +46,22 @@ Remove declaration and all references to `p_spanning`.
 
 ---
 
-## 3. Frontier Single-Cycle Limit / Tiled Scaling
+## 3. Frontier Timing and Pipelining
 
-### Question
-Can the whole frontier update stay in one clock cycle, the same way the current row-step idea is drawn?
+### Observed Issue
+Implementation reports timing violations (`WNS <<  0`) on the critical path involving the frontier reachability logic and occupancy accumulation.
 
-### Short Answer
-Only if the combinational depth still fits inside the clock period. At 128 columns this may be practical, but the limit is timing closure, not the algorithm itself.
+### Root Cause
+The "horizontal closure" of the row is implemented using a $\log_2(N)$ bitmask approach. While efficient, implementing all $\log_2(N)$ stages in a single clock cycle creates a combinatorial chain that is too deep for 100MHz, especially when combined with RNG output and state machine logic.
 
-### What the Tiled Idea Means
-The tiled version does **not** mean one giant combinational pass over the whole row. It means:
-- split the row into smaller fixed-width tiles
-- process tiles in sequence
-- carry only the boundary reachability between tiles
-- keep the dataflow streaming and one-pass over the row data
-
-### Important Distinction
-- **Single-cycle row update:** possible only when the whole row logic meets timing
-- **Tiled frontier:** still one logical pass, but usually staged or pipelined across tiles
-
-### Practical Read
-- 128 columns: one-cycle may still close
-- 512 columns: likely borderline
-- 1024 columns: a tiled or pipelined frontier is the safer architecture
+### Solution: Pipelining
+To maintain a throughput of 1 row per clock while meeting timing, the frontier logic is refactored into a pipeline:
+- **RNG $\to$ Row Register**: Breaks the path between RNG and processing.
+- **Staged Masking**: Each $\log_2(N)$ shift-and-mask stage is separated by a register.
+- **Result**: Latency increases to $\sim \log_2(N)$ cycles per row, but the critical path is reduced to a single stage, ensuring timing closure.
 
 ### Current Status
-ℹ️ **Architectural scaling note** — keep the current generic frontier for now, but treat tiling as the follow-up path when width grows beyond what timing can hold.
+❗ **Active implementation issue** — Pipelining is required to resolve routed timing failures.
 
 ---
 ✓ StepCount = 0x10 (16 runs completed correctly)  
