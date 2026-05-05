@@ -1,169 +1,91 @@
-# BFS Frontier - Current RTL Contract
+# BFS Frontier - RTL Contract
 
-Questo documento descrive il backend frontier row-wise attualmente usato dal core. Non e` una BFS full-grid: il modulo lavora a due righe, tenendo in memoria solo la riga corrente da riempire e la riga precedente gia` processata.
+This document describes the row-wise frontier backend used by the core. It is not a full-grid BFS; the module processes the grid row-by-row, keeping only the current row being filled and the previously processed reachability mask.
 
-Nel core attuale il parametro runtime `GridSteps` / `CfgStepsPerRun` non cambia la larghezza del problema: la larghezza resta fissata dal generic `N_ROWS_G`. Il valore runtime decide quante righe processare.
+In the current core, the runtime parameter `GridSteps` (`CfgStepsPerRun`) defines the height of the strip. The width is fixed at compile-time by the generic `N_ROWS_G`.
 
 ## Entity Target
 
-Il blocco target e` un motore di reachability a frontiera, pensato per percolazione 2D e per eventuali varianti direzionate.
+The target block is a reachability engine designed for 2D percolation and directed variants.
 
 ```vhdl
 entity percolation_bfs_frontier is
     generic (
-        MAX_GRID   : integer := 128;
-        MAX_CELLS  : integer := 128 * 128;
-        FRONT_BITS : integer := 64;
-        VISIT_BITS  : integer := 16;
-        IDX_BITS    : integer := 14
+        N_ROWS_G : positive := 64
     );
     port (
         Clk           : in std_logic;
         Rst           : in std_logic; -- active low
         CfgInit       : in std_logic;
-        GridSize      : in std_logic_vector(15 downto 0);
+        GridSteps     : in unsigned(31 downto 0);
         Start         : in std_logic;
-        ChunkOpen     : in std_logic_vector(N_ROWS - 1 downto 0);
+        ChunkOpen     : in std_logic_vector(N_ROWS_G - 1 downto 0);
         ChunkValid    : in std_logic;
         Busy          : out std_logic;
         Done          : out std_logic;
-        Spanning      : out std_logic;
-        ConnStepCount : out std_logic_vector(31 downto 0)
+        Spanning      : out std_logic
     );
 end entity;
 ```
 
-## Obiettivo
+## Objective
 
-Verificare se esiste almeno un percorso continuo nella griglia, senza usare union-find e senza mantenere etichette di componente complete.
+Verify if at least one continuous path exists from the top row to the bottom row without using Union-Find or maintaining full component labels.
 
-Il blocco lavora a frontiera row-wise:
+The block operates row-wise:
+- Stores only the current row and the previous reachability mask.
+- Receives an occupancy row sampled from the RNG bank.
+- Resolves horizontal reachability (closure) for the current row.
+- Stops when the final row is processed and no pending data remains.
 
-- conserva solo la riga corrente e quella precedente
-- riceve una riga di occupazione gia` campionata dal RNG bank
-- prima riempie la riga, poi la processa nel ciclo successivo
-- si ferma quando la riga finale e` stata processata e non restano dati pendenti
+## Connectivity Strategies: Comparison
 
-## Perche wavefront
+To determine if a cell in the current row is reachable, we must resolve all horizontal connections. A cluster can "snake" across the row, meaning a cell might be reachable via a path that moves far to the left or right before coming back.
 
-Wavefront e` la forma piu` naturale per questo progetto perche:
+### 1. Naive Sequential Loop
+Iterate $N$ times: `reach(i) = open(i) AND (reach(i-1) OR reach(i+1) OR top(i))`.
+- **Pros**: Simple logic.
+- **Cons**: Creates a combinatorial chain of length $N$.
+- **Artix-7 Limit**: For $N=64$, the path is too long for 100MHz. Timing fails.
 
-- resta esatta
-- evita una queue globale molto fine e costosa
-- si presta bene al bank RNG 64-wide gia` presente nel core
-- puo` coprire sia percolazione 2D classica sia casi direzionati con la stessa struttura
+### 2. Combinatorial Bitmask (Parallel Prefix)
+Use $\log_2(N)$ stages of shifts: $d = 1, 2, 4, 8, \dots$
+Rule: $reach \leftarrow reach \lor ((reach \ll d) \lor (reach \gg d)) \land open$.
+- **Pros**: Reduces path depth from $O(N)$ to $O(\log N)$.
+- **Cons**: Still a single combinatorial block.
+- **Artix-7 Limit**: At $N=64$, $\log_2(64)=6$ stages. Combined with RNG and FSM logic, this often exceeds the 10ns clock period.
 
-## Contratto minimo con il core
+### 3. Pipelined Bitmask (Current Choice)
+Same as the bitmask approach, but each $\log_2(N)$ stage is separated by a register.
+- **Pros**: **Maximum Throughput (1 row/clk)**. Each stage is a tiny combinatorial path.
+- **Cons**: Increases latency by $\log_2(N)$ cycles.
+- **Artix-7 Limit**: Extremely robust. Can easily hit 100MHz+ regardless of $N$ (up to reasonable limits like 256/512).
 
-Il modulo di connettivita` deve ricevere:
+### 4. Tiling (Block-wise)
+Split the row into $M$ smaller tiles (e.g., 4 tiles of 16 bits).
+- **Pros**: Very short local combinatorial paths.
+- **Cons**: **Slower Throughput (1 row / $M$ clks)**. Requires complex boundary management to handle clusters crossing tile edges.
+- **Artix-7 Limit**: Only useful if $N$ is so large (e.g., $N > 1024$) that the row cannot fit in a register or the RNG cannot produce it in one cycle.
 
-- `Start`: avvio di una nuova analisi sulla batch corrente
-- `GridSize`: altezza richiesta della run, runtime-configurabile
-- `ChunkOpen`: occupazione della riga corrente, 128 bit nel build attuale
-- `ChunkValid`: indica quando `ChunkOpen` contiene una riga valida
+| Method | Correctness | Timing (100MHz) | Throughput | Latency | Complexity |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| Naive Loop | ✅ | ❌ | 1 row/clk | 1 clk | Low |
+| Comb. Mask | ✅ | ❌ | 1 row/clk | 1 clk | Low |
+| **Pipelined Mask**| ✅ | ✅ | **1 row/clk** | $\log_2 N$ clks | Medium |
+| Tiling | ✅ | ✅ | 1 row / $M$ clks | $M$ clks | High |
 
-E deve produrre:
+## Operational Sequence
 
-- `Busy`: elaborazione in corso o capture in corso
-- `Done`: analisi conclusa per tutta la griglia
-- `Spanning`: esiste un cammino tra sorgente e target
-- `ConnStepCount`: metrica di lavoro del modulo di connettivita`
+1. **Reset/CfgInit**: Initialize state and load `GridSteps`.
+2. **Start**: Trigger the first row capture.
+3. **Streaming**: 
+   - Fetch row from RNG.
+   - Feed into the $\log_2(N)$ pipeline.
+   - The result of Row $N$ is used as the vertical seed for Row $N+1$.
+4. **Completion**: When the last row exits the pipeline, check if any bit is set $\to$ `Spanning = 1`.
 
-## Stato interno minimo
+## Synthesis Goals
 
-Il blocco puo` essere implementato con questi elementi:
-
-- `current_open_row`: buffer della riga corrente ancora in riempimento
-- `previous_reach_row`: buffer della riga precedente gia` processata
-- `seed_row`: riga di seed per la propagazione verticale
-- `conn_steps_total`: metrica cumulativa di lavoro
-- `p_spanning`: flag finale di spanning
-
-## Regola di espansione
-
-Per ogni ciclo di clock utile:
-
-1. se `ChunkValid = '1'`, latci la riga corrente dal RNG bank
-2. prepara il seed verticale dalla riga precedente
-3. nel ciclo successivo, processa la riga latcheata con la dilatazione bitmask generata a potenze di due
-4. aggiorna `previous_reach_row`
-5. incrementa `ConnStepCount`
-
-Per il caso 2D classico i vicini sono tipicamente quattro.
-Per il caso direzionato i vicini sono solo quelli in avanti nel grafo del problema.
-
-## Chiusura di una run
-
-Alla fine della ricerca:
-
-- se la frontiera ha raggiunto il bordo obiettivo, `Spanning = 1`
-- altrimenti `Spanning = 0`
-- `ConnStepCount` conta gli step di espansione o i cicli di frontiera consumati
-
-## Sequenza operativa
-
-1. reset o `CfgInit`
-2. `Start` porta il blocco in capture della prima riga
-3. al ciclo successivo la riga viene processata
-4. la riga seguente viene acquisita mentre quella precedente viene processata
-5. il blocco mantiene memoria solo di due righe, non dell'intera griglia
-6. completamento quando l'ultima riga e` stata processata e non resta nulla da espandere
-
-## Interfaccia con il resto del progetto
-
-Il core applicativo deve:
-
-- presentare la griglia occupata al backend
-- avviare il motore di reachability
-- attendere `Done`
-- accumulare statistiche di run come occupazione e spanning
-
-Questo backend e` piu` adatto quando interessa la reachability esatta e il throughput pratico, non le etichette complete delle componenti.
-
-## Obiettivo di sintesi
-
-Il modulo deve essere scritto per una sintesi regolare:
-
-- niente union-find globale
-- niente ricerca root lunga
-- niente recursion
-- stato esplicito e frontiera bit-parallel
-
-La metrica finale da preservare e` la correttezza funzionale con un costo di controllo piu` prevedibile dell'approccio HK completo.
-
-## Variante piu` sintetizzabile
-
-La chiusura orizzontale della riga non va pensata come un loop da 128 celle dentro un unico processo combinatorio. L'implementazione attuale usa una dilatazione bitmask a potenze di due, con numero di stage determinato da `N_ROWS_G`.
-
-Regola per uno stage:
-
-$$
-reach \leftarrow reach \lor ((reach \ll d) \lor (reach \gg d)) \land open
-$$
-
-con `d = 1, 2, 4, 8, ...` finche` `d < N_ROWS_G`.
-
-Questo approccio e` semanticamente equivalente alla chiusura della riga, ma non e` il loop naïve:
-
-- stesso risultato della scansione lineare, ma con pochi stage generati
-- profondita` combinatoria molto piu` bassa
-- timing piu` facile da chiudere rispetto al blob cella-per-cella
-- area in genere piu` controllata, con un piccolo costo extra per la logica di stage rispetto a una riga sequenziale pura
-
-Per il target FPGA di questo progetto, il compromesso migliore e`:
-
-- evitare la catena cella-per-cella completamente combinatoria
-- usare un network bitmask a stage che crescono automaticamente con la larghezza della riga
-- tenere la frontiera come mask bit-parallel, non come queue fine-grained
-
-In pratica: stesso risultato logico, costo di clock molto piu` prevedibile, area spesso migliore del blob combinatorio attuale, ma non identica in termini di risorse rispetto a una versione sequenziale a 1 cella per clock.
-
-## Nota su `N_ROWS`
-
-`N_ROWS` e` una larghezza di lane a compile time, non un parametro UART runtime. Se vuoi cambiare il numero di lane RNG via UART, serve un refactor architetturale: package parametrici o generics propagati a tutto il bank RNG, ai tipi array e ai moduli di connettivita`.
-
-Il backend corrente usa `GridSteps` come altezza della striscia: la larghezza resta fissa, la profondita` cresce con il parametro runtime.
-
-Il network bitmask attuale e` generico su `N_ROWS_G`: applica shift a potenze di due finche` la potenza resta minore di `N_ROWS_G`. Quindi il numero di stage non e` piu` fissato a mano; cresce automaticamente con la larghezza della riga.
-
-Per `N_ROWS_G = 128` ottieni 7 stage effettivi. Per `N_ROWS_G = 512` diventano 9, per `N_ROWS_G = 1024` diventano 10. Questo e` ancora il bitmask a dilatazione, non un nuovo algoritmo.
+- **No Recursion**: All loops are unrolled into pipeline stages.
+- **Bit-Parallel**: Use wide vectors to process the whole row at once.
+- **Registered Boundaries**: Ensure no long combinatorial paths exist between the RNG, the mask stages, and the final counters.

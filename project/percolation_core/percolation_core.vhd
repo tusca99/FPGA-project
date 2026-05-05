@@ -51,8 +51,10 @@ architecture Behavioral of percolation_core is
     signal frontier_busy_s    : std_logic := '0';
     signal frontier_done_s    : std_logic := '0';
     signal frontier_spanning_s : std_logic := '0';
-    signal p_spanning   : std_logic := '0';
     signal run_occupied : unsigned(31 downto 0) := (others => '0');
+    signal row_open_reg : flag_array_t(0 to N_ROWS_G - 1) := (others => '0');
+    signal row_chunk_cells_reg : integer range 0 to N_ROWS_G := 0;
+    signal row_valid_reg : std_logic := '0';
     signal rng_site_open_s   : flag_array_t(0 to N_ROWS_G - 1) := (others => '0');
     signal rng_all_valid_s   : std_logic := '0';
     signal rng_busy_s        : std_logic := '1';
@@ -178,6 +180,9 @@ begin
                 frontier_start_s  <= '0';
                 hk_chunk_valid_s  <= '0';
                 hk_chunk_open_s   <= (others => '0');
+                row_open_reg      <= (others => '0');
+                row_chunk_cells_reg <= 0;
+                row_valid_reg     <= '0';
             else
                 if CfgInit = '1' then
                     cfg_steps_i := to_integer(CfgStepsPerRun);
@@ -198,6 +203,9 @@ begin
                     frontier_start_s  <= '0';
                     hk_chunk_valid_s  <= '0';
                     hk_chunk_open_s   <= (others => '0');
+                    row_open_reg      <= (others => '0');
+                    row_chunk_cells_reg <= 0;
+                    row_valid_reg     <= '0';
                 end if;
 
                 if RunEn = '1' then
@@ -213,6 +221,14 @@ begin
                 frontier_start_s <= '0';
                 hk_chunk_valid_s <= '0';
 
+                if CfgInit = '0' then
+                    if row_valid_reg = '1' then
+                        chunk_occupied := count_ones_prefix(row_open_reg, row_chunk_cells_reg);
+                        run_occupied <= run_occupied + to_unsigned(chunk_occupied, 32);
+                        row_valid_reg <= '0';
+                    end if;
+                end if;
+
                 case state is
                     when 0 =>
                         if (rng_busy_s = '0') and (rng_all_valid_s = '1') and
@@ -221,6 +237,9 @@ begin
                             stream_index <= 0;
                             run_occupied <= (others => '0');
                             frontier_start_s <= '1';
+                            row_open_reg      <= (others => '0');
+                            row_chunk_cells_reg <= 0;
+                            row_valid_reg     <= '0';
                             state        <= 1;
                         end if;
 
@@ -253,16 +272,20 @@ begin
                                 stream_index <= 0;
                                 run_occupied <= (others => '0');
                                 frontier_start_s <= '1';
+                                row_open_reg      <= (others => '0');
+                                row_chunk_cells_reg <= 0;
+                                row_valid_reg     <= '0';
                                 state <= 1;
                             else
                                 state <= 0;
                             end if;
-                        elsif stream_index < grid_cells then
+                        elsif (stream_index < grid_cells) and (frontier_busy_s = '0') then
                             chunk_cells := min_int(grid_cells - stream_index, N_ROWS_G);
                             hk_chunk_open_s  <= flags_to_slv(rng_site_open_s);
                             hk_chunk_valid_s <= '1';
-                            chunk_occupied := count_ones_prefix(rng_site_open_s, chunk_cells);
-                            run_occupied <= run_occupied + to_unsigned(chunk_occupied, 32);
+                            row_open_reg <= rng_site_open_s;
+                            row_chunk_cells_reg <= chunk_cells;
+                            row_valid_reg <= '1';
                             stream_index <= stream_index + chunk_cells;
                         end if;
 
