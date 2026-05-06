@@ -49,7 +49,23 @@ architecture Behavioral of percolation_core is
     signal frontier_busy_s    : std_logic := '0';
     signal frontier_done_s    : std_logic := '0';
     signal frontier_spanning_s : std_logic := '0';
+    -- Popcount width: ceil(log2(N_ROWS_G + 1))
+    function popcount_width(n : positive) return integer is
+        variable width : integer := 1;
+        variable p     : integer := 2;
+    begin
+        while p < n + 1 loop
+            width := width + 1;
+            p := p * 2;
+        end loop;
+        return width;
+    end function;
+
+    constant POPCOUNT_WIDTH_C : integer := popcount_width(N_ROWS_G);
+
     signal run_occupied : unsigned(31 downto 0) := (others => '0');
+    signal popcount_reg     : unsigned(POPCOUNT_WIDTH_C - 1 downto 0) := (others => '0');
+    signal popcount_valid_reg : std_logic := '0';
     signal rng_site_open_s   : flag_array_t(0 to N_ROWS_G - 1) := (others => '0');
     signal rng_all_valid_s   : std_logic := '0';
     signal rng_busy_s        : std_logic := '1';
@@ -178,6 +194,8 @@ begin
                     occupied_sum      <= (others => '0');
                     state             <= 0;
                     run_occupied      <= (others => '0');
+                    popcount_reg      <= (others => '0');
+                    popcount_valid_reg<= '0';
                     frontier_start_s  <= '0';
                     hk_chunk_valid_s  <= '0';
                     hk_chunk_open_s   <= (others => '0');
@@ -209,6 +227,11 @@ begin
                         end if;
 
                     when 1 =>
+                        -- Pipeline stage 2: accumulate registered popcount
+                        if popcount_valid_reg = '1' then
+                            run_occupied <= run_occupied + resize(popcount_reg, 32);
+                        end if;
+
                         if frontier_done_s = '1' then
                             new_runs_done := runs_done + 1;
 
@@ -238,7 +261,11 @@ begin
                             row_bits_v := flags_to_slv(rng_site_open_s);
                             hk_chunk_open_s  <= row_bits_v;
                             hk_chunk_valid_s <= '1';
-                            run_occupied <= run_occupied + popcount_tree(row_bits_v);
+                            -- Pipeline stage 1: register popcount for next cycle
+                            popcount_reg <= popcount_tree(row_bits_v);
+                            popcount_valid_reg <= '1';
+                        else
+                            popcount_valid_reg <= '0';
                         end if;
 
                     when others =>

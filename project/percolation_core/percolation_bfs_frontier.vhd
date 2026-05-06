@@ -22,9 +22,9 @@ entity percolation_bfs_frontier is
 end entity percolation_bfs_frontier;
 
 architecture Behavioral of percolation_bfs_frontier is
-    signal grid_steps         : integer := N_ROWS_G;
-    signal rows_seen          : integer := 0;
-    signal row_index          : integer := 0;
+    signal grid_steps         : integer range 0 to N_ROWS_G := N_ROWS_G;
+    signal rows_seen          : integer range 0 to N_ROWS_G := 0;
+    signal row_index          : integer range 0 to N_ROWS_G := 0;
     signal p_spanning         : std_logic := '0';
     signal previous_reach_row : std_logic_vector(N_ROWS_G - 1 downto 0) := (others => '0');
 
@@ -73,9 +73,9 @@ begin
     Spanning <= p_spanning;
 
     process(Clk)
-        variable cfg_steps_i    : integer;
-        variable rows_seen_v    : integer;
-        variable row_index_v    : integer;
+        variable cfg_steps_i    : integer range 0 to N_ROWS_G;
+        variable rows_seen_v    : integer range 0 to N_ROWS_G;
+        variable row_index_v    : integer range 0 to N_ROWS_G;
         variable seed_row_v     : std_logic_vector(N_ROWS_G - 1 downto 0);
         variable row_reach_v    : std_logic_vector(N_ROWS_G - 1 downto 0);
     begin
