@@ -43,7 +43,7 @@ architecture Behavioral of percolation_core is
     signal spanning_cnt : unsigned(31 downto 0) := (others => '0');
     signal occupied_sum : unsigned(31 downto 0) := (others => '0');
 
-    signal state        : integer range 0 to 1 := 0;
+    signal state        : integer range 0 to 2 := 0;
     signal rows_sent    : integer := 0;
     signal frontier_start_s   : std_logic := '0';
     signal hk_chunk_valid_s : std_logic := '0';
@@ -52,38 +52,38 @@ architecture Behavioral of percolation_core is
     signal frontier_done_s    : std_logic := '0';
     signal frontier_spanning_s : std_logic := '0';
     signal run_occupied : unsigned(31 downto 0) := (others => '0');
-    signal row_open_reg : flag_array_t(0 to N_ROWS_G - 1) := (others => '0');
-    signal row_chunk_cells_reg : integer range 0 to N_ROWS_G := 0;
-    signal row_valid_reg : std_logic := '0';
-    signal row_occupied_reg : unsigned(31 downto 0) := (others => '0');
-    signal row_occupied_valid : std_logic := '0';
     signal rng_site_open_s   : flag_array_t(0 to N_ROWS_G - 1) := (others => '0');
     signal rng_all_valid_s   : std_logic := '0';
     signal rng_busy_s        : std_logic := '1';
     signal rng_rst_s         : std_logic := '1';
     signal rng_master_key_s  : std_logic_vector(127 downto 0) := (others => '0');
     signal rng_run_tag_s     : std_logic_vector(31 downto 0) := (others => '0');
-    signal send_valid_s       : std_logic := '0';
-    signal send_data_s        : std_logic_vector(N_ROWS_G - 1 downto 0) := (others => '0');
 
     constant C_GOLDEN1 : unsigned(31 downto 0) := x"9E3779B9";
     constant C_GOLDEN2 : unsigned(31 downto 0) := x"243F6A88";
 
-    function count_ones_prefix(
-        flags : flag_array_t;
-        limit : integer
-    ) return integer is
-        variable total : integer := 0;
+    function popcount_tree(bits : std_logic_vector) return unsigned is
+        constant WIDTH : integer := bits'length;
+        constant HALF  : integer := WIDTH / 2;
     begin
-        for index in 0 to N_ROWS_G - 1 loop
-            if index < limit then
-                if flags(index) = '1' then
-                    total := total + 1;
-                end if;
+        if WIDTH = 1 then
+            if bits(bits'right) = '1' then
+                return to_unsigned(1, 32);
+            else
+                return to_unsigned(0, 32);
             end if;
-        end loop;
-
-        return total;
+        elsif WIDTH = 2 then
+            if bits(bits'right) = '1' and bits(bits'right + 1) = '1' then
+                return to_unsigned(2, 32);
+            elsif bits(bits'right) = '1' or bits(bits'right + 1) = '1' then
+                return to_unsigned(1, 32);
+            else
+                return to_unsigned(0, 32);
+            end if;
+        else
+            return popcount_tree(bits(bits'right + HALF - 1 downto bits'right))
+                 + popcount_tree(bits(bits'left downto bits'right + HALF));
+        end if;
     end function;
 
     function flags_to_slv(flags : flag_array_t) return std_logic_vector is
@@ -118,9 +118,6 @@ architecture Behavioral of percolation_core is
     end function;
 
 begin
-    hk_chunk_valid_s <= send_valid_s;
-    hk_chunk_open_s <= send_data_s;
-
     rng_rst_s <= (not Rst) or CfgInit;
     rng_master_key_s <= seed_to_master_key(CfgSeed);
     rng_run_tag_s <= CfgSeed;
@@ -170,10 +167,6 @@ begin
     process(Clk)
         variable cfg_steps_i     : integer;
         variable new_runs_done   : unsigned(31 downto 0);
-        variable chunk_occupied  : integer;
-        variable rows_sent_v     : integer;
-        variable send_valid_v    : std_logic;
-        variable send_data_v     : std_logic_vector(N_ROWS_G - 1 downto 0);
     begin
         if rising_edge(Clk) then
             if Rst = '0' then
@@ -188,13 +181,8 @@ begin
                 rows_sent         <= 0;
                 run_occupied      <= (others => '0');
                 frontier_start_s  <= '0';
-                send_valid_s      <= '0';
-                send_data_s       <= (others => '0');
-                row_open_reg      <= (others => '0');
-                row_chunk_cells_reg <= 0;
-                row_valid_reg     <= '0';
-                row_occupied_reg  <= (others => '0');
-                row_occupied_valid <= '0';
+                hk_chunk_valid_s  <= '0';
+                hk_chunk_open_s   <= (others => '0');
             else
                 if CfgInit = '1' then
                     cfg_steps_i := to_integer(CfgStepsPerRun);
@@ -213,13 +201,8 @@ begin
                     rows_sent         <= 0;
                     run_occupied      <= (others => '0');
                     frontier_start_s  <= '0';
-                    send_valid_s      <= '0';
-                    send_data_s       <= (others => '0');
-                    row_open_reg      <= (others => '0');
-                    row_chunk_cells_reg <= 0;
-                    row_valid_reg     <= '0';
-                    row_occupied_reg  <= (others => '0');
-                    row_occupied_valid <= '0';
+                    hk_chunk_valid_s  <= '0';
+                    hk_chunk_open_s   <= (others => '0');
                 end if;
 
                 if RunEn = '1' then
@@ -233,20 +216,7 @@ begin
                 end if;
 
                 frontier_start_s <= '0';
-
-                if CfgInit = '0' then
-                    if row_occupied_valid = '1' then
-                        run_occupied <= run_occupied + row_occupied_reg;
-                        row_occupied_valid <= '0';
-                    end if;
-
-                    if row_valid_reg = '1' then
-                        chunk_occupied := count_ones_prefix(row_open_reg, row_chunk_cells_reg);
-                        row_occupied_reg <= to_unsigned(chunk_occupied, 32);
-                        row_occupied_valid <= '1';
-                        row_valid_reg <= '0';
-                    end if;
-                end if;
+                hk_chunk_valid_s <= '0';
 
                 case state is
                     when 0 =>
@@ -256,21 +226,12 @@ begin
                             rows_sent <= 0;
                             run_occupied <= (others => '0');
                             frontier_start_s <= '1';
-                            send_valid_s <= '0';
-                            send_data_s <= (others => '0');
-                            row_open_reg      <= (others => '0');
-                            row_chunk_cells_reg <= 0;
-                            row_valid_reg     <= '0';
-                            row_occupied_reg  <= (others => '0');
-                            row_occupied_valid <= '0';
+                            hk_chunk_valid_s <= '0';
+                            hk_chunk_open_s <= (others => '0');
                             state        <= 1;
                         end if;
 
                     when 1 =>
-                        rows_sent_v := rows_sent;
-                        send_valid_v := send_valid_s;
-                        send_data_v := send_data_s;
-
                         if frontier_done_s = '1' then
                             new_runs_done := runs_done + 1;
 
@@ -295,27 +256,16 @@ begin
                             end if;
 
                             state <= 0;
+                        elsif frontier_busy_s = '0' then
+                            -- Frontier is ready: send next row in one cycle
+                            hk_chunk_open_s  <= flags_to_slv(rng_site_open_s);
+                            hk_chunk_valid_s <= '1';
+                            run_occupied <= run_occupied + popcount_tree(flags_to_slv(rng_site_open_s));
+                            rows_sent <= rows_sent + 1;
                         end if;
 
-                        if (frontier_done_s = '0') then
-                            if (send_valid_v = '1') and (frontier_busy_s = '0') then
-                                rows_sent_v := rows_sent_v + 1;
-                                send_valid_v := '0';
-                                row_open_reg <= slv_to_flags(send_data_v);
-                                row_chunk_cells_reg <= N_ROWS_G;
-                                row_valid_reg <= '1';
-                            end if;
-
-                            if (send_valid_v = '0') and (rows_sent_v < grid_steps) then
-                                send_data_v := flags_to_slv(rng_site_open_s);
-                                send_valid_v := '1';
-                            end if;
-                        end if;
-
-                        rows_sent <= rows_sent_v;
-                        send_valid_s <= send_valid_v;
-                        send_data_s <= send_data_v;
-
+                    when others =>
+                        state <= 0;
                 end case;
             end if;
         end if;

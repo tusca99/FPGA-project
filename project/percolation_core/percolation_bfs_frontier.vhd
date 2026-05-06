@@ -24,17 +24,12 @@ end entity percolation_bfs_frontier;
 architecture Behavioral of percolation_bfs_frontier is
     signal grid_steps         : integer := N_ROWS_G;
     signal rows_seen          : integer := 0;
-
-    type state_t is (IDLE, RUN, COMPLETE);
-    signal state : state_t := IDLE;
-
     signal row_index          : integer := 0;
     signal p_spanning         : std_logic := '0';
     signal previous_reach_row : std_logic_vector(N_ROWS_G - 1 downto 0) := (others => '0');
-    signal s0_valid            : std_logic := '0';
-    signal s0_open_row         : std_logic_vector(N_ROWS_G - 1 downto 0) := (others => '0');
-    signal s0_seed_row         : std_logic_vector(N_ROWS_G - 1 downto 0) := (others => '0');
-    signal s0_row_index        : integer := 0;
+
+    type state_t is (IDLE, RUN, COMPLETE);
+    signal state : state_t := IDLE;
 
     function any_set(row : std_logic_vector(N_ROWS_G - 1 downto 0); width : integer) return std_logic is
     begin
@@ -73,7 +68,7 @@ architecture Behavioral of percolation_bfs_frontier is
     end function;
 
 begin
-    Busy <= '1' when (state /= RUN) or (s0_valid = '1') else '0';
+    Busy <= '0' when state = RUN else '1';
     Done <= '1' when state = COMPLETE else '0';
     Spanning <= p_spanning;
 
@@ -81,15 +76,8 @@ begin
         variable cfg_steps_i    : integer;
         variable rows_seen_v    : integer;
         variable row_index_v    : integer;
-        variable prev_reach_v   : std_logic_vector(N_ROWS_G - 1 downto 0);
-        variable s0_valid_v     : std_logic;
-        variable s0_open_v      : std_logic_vector(N_ROWS_G - 1 downto 0);
-        variable s0_seed_v      : std_logic_vector(N_ROWS_G - 1 downto 0);
-        variable s0_row_index_v : integer;
-        variable open_row_v     : std_logic_vector(N_ROWS_G - 1 downto 0);
         variable seed_row_v     : std_logic_vector(N_ROWS_G - 1 downto 0);
         variable row_reach_v    : std_logic_vector(N_ROWS_G - 1 downto 0);
-        variable row_has_reach  : std_logic;
     begin
         if rising_edge(Clk) then
             if Rst = '0' then
@@ -99,10 +87,6 @@ begin
                 state              <= IDLE;
                 p_spanning         <= '0';
                 previous_reach_row <= (others => '0');
-                s0_valid            <= '0';
-                s0_open_row         <= (others => '0');
-                s0_seed_row         <= (others => '0');
-                s0_row_index        <= 0;
             else
                 if CfgInit = '1' then
                     cfg_steps_i := to_integer(GridSteps);
@@ -116,10 +100,6 @@ begin
                     state              <= IDLE;
                     p_spanning         <= '0';
                     previous_reach_row <= (others => '0');
-                    s0_valid            <= '0';
-                    s0_open_row         <= (others => '0');
-                    s0_seed_row         <= (others => '0');
-                    s0_row_index        <= 0;
                 else
                     case state is
                         when IDLE =>
@@ -134,54 +114,40 @@ begin
                                 row_index          <= 0;
                                 p_spanning         <= '0';
                                 previous_reach_row <= (others => '0');
-                                s0_valid            <= '0';
-                                s0_open_row         <= (others => '0');
-                                s0_seed_row         <= (others => '0');
-                                s0_row_index        <= 0;
                                 state              <= RUN;
                             end if;
 
                         when RUN =>
                             rows_seen_v := rows_seen;
                             row_index_v := row_index;
-                            prev_reach_v := previous_reach_row;
-                            s0_valid_v := s0_valid;
-                            s0_open_v := s0_open_row;
-                            s0_seed_v := s0_seed_row;
-                            s0_row_index_v := s0_row_index;
-                            row_has_reach := '0';
 
-                            if s0_valid_v = '1' then
-                                row_reach_v := reach_row(s0_open_v, s0_seed_v, N_ROWS_G);
-                                prev_reach_v := row_reach_v;
+                            if (ChunkValid = '1') and (rows_seen_v < grid_steps) then
+                                -- Compute seed using previous reachability (registered value from last cycle)
+                                if row_index_v = 0 then
+                                    seed_row_v := ChunkOpen;
+                                else
+                                    seed_row_v := ChunkOpen and previous_reach_row;
+                                end if;
 
-                                if s0_row_index_v = grid_steps - 1 then
-                                    row_has_reach := any_set(row_reach_v, N_ROWS_G);
-                                    if row_has_reach = '1' then
+                                -- Compute horizontal reachability in one cycle
+                                row_reach_v := reach_row(ChunkOpen, seed_row_v, N_ROWS_G);
+
+                                -- Update previous reachability for next row
+                                previous_reach_row <= row_reach_v;
+
+                                -- Check spanning on last row
+                                if row_index_v = grid_steps - 1 then
+                                    if any_set(row_reach_v, N_ROWS_G) = '1' then
                                         p_spanning <= '1';
                                     end if;
 
                                     report "percolation_bfs_frontier row-wise run complete: grid_width=" & integer'image(N_ROWS_G) &
                                            " grid_steps=" & integer'image(grid_steps) &
-                                           " spanning=" & std_logic'image(row_has_reach)
+                                           " spanning=" & std_logic'image(any_set(row_reach_v, N_ROWS_G))
                                         severity note;
                                 end if;
 
-                                s0_valid_v := '0';
-                            elsif (ChunkValid = '1') and (rows_seen_v < grid_steps) then
-                                open_row_v := ChunkOpen;
-
-                                if row_index_v = 0 then
-                                    seed_row_v := open_row_v;
-                                else
-                                    seed_row_v := open_row_v and prev_reach_v;
-                                end if;
-
-                                s0_open_v := open_row_v;
-                                s0_seed_v := seed_row_v;
-                                s0_row_index_v := row_index_v;
-                                s0_valid_v := '1';
-
+                                -- Increment counters
                                 rows_seen_v := rows_seen_v + 1;
                                 if row_index_v < grid_steps - 1 then
                                     row_index_v := row_index_v + 1;
@@ -190,13 +156,8 @@ begin
 
                             rows_seen <= rows_seen_v;
                             row_index <= row_index_v;
-                            previous_reach_row <= prev_reach_v;
-                            s0_valid <= s0_valid_v;
-                            s0_open_row <= s0_open_v;
-                            s0_seed_row <= s0_seed_v;
-                            s0_row_index <= s0_row_index_v;
 
-                            if (rows_seen_v = grid_steps) and (s0_valid_v = '0') then
+                            if rows_seen_v = grid_steps then
                                 state <= COMPLETE;
                             end if;
 
