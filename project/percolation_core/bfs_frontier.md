@@ -55,11 +55,11 @@ Rule: $reach \leftarrow reach \lor ((reach \ll d) \lor (reach \gg d)) \land open
 - **Cons**: Still a single combinatorial block.
 - **Artix-7 Limit**: At $N=64$, $\log_2(64)=6$ stages. Combined with RNG and FSM logic, this often exceeds the 10ns clock period.
 
-### 3. Pipelined Bitmask (Current Choice)
-Same as the bitmask approach, but each $\log_2(N)$ stage is separated by a register.
-- **Pros**: **Maximum Throughput (1 row/clk)**. Each stage is a tiny combinatorial path.
-- **Cons**: Increases latency by $\log_2(N)$ cycles.
-- **Artix-7 Limit**: Extremely robust. Can easily hit 100MHz+ regardless of $N$ (up to reasonable limits like 256/512).
+### 3. Combinatorial Bitmask (Current Choice)
+The bitmask approach is implemented as a pure combinatorial function `reach_row` using a while loop with $\log_2(N)$ shift-OR stages.
+- **Pros**: **Maximum Throughput (1 row/clk)**. Single-cycle latency.
+- **Cons**: The combinatorial path depth is $O(\log N)$. For large $N$ this may approach timing limits.
+- **Artix-7 Limit**: At $N=64$, $\log_2(64)=6$ stages of shifts/ORs. This fits comfortably within the 10ns clock period at 100MHz. For $N \ge 256$ consider pipelining.
 
 ### 4. Tiling (Block-wise)
 Split the row into $M$ smaller tiles (e.g., 4 tiles of 16 bits).
