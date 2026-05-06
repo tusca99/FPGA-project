@@ -111,12 +111,7 @@ begin
             TotalOccupied  => core_total_s,
             RngBusy        => open,
             RngAllValid    => open,
-            Done           => core_done_s,
-            CoreStartPulse => open,
-            FrontierRowAcceptPulse => open,
-            FrontierRowProcessPulse => open,
-            FrontierRowsSeen => open,
-            FrontierDonePulse => open
+            Done           => core_done_s
         );
 
     process(Clk)

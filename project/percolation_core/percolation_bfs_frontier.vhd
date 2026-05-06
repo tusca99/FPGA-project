@@ -17,11 +17,7 @@ entity percolation_bfs_frontier is
         ChunkValid    : in std_logic;
         Busy          : out std_logic;
         Done          : out std_logic;
-        Spanning      : out std_logic;
-        RowAcceptPulse : out std_logic;
-        RowProcessPulse : out std_logic;
-        RowsSeen      : out std_logic_vector(31 downto 0);
-        DonePulse     : out std_logic
+        Spanning      : out std_logic
     );
 end entity percolation_bfs_frontier;
 
@@ -39,9 +35,6 @@ architecture Behavioral of percolation_bfs_frontier is
     signal s0_open_row         : std_logic_vector(N_ROWS_G - 1 downto 0) := (others => '0');
     signal s0_seed_row         : std_logic_vector(N_ROWS_G - 1 downto 0) := (others => '0');
     signal s0_row_index        : integer := 0;
-    signal row_accept_pulse_s  : std_logic := '0';
-    signal row_process_pulse_s : std_logic := '0';
-    signal done_pulse_s        : std_logic := '0';
 
     function any_set(row : std_logic_vector(N_ROWS_G - 1 downto 0); width : integer) return std_logic is
     begin
@@ -83,10 +76,6 @@ begin
     Busy <= '1' when (state /= RUN) or (s0_valid = '1') else '0';
     Done <= '1' when state = COMPLETE else '0';
     Spanning <= p_spanning;
-    RowAcceptPulse <= row_accept_pulse_s;
-    RowProcessPulse <= row_process_pulse_s;
-    RowsSeen <= std_logic_vector(to_unsigned(rows_seen, 32));
-    DonePulse <= done_pulse_s;
 
     process(Clk)
         variable cfg_steps_i    : integer;
@@ -114,13 +103,7 @@ begin
                 s0_open_row         <= (others => '0');
                 s0_seed_row         <= (others => '0');
                 s0_row_index        <= 0;
-                row_accept_pulse_s  <= '0';
-                row_process_pulse_s <= '0';
-                done_pulse_s        <= '0';
             else
-                row_accept_pulse_s  <= '0';
-                row_process_pulse_s <= '0';
-                done_pulse_s        <= '0';
                 if CfgInit = '1' then
                     cfg_steps_i := to_integer(GridSteps);
                     if cfg_steps_i < 1 then
@@ -137,9 +120,6 @@ begin
                     s0_open_row         <= (others => '0');
                     s0_seed_row         <= (others => '0');
                     s0_row_index        <= 0;
-                    row_accept_pulse_s  <= '0';
-                    row_process_pulse_s <= '0';
-                    done_pulse_s        <= '0';
                 else
                     case state is
                         when IDLE =>
@@ -158,9 +138,6 @@ begin
                                 s0_open_row         <= (others => '0');
                                 s0_seed_row         <= (others => '0');
                                 s0_row_index        <= 0;
-                                row_accept_pulse_s  <= '0';
-                                row_process_pulse_s <= '0';
-                                done_pulse_s        <= '0';
                                 state              <= RUN;
                             end if;
 
@@ -177,7 +154,6 @@ begin
                             if s0_valid_v = '1' then
                                 row_reach_v := reach_row(s0_open_v, s0_seed_v, N_ROWS_G);
                                 prev_reach_v := row_reach_v;
-                                row_process_pulse_s <= '1';
 
                                 if s0_row_index_v = grid_steps - 1 then
                                     row_has_reach := any_set(row_reach_v, N_ROWS_G);
@@ -205,7 +181,6 @@ begin
                                 s0_seed_v := seed_row_v;
                                 s0_row_index_v := row_index_v;
                                 s0_valid_v := '1';
-                                row_accept_pulse_s <= '1';
 
                                 rows_seen_v := rows_seen_v + 1;
                                 if row_index_v < grid_steps - 1 then
@@ -223,7 +198,6 @@ begin
 
                             if (rows_seen_v = grid_steps) and (s0_valid_v = '0') then
                                 state <= COMPLETE;
-                                done_pulse_s <= '1';
                             end if;
 
                         when COMPLETE =>

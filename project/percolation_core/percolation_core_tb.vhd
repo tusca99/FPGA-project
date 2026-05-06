@@ -27,11 +27,6 @@ architecture Behavioral of percolation_core_tb is
     signal RngBusy      : std_logic;
     signal RngAllValid  : std_logic;
     signal Done         : std_logic;
-    signal CoreStartPulse : std_logic;
-    signal FrontierRowAcceptPulse : std_logic;
-    signal FrontierRowProcessPulse : std_logic;
-    signal FrontierRowsSeen : std_logic_vector(31 downto 0);
-    signal FrontierDonePulse : std_logic;
 
 begin
     dut: entity work.percolation_core
@@ -55,12 +50,7 @@ begin
             TotalOccupied => TotalOccupied,
             RngBusy => RngBusy,
             RngAllValid => RngAllValid,
-            Done => Done,
-            CoreStartPulse => CoreStartPulse,
-            FrontierRowAcceptPulse => FrontierRowAcceptPulse,
-            FrontierRowProcessPulse => FrontierRowProcessPulse,
-            FrontierRowsSeen => FrontierRowsSeen,
-            FrontierDonePulse => FrontierDonePulse
+            Done => Done
         );
 
     clk_proc : process
@@ -97,14 +87,6 @@ begin
             report "RNG did not become ready" severity failure;
 
         RunEn <= '1';
-        for cycle_index in 0 to 1000 loop
-            wait until rising_edge(Clk);
-            exit when CoreStartPulse = '1';
-        end loop;
-
-        assert CoreStartPulse = '1'
-            report "Percolation core did not start a run" severity failure;
-
         for cycle_index in 0 to 1_000_000 loop
             wait until rising_edge(Clk);
             exit when Done = '1';

@@ -53,11 +53,6 @@ begin
             TotalOccupied => TotalOccupied,
             RngBusy       => RngBusy,
             RngAllValid   => RngAllValid,
-            Done          => Done,
-            CoreStartPulse => open,
-            FrontierRowAcceptPulse => open,
-            FrontierRowProcessPulse => open,
-            FrontierRowsSeen => open,
-            FrontierDonePulse => open
+            Done          => Done
         );
 end Behavioral;

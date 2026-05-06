@@ -29,12 +29,7 @@ entity percolation_core is
         TotalOccupied  : out std_logic_vector(31 downto 0);
         RngBusy        : out std_logic;
         RngAllValid    : out std_logic;
-        Done           : out std_logic;
-        CoreStartPulse : out std_logic;
-        FrontierRowAcceptPulse : out std_logic;
-        FrontierRowProcessPulse : out std_logic;
-        FrontierRowsSeen : out std_logic_vector(31 downto 0);
-        FrontierDonePulse : out std_logic
+        Done           : out std_logic
     );
 end percolation_core;
 
@@ -56,10 +51,6 @@ architecture Behavioral of percolation_core is
     signal frontier_busy_s    : std_logic := '0';
     signal frontier_done_s    : std_logic := '0';
     signal frontier_spanning_s : std_logic := '0';
-    signal frontier_row_accept_pulse_s : std_logic := '0';
-    signal frontier_row_process_pulse_s : std_logic := '0';
-    signal frontier_rows_seen_s : std_logic_vector(31 downto 0) := (others => '0');
-    signal frontier_done_pulse_s : std_logic := '0';
     signal run_occupied : unsigned(31 downto 0) := (others => '0');
     signal row_open_reg : flag_array_t(0 to N_ROWS_G - 1) := (others => '0');
     signal row_chunk_cells_reg : integer range 0 to N_ROWS_G := 0;
@@ -72,8 +63,6 @@ architecture Behavioral of percolation_core is
     signal rng_rst_s         : std_logic := '1';
     signal rng_master_key_s  : std_logic_vector(127 downto 0) := (others => '0');
     signal rng_run_tag_s     : std_logic_vector(31 downto 0) := (others => '0');
-    signal rng_ready_seen    : std_logic := '0';
-    signal core_start_pulse_s : std_logic := '0';
     signal send_valid_s       : std_logic := '0';
     signal send_data_s        : std_logic_vector(N_ROWS_G - 1 downto 0) := (others => '0');
 
@@ -105,6 +94,16 @@ architecture Behavioral of percolation_core is
         end loop;
 
         return bits;
+    end function;
+
+    function slv_to_flags(bits : std_logic_vector(N_ROWS_G - 1 downto 0)) return flag_array_t is
+        variable flags : flag_array_t(0 to N_ROWS_G - 1) := (others => '0');
+    begin
+        for index in flags'range loop
+            flags(index) := bits(index);
+        end loop;
+
+        return flags;
     end function;
 
     function seed_to_master_key(seed : std_logic_vector(31 downto 0)) return std_logic_vector is
@@ -157,11 +156,7 @@ begin
             ChunkValid    => hk_chunk_valid_s,
             Busy          => frontier_busy_s,
             Done          => frontier_done_s,
-            Spanning      => frontier_spanning_s,
-            RowAcceptPulse => frontier_row_accept_pulse_s,
-            RowProcessPulse => frontier_row_process_pulse_s,
-            RowsSeen      => frontier_rows_seen_s,
-            DonePulse     => frontier_done_pulse_s
+            Spanning      => frontier_spanning_s
         );
 
     StepCount     <= std_logic_vector(runs_done);
@@ -171,11 +166,6 @@ begin
     RngBusy       <= rng_busy_s;
     RngAllValid   <= rng_all_valid_s;
     Done          <= '1' when (runs_target /= 0) and (runs_done >= runs_target) else '0';
-    CoreStartPulse <= core_start_pulse_s;
-    FrontierRowAcceptPulse <= frontier_row_accept_pulse_s;
-    FrontierRowProcessPulse <= frontier_row_process_pulse_s;
-    FrontierRowsSeen <= frontier_rows_seen_s;
-    FrontierDonePulse <= frontier_done_pulse_s;
 
     process(Clk)
         variable cfg_steps_i     : integer;
@@ -205,10 +195,7 @@ begin
                 row_valid_reg     <= '0';
                 row_occupied_reg  <= (others => '0');
                 row_occupied_valid <= '0';
-                rng_ready_seen    <= '0';
-                core_start_pulse_s <= '0';
             else
-                core_start_pulse_s <= '0';
                 if CfgInit = '1' then
                     cfg_steps_i := to_integer(CfgStepsPerRun);
                     if cfg_steps_i < 1 then
@@ -233,8 +220,6 @@ begin
                     row_valid_reg     <= '0';
                     row_occupied_reg  <= (others => '0');
                     row_occupied_valid <= '0';
-                    rng_ready_seen    <= '0';
-                    core_start_pulse_s <= '0';
                 end if;
 
                 if RunEn = '1' then
@@ -248,12 +233,6 @@ begin
                 end if;
 
                 frontier_start_s <= '0';
-
-                if (CfgInit = '0') and (rng_ready_seen = '0') and
-                   (rng_busy_s = '0') and (rng_all_valid_s = '1') then
-                    rng_ready_seen <= '1';
-                    report "percolation_core RNG ready" severity note;
-                end if;
 
                 if CfgInit = '0' then
                     if row_occupied_valid = '1' then
@@ -285,11 +264,6 @@ begin
                             row_occupied_reg  <= (others => '0');
                             row_occupied_valid <= '0';
                             state        <= 1;
-                            core_start_pulse_s <= '1';
-                            report "percolation_core start: runs_target=" &
-                                   integer'image(to_integer(runs_target)) &
-                                   " pending=" & integer'image(to_integer(pending))
-                                severity note;
                         end if;
 
                     when 1 =>
@@ -327,7 +301,7 @@ begin
                             if (send_valid_v = '1') and (frontier_busy_s = '0') then
                                 rows_sent_v := rows_sent_v + 1;
                                 send_valid_v := '0';
-                                row_open_reg <= send_data_v;
+                                row_open_reg <= slv_to_flags(send_data_v);
                                 row_chunk_cells_reg <= N_ROWS_G;
                                 row_valid_reg <= '1';
                             end if;
