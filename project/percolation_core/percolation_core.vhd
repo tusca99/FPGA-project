@@ -29,12 +29,17 @@ entity percolation_core is
         TotalOccupied  : out std_logic_vector(31 downto 0);
         RngBusy        : out std_logic;
         RngAllValid    : out std_logic;
-        Done           : out std_logic
+        Done           : out std_logic;
+        CoreStartPulse : out std_logic;
+        FrontierRowAcceptPulse : out std_logic;
+        FrontierRowProcessPulse : out std_logic;
+        FrontierRowsSeen : out std_logic_vector(31 downto 0);
+        FrontierDonePulse : out std_logic
     );
 end percolation_core;
 
 architecture Behavioral of percolation_core is
-    signal grid_cells   : integer := N_ROWS_G * N_ROWS_G;
+    signal grid_steps   : integer := N_ROWS_G;
     signal runs_target  : unsigned(31 downto 0) := (others => '0');
 
     signal run_enable   : std_logic := '0';
@@ -44,35 +49,36 @@ architecture Behavioral of percolation_core is
     signal occupied_sum : unsigned(31 downto 0) := (others => '0');
 
     signal state        : integer range 0 to 1 := 0;
-    signal stream_index : integer := 0;
+    signal rows_sent    : integer := 0;
     signal frontier_start_s   : std_logic := '0';
     signal hk_chunk_valid_s : std_logic := '0';
     signal hk_chunk_open_s  : std_logic_vector(N_ROWS_G - 1 downto 0) := (others => '0');
     signal frontier_busy_s    : std_logic := '0';
     signal frontier_done_s    : std_logic := '0';
     signal frontier_spanning_s : std_logic := '0';
+    signal frontier_row_accept_pulse_s : std_logic := '0';
+    signal frontier_row_process_pulse_s : std_logic := '0';
+    signal frontier_rows_seen_s : std_logic_vector(31 downto 0) := (others => '0');
+    signal frontier_done_pulse_s : std_logic := '0';
     signal run_occupied : unsigned(31 downto 0) := (others => '0');
     signal row_open_reg : flag_array_t(0 to N_ROWS_G - 1) := (others => '0');
     signal row_chunk_cells_reg : integer range 0 to N_ROWS_G := 0;
     signal row_valid_reg : std_logic := '0';
+    signal row_occupied_reg : unsigned(31 downto 0) := (others => '0');
+    signal row_occupied_valid : std_logic := '0';
     signal rng_site_open_s   : flag_array_t(0 to N_ROWS_G - 1) := (others => '0');
     signal rng_all_valid_s   : std_logic := '0';
     signal rng_busy_s        : std_logic := '1';
     signal rng_rst_s         : std_logic := '1';
     signal rng_master_key_s  : std_logic_vector(127 downto 0) := (others => '0');
     signal rng_run_tag_s     : std_logic_vector(31 downto 0) := (others => '0');
+    signal rng_ready_seen    : std_logic := '0';
+    signal core_start_pulse_s : std_logic := '0';
+    signal send_valid_s       : std_logic := '0';
+    signal send_data_s        : std_logic_vector(N_ROWS_G - 1 downto 0) := (others => '0');
 
     constant C_GOLDEN1 : unsigned(31 downto 0) := x"9E3779B9";
     constant C_GOLDEN2 : unsigned(31 downto 0) := x"243F6A88";
-
-    function min_int(a, b : integer) return integer is
-    begin
-        if a < b then
-            return a;
-        else
-            return b;
-        end if;
-    end function;
 
     function count_ones_prefix(
         flags : flag_array_t;
@@ -113,6 +119,9 @@ architecture Behavioral of percolation_core is
     end function;
 
 begin
+    hk_chunk_valid_s <= send_valid_s;
+    hk_chunk_open_s <= send_data_s;
+
     rng_rst_s <= (not Rst) or CfgInit;
     rng_master_key_s <= seed_to_master_key(CfgSeed);
     rng_run_tag_s <= CfgSeed;
@@ -148,7 +157,11 @@ begin
             ChunkValid    => hk_chunk_valid_s,
             Busy          => frontier_busy_s,
             Done          => frontier_done_s,
-            Spanning      => frontier_spanning_s
+            Spanning      => frontier_spanning_s,
+            RowAcceptPulse => frontier_row_accept_pulse_s,
+            RowProcessPulse => frontier_row_process_pulse_s,
+            RowsSeen      => frontier_rows_seen_s,
+            DonePulse     => frontier_done_pulse_s
         );
 
     StepCount     <= std_logic_vector(runs_done);
@@ -158,16 +171,23 @@ begin
     RngBusy       <= rng_busy_s;
     RngAllValid   <= rng_all_valid_s;
     Done          <= '1' when (runs_target /= 0) and (runs_done >= runs_target) else '0';
+    CoreStartPulse <= core_start_pulse_s;
+    FrontierRowAcceptPulse <= frontier_row_accept_pulse_s;
+    FrontierRowProcessPulse <= frontier_row_process_pulse_s;
+    FrontierRowsSeen <= frontier_rows_seen_s;
+    FrontierDonePulse <= frontier_done_pulse_s;
 
     process(Clk)
         variable cfg_steps_i     : integer;
         variable new_runs_done   : unsigned(31 downto 0);
-        variable chunk_cells     : integer;
         variable chunk_occupied  : integer;
+        variable rows_sent_v     : integer;
+        variable send_valid_v    : std_logic;
+        variable send_data_v     : std_logic_vector(N_ROWS_G - 1 downto 0);
     begin
         if rising_edge(Clk) then
             if Rst = '0' then
-                grid_cells        <= N_ROWS_G * N_ROWS_G;
+                grid_steps        <= N_ROWS_G;
                 runs_target       <= (others => '0');
                 run_enable        <= '0';
                 pending           <= (others => '0');
@@ -175,22 +195,27 @@ begin
                 spanning_cnt      <= (others => '0');
                 occupied_sum      <= (others => '0');
                 state             <= 0;
-                stream_index      <= 0;
+                rows_sent         <= 0;
                 run_occupied      <= (others => '0');
                 frontier_start_s  <= '0';
-                hk_chunk_valid_s  <= '0';
-                hk_chunk_open_s   <= (others => '0');
+                send_valid_s      <= '0';
+                send_data_s       <= (others => '0');
                 row_open_reg      <= (others => '0');
                 row_chunk_cells_reg <= 0;
                 row_valid_reg     <= '0';
+                row_occupied_reg  <= (others => '0');
+                row_occupied_valid <= '0';
+                rng_ready_seen    <= '0';
+                core_start_pulse_s <= '0';
             else
+                core_start_pulse_s <= '0';
                 if CfgInit = '1' then
                     cfg_steps_i := to_integer(CfgStepsPerRun);
                     if cfg_steps_i < 1 then
                         cfg_steps_i := 1;
                     end if;
 
-                    grid_cells        <= N_ROWS_G * cfg_steps_i;
+                    grid_steps        <= cfg_steps_i;
                     runs_target       <= unsigned(CfgRuns);
                     run_enable        <= '0';
                     pending           <= (others => '0');
@@ -198,14 +223,18 @@ begin
                     spanning_cnt      <= (others => '0');
                     occupied_sum      <= (others => '0');
                     state             <= 0;
-                    stream_index      <= 0;
+                    rows_sent         <= 0;
                     run_occupied      <= (others => '0');
                     frontier_start_s  <= '0';
-                    hk_chunk_valid_s  <= '0';
-                    hk_chunk_open_s   <= (others => '0');
+                    send_valid_s      <= '0';
+                    send_data_s       <= (others => '0');
                     row_open_reg      <= (others => '0');
                     row_chunk_cells_reg <= 0;
                     row_valid_reg     <= '0';
+                    row_occupied_reg  <= (others => '0');
+                    row_occupied_valid <= '0';
+                    rng_ready_seen    <= '0';
+                    core_start_pulse_s <= '0';
                 end if;
 
                 if RunEn = '1' then
@@ -219,12 +248,23 @@ begin
                 end if;
 
                 frontier_start_s <= '0';
-                hk_chunk_valid_s <= '0';
+
+                if (CfgInit = '0') and (rng_ready_seen = '0') and
+                   (rng_busy_s = '0') and (rng_all_valid_s = '1') then
+                    rng_ready_seen <= '1';
+                    report "percolation_core RNG ready" severity note;
+                end if;
 
                 if CfgInit = '0' then
+                    if row_occupied_valid = '1' then
+                        run_occupied <= run_occupied + row_occupied_reg;
+                        row_occupied_valid <= '0';
+                    end if;
+
                     if row_valid_reg = '1' then
                         chunk_occupied := count_ones_prefix(row_open_reg, row_chunk_cells_reg);
-                        run_occupied <= run_occupied + to_unsigned(chunk_occupied, 32);
+                        row_occupied_reg <= to_unsigned(chunk_occupied, 32);
+                        row_occupied_valid <= '1';
                         row_valid_reg <= '0';
                     end if;
                 end if;
@@ -234,16 +274,29 @@ begin
                         if (rng_busy_s = '0') and (rng_all_valid_s = '1') and
                            ((run_enable = '1') or (pending /= 0)) and
                            ((runs_target = 0) or (runs_done < runs_target)) then
-                            stream_index <= 0;
+                            rows_sent <= 0;
                             run_occupied <= (others => '0');
                             frontier_start_s <= '1';
+                            send_valid_s <= '0';
+                            send_data_s <= (others => '0');
                             row_open_reg      <= (others => '0');
                             row_chunk_cells_reg <= 0;
                             row_valid_reg     <= '0';
+                            row_occupied_reg  <= (others => '0');
+                            row_occupied_valid <= '0';
                             state        <= 1;
+                            core_start_pulse_s <= '1';
+                            report "percolation_core start: runs_target=" &
+                                   integer'image(to_integer(runs_target)) &
+                                   " pending=" & integer'image(to_integer(pending))
+                                severity note;
                         end if;
 
                     when 1 =>
+                        rows_sent_v := rows_sent;
+                        send_valid_v := send_valid_s;
+                        send_data_v := send_data_s;
+
                         if frontier_done_s = '1' then
                             new_runs_done := runs_done + 1;
 
@@ -256,7 +309,7 @@ begin
                             occupied_sum <= occupied_sum + run_occupied;
 
                                           report "percolation_core run complete: grid_width=" & integer'image(N_ROWS_G) &
-                                              " grid_steps=" & integer'image(grid_cells / N_ROWS_G) &
+                                              " grid_steps=" & integer'image(grid_steps) &
                                    " run_occupied=" & integer'image(to_integer(run_occupied)) &
                                    " runs_done=" & integer'image(to_integer(new_runs_done)) &
                                               " frontier_busy=" & std_logic'image(frontier_busy_s) &
@@ -267,27 +320,27 @@ begin
                                 pending <= pending - 1;
                             end if;
 
-                            if (((run_enable = '1') or (pending /= 0)) and
-                                ((runs_target = 0) or (new_runs_done < runs_target))) then
-                                stream_index <= 0;
-                                run_occupied <= (others => '0');
-                                frontier_start_s <= '1';
-                                row_open_reg      <= (others => '0');
-                                row_chunk_cells_reg <= 0;
-                                row_valid_reg     <= '0';
-                                state <= 1;
-                            else
-                                state <= 0;
-                            end if;
-                        elsif (stream_index < grid_cells) and (frontier_busy_s = '0') then
-                            chunk_cells := min_int(grid_cells - stream_index, N_ROWS_G);
-                            hk_chunk_open_s  <= flags_to_slv(rng_site_open_s);
-                            hk_chunk_valid_s <= '1';
-                            row_open_reg <= rng_site_open_s;
-                            row_chunk_cells_reg <= chunk_cells;
-                            row_valid_reg <= '1';
-                            stream_index <= stream_index + chunk_cells;
+                            state <= 0;
                         end if;
+
+                        if (frontier_done_s = '0') then
+                            if (send_valid_v = '1') and (frontier_busy_s = '0') then
+                                rows_sent_v := rows_sent_v + 1;
+                                send_valid_v := '0';
+                                row_open_reg <= send_data_v;
+                                row_chunk_cells_reg <= N_ROWS_G;
+                                row_valid_reg <= '1';
+                            end if;
+
+                            if (send_valid_v = '0') and (rows_sent_v < grid_steps) then
+                                send_data_v := flags_to_slv(rng_site_open_s);
+                                send_valid_v := '1';
+                            end if;
+                        end if;
+
+                        rows_sent <= rows_sent_v;
+                        send_valid_s <= send_valid_v;
+                        send_data_s <= send_data_v;
 
                 end case;
             end if;

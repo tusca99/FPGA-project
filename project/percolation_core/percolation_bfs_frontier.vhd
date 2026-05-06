@@ -17,42 +17,31 @@ entity percolation_bfs_frontier is
         ChunkValid    : in std_logic;
         Busy          : out std_logic;
         Done          : out std_logic;
-        Spanning      : out std_logic
+        Spanning      : out std_logic;
+        RowAcceptPulse : out std_logic;
+        RowProcessPulse : out std_logic;
+        RowsSeen      : out std_logic_vector(31 downto 0);
+        DonePulse     : out std_logic
     );
 end entity percolation_bfs_frontier;
 
 architecture Behavioral of percolation_bfs_frontier is
     signal grid_steps         : integer := N_ROWS_G;
-    signal grid_cells         : integer := N_ROWS_G * N_ROWS_G;
+    signal rows_seen          : integer := 0;
 
     type state_t is (IDLE, RUN, COMPLETE);
     signal state : state_t := IDLE;
 
-    signal stream_index       : integer := 0;
     signal row_index          : integer := 0;
     signal p_spanning         : std_logic := '0';
     signal previous_reach_row : std_logic_vector(N_ROWS_G - 1 downto 0) := (others => '0');
-
-    function min_int(a, b : integer) return integer is
-    begin
-        if a < b then
-            return a;
-        else
-            return b;
-        end if;
-    end function;
-
-    function chunk_mask(width : integer) return std_logic_vector is
-        variable mask : std_logic_vector(N_ROWS_G - 1 downto 0) := (others => '0');
-    begin
-        for index in 0 to N_ROWS_G - 1 loop
-            if index < width then
-                mask(index) := '1';
-            end if;
-        end loop;
-
-        return mask;
-    end function;
+    signal s0_valid            : std_logic := '0';
+    signal s0_open_row         : std_logic_vector(N_ROWS_G - 1 downto 0) := (others => '0');
+    signal s0_seed_row         : std_logic_vector(N_ROWS_G - 1 downto 0) := (others => '0');
+    signal s0_row_index        : integer := 0;
+    signal row_accept_pulse_s  : std_logic := '0';
+    signal row_process_pulse_s : std_logic := '0';
+    signal done_pulse_s        : std_logic := '0';
 
     function any_set(row : std_logic_vector(N_ROWS_G - 1 downto 0); width : integer) return std_logic is
     begin
@@ -67,67 +56,71 @@ architecture Behavioral of percolation_bfs_frontier is
         return '1';
     end function;
 
-    function ceil_log2(value : integer) return integer is
-        variable v : integer := value - 1;
-        variable r : integer := 0;
+    function reach_row(
+        open_row : std_logic_vector(N_ROWS_G - 1 downto 0);
+        seed_row : std_logic_vector(N_ROWS_G - 1 downto 0);
+        width : integer
+    ) return std_logic_vector is
+        variable stage_reach : unsigned(N_ROWS_G - 1 downto 0);
+        variable open_u      : unsigned(N_ROWS_G - 1 downto 0);
+        variable step        : integer := 1;
     begin
-        while v > 0 loop
-            v := v / 2;
-            r := r + 1;
+        open_u := unsigned(open_row);
+        stage_reach := unsigned(open_row and seed_row);
+
+        while step < N_ROWS_G loop
+            if step < width then
+                stage_reach := stage_reach or ((shift_left(stage_reach, step) or shift_right(stage_reach, step)) and open_u);
+            end if;
+
+            step := step * 2;
         end loop;
 
-        if r < 1 then
-            r := 1;
-        end if;
-
-        return r;
+        return std_logic_vector(stage_reach);
     end function;
 
-    constant PIPE_STAGES_C : integer := ceil_log2(N_ROWS_G);
-
-    signal pipe_active      : std_logic := '0';
-    signal pipe_stage       : integer range 0 to PIPE_STAGES_C - 1 := 0;
-    signal pipe_open_row    : std_logic_vector(N_ROWS_G - 1 downto 0) := (others => '0');
-    signal pipe_reach_row   : std_logic_vector(N_ROWS_G - 1 downto 0) := (others => '0');
-    signal pipe_row_index   : integer := 0;
-
 begin
-    Busy <= '1' when (state = RUN and pipe_active = '1' and pipe_stage /= PIPE_STAGES_C - 1) else '0';
+    Busy <= '1' when (state /= RUN) or (s0_valid = '1') else '0';
     Done <= '1' when state = COMPLETE else '0';
     Spanning <= p_spanning;
+    RowAcceptPulse <= row_accept_pulse_s;
+    RowProcessPulse <= row_process_pulse_s;
+    RowsSeen <= std_logic_vector(to_unsigned(rows_seen, 32));
+    DonePulse <= done_pulse_s;
 
     process(Clk)
         variable cfg_steps_i    : integer;
-        variable stream_index_v : integer;
+        variable rows_seen_v    : integer;
         variable row_index_v    : integer;
-        variable pipe_active_v  : std_logic;
-        variable pipe_stage_v   : integer;
-        variable pipe_open_v    : std_logic_vector(N_ROWS_G - 1 downto 0);
-        variable pipe_reach_v   : std_logic_vector(N_ROWS_G - 1 downto 0);
-        variable pipe_row_index_v : integer;
         variable prev_reach_v   : std_logic_vector(N_ROWS_G - 1 downto 0);
-        variable stage_reach_u  : unsigned(N_ROWS_G - 1 downto 0);
-        variable open_u         : unsigned(N_ROWS_G - 1 downto 0);
-        variable step           : integer;
-        variable row_has_reach  : std_logic;
-        variable chunk_cols     : integer;
+        variable s0_valid_v     : std_logic;
+        variable s0_open_v      : std_logic_vector(N_ROWS_G - 1 downto 0);
+        variable s0_seed_v      : std_logic_vector(N_ROWS_G - 1 downto 0);
+        variable s0_row_index_v : integer;
         variable open_row_v     : std_logic_vector(N_ROWS_G - 1 downto 0);
+        variable seed_row_v     : std_logic_vector(N_ROWS_G - 1 downto 0);
+        variable row_reach_v    : std_logic_vector(N_ROWS_G - 1 downto 0);
+        variable row_has_reach  : std_logic;
     begin
         if rising_edge(Clk) then
             if Rst = '0' then
                 grid_steps         <= N_ROWS_G;
-                grid_cells         <= N_ROWS_G * N_ROWS_G;
-                stream_index       <= 0;
+                rows_seen          <= 0;
                 row_index          <= 0;
                 state              <= IDLE;
                 p_spanning         <= '0';
                 previous_reach_row <= (others => '0');
-                pipe_active        <= '0';
-                pipe_stage         <= 0;
-                pipe_open_row      <= (others => '0');
-                pipe_reach_row     <= (others => '0');
-                pipe_row_index     <= 0;
+                s0_valid            <= '0';
+                s0_open_row         <= (others => '0');
+                s0_seed_row         <= (others => '0');
+                s0_row_index        <= 0;
+                row_accept_pulse_s  <= '0';
+                row_process_pulse_s <= '0';
+                done_pulse_s        <= '0';
             else
+                row_accept_pulse_s  <= '0';
+                row_process_pulse_s <= '0';
+                done_pulse_s        <= '0';
                 if CfgInit = '1' then
                     cfg_steps_i := to_integer(GridSteps);
                     if cfg_steps_i < 1 then
@@ -135,17 +128,18 @@ begin
                     end if;
 
                     grid_steps         <= cfg_steps_i;
-                    grid_cells         <= N_ROWS_G * cfg_steps_i;
-                    stream_index       <= 0;
+                    rows_seen          <= 0;
                     row_index          <= 0;
                     state              <= IDLE;
                     p_spanning         <= '0';
                     previous_reach_row <= (others => '0');
-                    pipe_active        <= '0';
-                    pipe_stage         <= 0;
-                    pipe_open_row      <= (others => '0');
-                    pipe_reach_row     <= (others => '0');
-                    pipe_row_index     <= 0;
+                    s0_valid            <= '0';
+                    s0_open_row         <= (others => '0');
+                    s0_seed_row         <= (others => '0');
+                    s0_row_index        <= 0;
+                    row_accept_pulse_s  <= '0';
+                    row_process_pulse_s <= '0';
+                    done_pulse_s        <= '0';
                 else
                     case state is
                         when IDLE =>
@@ -156,93 +150,80 @@ begin
                                 end if;
 
                                 grid_steps         <= cfg_steps_i;
-                                grid_cells         <= N_ROWS_G * cfg_steps_i;
-                                stream_index       <= 0;
+                                rows_seen          <= 0;
                                 row_index          <= 0;
                                 p_spanning         <= '0';
                                 previous_reach_row <= (others => '0');
-                                pipe_active        <= '0';
-                                pipe_stage         <= 0;
-                                pipe_open_row      <= (others => '0');
-                                pipe_reach_row     <= (others => '0');
-                                pipe_row_index     <= 0;
+                                s0_valid            <= '0';
+                                s0_open_row         <= (others => '0');
+                                s0_seed_row         <= (others => '0');
+                                s0_row_index        <= 0;
+                                row_accept_pulse_s  <= '0';
+                                row_process_pulse_s <= '0';
+                                done_pulse_s        <= '0';
                                 state              <= RUN;
                             end if;
 
                         when RUN =>
-                            stream_index_v := stream_index;
+                            rows_seen_v := rows_seen;
                             row_index_v := row_index;
-                            pipe_active_v := pipe_active;
-                            pipe_stage_v := pipe_stage;
-                            pipe_open_v := pipe_open_row;
-                            pipe_reach_v := pipe_reach_row;
-                            pipe_row_index_v := pipe_row_index;
                             prev_reach_v := previous_reach_row;
+                            s0_valid_v := s0_valid;
+                            s0_open_v := s0_open_row;
+                            s0_seed_v := s0_seed_row;
+                            s0_row_index_v := s0_row_index;
                             row_has_reach := '0';
 
-                            if pipe_active_v = '1' then
-                                stage_reach_u := unsigned(pipe_reach_v);
-                                open_u := unsigned(pipe_open_v);
-                                step := 2 ** pipe_stage_v;
-                                if step < N_ROWS_G then
-                                    stage_reach_u := stage_reach_u or
-                                        ((shift_left(stage_reach_u, step) or shift_right(stage_reach_u, step)) and open_u);
-                                end if;
-                                pipe_reach_v := std_logic_vector(stage_reach_u);
+                            if s0_valid_v = '1' then
+                                row_reach_v := reach_row(s0_open_v, s0_seed_v, N_ROWS_G);
+                                prev_reach_v := row_reach_v;
+                                row_process_pulse_s <= '1';
 
-                                if pipe_stage_v = PIPE_STAGES_C - 1 then
-                                    pipe_active_v := '0';
-                                    pipe_stage_v := 0;
-                                    prev_reach_v := pipe_reach_v;
-
-                                    if pipe_row_index_v = grid_steps - 1 then
-                                        row_has_reach := any_set(pipe_reach_v, N_ROWS_G);
-                                        if row_has_reach = '1' then
-                                            p_spanning <= '1';
-                                        end if;
-
-                                        report "percolation_bfs_frontier row-wise run complete: grid_width=" & integer'image(N_ROWS_G) &
-                                               " grid_steps=" & integer'image(grid_steps) &
-                                               " spanning=" & std_logic'image(row_has_reach)
-                                            severity note;
+                                if s0_row_index_v = grid_steps - 1 then
+                                    row_has_reach := any_set(row_reach_v, N_ROWS_G);
+                                    if row_has_reach = '1' then
+                                        p_spanning <= '1';
                                     end if;
-                                else
-                                    pipe_stage_v := pipe_stage_v + 1;
-                                end if;
-                            end if;
 
-                            if (pipe_active_v = '0') and (ChunkValid = '1') and (stream_index_v < grid_cells) then
-                                chunk_cols := min_int(grid_cells - stream_index_v, N_ROWS_G);
-                                open_row_v := ChunkOpen and chunk_mask(chunk_cols);
-                                pipe_open_v := open_row_v;
+                                    report "percolation_bfs_frontier row-wise run complete: grid_width=" & integer'image(N_ROWS_G) &
+                                           " grid_steps=" & integer'image(grid_steps) &
+                                           " spanning=" & std_logic'image(row_has_reach)
+                                        severity note;
+                                end if;
+
+                                s0_valid_v := '0';
+                            elsif (ChunkValid = '1') and (rows_seen_v < grid_steps) then
+                                open_row_v := ChunkOpen;
 
                                 if row_index_v = 0 then
-                                    pipe_reach_v := open_row_v;
+                                    seed_row_v := open_row_v;
                                 else
-                                    pipe_reach_v := open_row_v and prev_reach_v;
+                                    seed_row_v := open_row_v and prev_reach_v;
                                 end if;
 
-                                pipe_row_index_v := row_index_v;
-                                pipe_active_v := '1';
-                                pipe_stage_v := 0;
-                                stream_index_v := stream_index_v + chunk_cols;
+                                s0_open_v := open_row_v;
+                                s0_seed_v := seed_row_v;
+                                s0_row_index_v := row_index_v;
+                                s0_valid_v := '1';
+                                row_accept_pulse_s <= '1';
 
+                                rows_seen_v := rows_seen_v + 1;
                                 if row_index_v < grid_steps - 1 then
                                     row_index_v := row_index_v + 1;
                                 end if;
                             end if;
 
-                            stream_index <= stream_index_v;
+                            rows_seen <= rows_seen_v;
                             row_index <= row_index_v;
-                            pipe_active <= pipe_active_v;
-                            pipe_stage <= pipe_stage_v;
-                            pipe_open_row <= pipe_open_v;
-                            pipe_reach_row <= pipe_reach_v;
-                            pipe_row_index <= pipe_row_index_v;
                             previous_reach_row <= prev_reach_v;
+                            s0_valid <= s0_valid_v;
+                            s0_open_row <= s0_open_v;
+                            s0_seed_row <= s0_seed_v;
+                            s0_row_index <= s0_row_index_v;
 
-                            if (stream_index_v = grid_cells) and (pipe_active_v = '0') then
+                            if (rows_seen_v = grid_steps) and (s0_valid_v = '0') then
                                 state <= COMPLETE;
+                                done_pulse_s <= '1';
                             end if;
 
                         when COMPLETE =>
