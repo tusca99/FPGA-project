@@ -118,12 +118,6 @@ begin
                     case state is
                         when IDLE =>
                             if Start = '1' then
-                                cfg_steps_i := to_integer(GridSteps);
-                                if cfg_steps_i < 1 then
-                                    cfg_steps_i := 1;
-                                end if;
-
-                                grid_steps         <= to_unsigned(N_ROWS_G, 32);
                                 rows_received      <= (others => '0');
                                 p_spanning         <= '0';
                                 previous_reach_row <= (others => '0');
