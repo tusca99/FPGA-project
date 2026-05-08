@@ -100,29 +100,30 @@ def _generate_fpga_grid(
 
 
 def _reach_row(open_row: list[bool], seed_row: list[bool]) -> list[bool]:
-    """Resolve horizontal reachability for one row (matches VHDL ``reach_row``).
+    """Resolve horizontal reachability for one row (matches corrected VHDL).
 
-    Logic (log2(N) stages of shift-OR):
-        reach = open & seed
-        for d in 1, 2, 4, 8, 16, 32:
-            reach = reach | ((reach shifted left/right by d) & open)
+    Correct algorithm: repeatedly expand reachability by ±1 cell until
+    no more cells can be reached. This prevents the "jump over" bug in
+    the old log2(N) shift-OR approach.
 
-    This is exactly the combinatorial function in
-    ``percolation_bfs_frontier.vhd``.
+    Formula: new_reach[i] = reach[i] | (open[i] & (reach[i-1] | reach[i+1]))
     """
     n = len(open_row)
     reach = [o and s for o, s in zip(open_row, seed_row)]
 
-    step = 1
-    while step < n:
+    while True:
         new_reach = reach[:]
         for i in range(n):
-            left = reach[i - step] if i - step >= 0 else False
-            right = reach[i + step] if i + step < n else False
-            if open_row[i] and (left or right):
+            if reach[i]:
                 new_reach[i] = True
+            else:
+                left = reach[i - 1] if i - 1 >= 0 else False
+                right = reach[i + 1] if i + 1 < n else False
+                if open_row[i] and (left or right):
+                    new_reach[i] = True
+        if new_reach == reach:
+            break
         reach = new_reach
-        step *= 2
 
     return reach
 

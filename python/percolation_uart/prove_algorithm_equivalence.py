@@ -55,20 +55,29 @@ def bfs_spanning(grid: list[list[bool]]) -> tuple[bool, int]:
 
 
 def fpga_reach_row(open_row: list[bool], seed_row: list[bool]) -> list[bool]:
-    """FPGA horizontal closure (log2(N) shift-OR stages)."""
+    """FPGA horizontal closure (iterative ±1 neighbor expansion).
+
+    Correct algorithm: repeatedly expand reachability by ±1 cell until
+    no more cells can be reached. This matches the corrected VHDL.
+
+    Formula: new_reach[i] = reach[i] | (open[i] & (reach[i-1] | reach[i+1]))
+    """
     n = len(open_row)
     reach = [o and s for o, s in zip(open_row, seed_row)]
 
-    step = 1
-    while step < n:
+    while True:
         new_reach = reach[:]
         for i in range(n):
-            left = reach[i - step] if i - step >= 0 else False
-            right = reach[i + step] if i + step < n else False
-            if open_row[i] and (left or right):
+            if reach[i]:
                 new_reach[i] = True
+            else:
+                left = reach[i - 1] if i - 1 >= 0 else False
+                right = reach[i + 1] if i + 1 < n else False
+                if open_row[i] and (left or right):
+                    new_reach[i] = True
+        if new_reach == reach:
+            break
         reach = new_reach
-        step *= 2
 
     return reach
 

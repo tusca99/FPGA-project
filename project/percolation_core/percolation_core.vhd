@@ -250,6 +250,12 @@ begin
                         end if;
 
                         if frontier_done_s = '1' then
+                            -- If the last row's popcount was registered but not yet accumulated,
+                            -- add it now before updating occupied_sum
+                            if popcount_valid_reg = '1' then
+                                run_occupied_v := run_occupied_v + resize(popcount_reg, 32);
+                            end if;
+
                             new_runs_done := runs_done + 1;
 
                             runs_done <= new_runs_done;
