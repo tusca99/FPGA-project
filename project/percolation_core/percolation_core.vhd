@@ -41,7 +41,6 @@ architecture Behavioral of percolation_core is
     signal runs_done    : unsigned(31 downto 0) := (others => '0');
     signal spanning_cnt : unsigned(31 downto 0) := (others => '0');
     signal occupied_sum : unsigned(31 downto 0) := (others => '0');
-    signal run_occupied : unsigned(31 downto 0) := (others => '0');
 
     signal state        : integer range 0 to 2 := 0;
     signal frontier_start_s   : std_logic := '0';
@@ -194,7 +193,6 @@ begin
                 spanning_cnt      <= (others => '0');
                 occupied_sum      <= (others => '0');
                 state             <= 0;
-                run_occupied      <= (others => '0');
                 frontier_start_s  <= '0';
                 hk_chunk_valid_s  <= '0';
                 hk_chunk_open_s   <= (others => '0');
@@ -210,7 +208,6 @@ begin
                     spanning_cnt   <= (others => '0');
                     occupied_sum   <= (others => '0');
                     state          <= 0;
-                    run_occupied   <= (others => '0');
                     popcount_reg   <= (others => '0');
                     popcount_valid_reg <= '0';
                     frontier_start_s <= '0';
@@ -240,7 +237,6 @@ begin
                            ((run_enable = '1') or (pending /= 0)) and
                            ((runs_target = 0) or (runs_done < runs_target)) then
                             run_occupied_v := (others => '0');
-                            run_occupied <= (others => '0');
                             frontier_start_s <= '1';
                             hk_chunk_valid_s <= '0';
                             hk_chunk_open_s <= (others => '0');
@@ -251,7 +247,6 @@ begin
                         -- Pipeline stage 2: accumulate registered popcount
                         if popcount_valid_reg = '1' then
                             run_occupied_v := run_occupied_v + resize(popcount_reg, 32);
-                            run_occupied <= run_occupied_v;
                         end if;
 
                         if frontier_done_s = '1' then

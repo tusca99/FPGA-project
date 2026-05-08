@@ -12,11 +12,11 @@ with UartTransport(port="/dev/ttyUSB1", baudrate=115200, timeout=2.0) as ser:
         ser.reset_output_buffer()
         time.sleep(0.1)
         
-        # Build and send request
+        # Build and send request (N=64 configuration)
         req = PercolationRequest.from_probability(
-            probability=0.9999,
+            probability=0.5927,  # near critical threshold for 2D site percolation
             cfg_seed=0x12345678,
-            steps_per_run=128,
+            steps_per_run=64,  # N_ROWS_G = 64
             cfg_runs=cfg_runs,
         )
         req_bytes = encode_request(req)
