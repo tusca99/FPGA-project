@@ -6,7 +6,8 @@ use work.rng_pkg.all;
 
 entity trivium_array is
     generic (
-        N_ROWS_G : positive := 64
+        N_ROWS_G     : positive := 64;
+        GROUP_SIZE_G : positive := 4
     );
     port (
         clk        : in  std_logic;
@@ -23,7 +24,7 @@ entity trivium_array is
 end entity trivium_array;
 
 architecture rtl of trivium_array is
-    constant GROUP_SIZE_C : integer := 8;
+    constant GROUP_SIZE_C : integer := GROUP_SIZE_G;
     constant NUM_GROUPS_C : integer := N_ROWS_G / GROUP_SIZE_C;
 
     signal row_words_s : word_array_t(0 to N_ROWS_G - 1) := (others => (others => '0'));

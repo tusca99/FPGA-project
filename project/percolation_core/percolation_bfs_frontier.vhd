@@ -144,18 +144,6 @@ begin
                                 previous_reach_row <= row_reach_v;
                                 previous_reach_row_dup <= row_reach_v;
 
-                                -- Check spanning on last row
-                                if rows_seen_v = grid_steps - 1 then
-                                    if any_set(row_reach_v, N_ROWS_G) = '1' then
-                                        p_spanning <= '1';
-                                    end if;
-
-                                    report "percolation_bfs_frontier row-wise run complete: grid_width=" & integer'image(N_ROWS_G) &
-                                           " grid_steps=" & integer'image(to_integer(grid_steps)) &
-                                           " spanning=" & std_logic'image(any_set(row_reach_v, N_ROWS_G))
-                                        severity note;
-                                end if;
-
                                 -- Increment counter
                                 rows_seen_v := rows_seen_v + 1;
                             end if;
@@ -167,6 +155,16 @@ begin
                             end if;
 
                         when COMPLETE =>
+                            -- Check spanning using the last row's reachability (registered)
+                            if any_set(previous_reach_row_dup, N_ROWS_G) = '1' then
+                                p_spanning <= '1';
+                            end if;
+
+                            report "percolation_bfs_frontier row-wise run complete: grid_width=" & integer'image(N_ROWS_G) &
+                                   " grid_steps=" & integer'image(to_integer(grid_steps)) &
+                                   " spanning=" & std_logic'image(any_set(previous_reach_row_dup, N_ROWS_G))
+                                severity note;
+
                             state <= IDLE;
                     end case;
                 end if;

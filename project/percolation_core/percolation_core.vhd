@@ -41,6 +41,7 @@ architecture Behavioral of percolation_core is
     signal runs_done    : unsigned(31 downto 0) := (others => '0');
     signal spanning_cnt : unsigned(31 downto 0) := (others => '0');
     signal occupied_sum : unsigned(31 downto 0) := (others => '0');
+    signal run_occupied : unsigned(31 downto 0) := (others => '0');
 
     signal state        : integer range 0 to 2 := 0;
     signal frontier_start_s   : std_logic := '0';
@@ -63,7 +64,19 @@ architecture Behavioral of percolation_core is
 
     constant POPCOUNT_WIDTH_C : integer := popcount_width(N_ROWS_G);
 
-    signal run_occupied : unsigned(31 downto 0) := (others => '0');
+    signal cfg_init_core  : std_logic := '0';
+    signal cfg_init_rng   : std_logic := '0';
+    signal cfg_init_front : std_logic := '0';
+
+    attribute KEEP : string;
+    attribute KEEP of cfg_init_core  : signal is "true";
+    attribute KEEP of cfg_init_rng   : signal is "true";
+    attribute KEEP of cfg_init_front : signal is "true";
+
+    attribute MAX_FANOUT : integer;
+    attribute MAX_FANOUT of cfg_init_core  : signal is 16;
+    attribute MAX_FANOUT of cfg_init_rng   : signal is 16;
+    attribute MAX_FANOUT of cfg_init_front : signal is 16;
     signal popcount_reg     : unsigned(POPCOUNT_WIDTH_C - 1 downto 0) := (others => '0');
     signal popcount_valid_reg : std_logic := '0';
     signal rng_site_open_s   : flag_array_t(0 to N_ROWS_G - 1) := (others => '0');
@@ -131,7 +144,7 @@ begin
         )
         port map (
             clk        => Clk,
-            rst        => rng_rst_s,
+            rst        => cfg_init_rng,
             master_key => rng_master_key_s,
             run_tag    => rng_run_tag_s,
             threshold  => CfgP,
@@ -149,7 +162,7 @@ begin
         port map (
             Clk           => Clk,
             Rst           => Rst,
-            CfgInit       => CfgInit,
+            CfgInit       => cfg_init_front,
             GridSteps     => CfgStepsPerRun,
             Start         => frontier_start_s,
             ChunkOpen     => hk_chunk_open_s,
@@ -170,6 +183,7 @@ begin
     process(Clk)
         variable new_runs_done   : unsigned(31 downto 0);
         variable row_bits_v      : std_logic_vector(N_ROWS_G - 1 downto 0);
+        variable run_occupied_v  : unsigned(31 downto 0);
     begin
         if rising_edge(Clk) then
             if Rst = '0' then
@@ -186,39 +200,46 @@ begin
                 hk_chunk_open_s   <= (others => '0');
             else
                 if CfgInit = '1' then
-                    runs_target       <= unsigned(CfgRuns);
-                    run_enable        <= '0';
-                    pending           <= (others => '0');
-                    runs_done         <= (others => '0');
-                    spanning_cnt      <= (others => '0');
-                    occupied_sum      <= (others => '0');
-                    state             <= 0;
-                    run_occupied      <= (others => '0');
-                    popcount_reg      <= (others => '0');
-                    popcount_valid_reg<= '0';
-                    frontier_start_s  <= '0';
-                    hk_chunk_valid_s  <= '0';
-                    hk_chunk_open_s   <= (others => '0');
-                end if;
-
-                if RunEn = '1' then
-                    run_enable <= '1';
+                    cfg_init_core  <= '1';
+                    cfg_init_rng   <= '1';
+                    cfg_init_front <= '1';
+                    runs_target    <= unsigned(CfgRuns);
+                    run_enable     <= '0';
+                    pending        <= (others => '0');
+                    runs_done      <= (others => '0');
+                    spanning_cnt   <= (others => '0');
+                    occupied_sum   <= (others => '0');
+                    state          <= 0;
+                    run_occupied   <= (others => '0');
+                    popcount_reg   <= (others => '0');
+                    popcount_valid_reg <= '0';
+                    frontier_start_s <= '0';
+                    hk_chunk_valid_s <= '0';
+                    hk_chunk_open_s  <= (others => '0');
                 else
-                    run_enable <= '0';
-                end if;
+                    cfg_init_core  <= '0';
+                    cfg_init_rng   <= '0';
+                    cfg_init_front <= '0';
 
-                if StepAddValid = '1' then
-                    pending <= pending + unsigned(StepAddCount);
-                end if;
+                    if RunEn = '1' then
+                        run_enable <= '1';
+                    else
+                        run_enable <= '0';
+                    end if;
 
-                frontier_start_s <= '0';
-                hk_chunk_valid_s <= '0';
+                    if StepAddValid = '1' then
+                        pending <= pending + unsigned(StepAddCount);
+                    end if;
 
-                case state is
+                    frontier_start_s <= '0';
+                    hk_chunk_valid_s <= '0';
+
+                    case state is
                     when 0 =>
                         if (rng_busy_s = '0') and (rng_all_valid_s = '1') and
                            ((run_enable = '1') or (pending /= 0)) and
                            ((runs_target = 0) or (runs_done < runs_target)) then
+                            run_occupied_v := (others => '0');
                             run_occupied <= (others => '0');
                             frontier_start_s <= '1';
                             hk_chunk_valid_s <= '0';
@@ -229,7 +250,8 @@ begin
                     when 1 =>
                         -- Pipeline stage 2: accumulate registered popcount
                         if popcount_valid_reg = '1' then
-                            run_occupied <= run_occupied + resize(popcount_reg, 32);
+                            run_occupied_v := run_occupied_v + resize(popcount_reg, 32);
+                            run_occupied <= run_occupied_v;
                         end if;
 
                         if frontier_done_s = '1' then
@@ -241,11 +263,11 @@ begin
                                 spanning_cnt <= spanning_cnt + 1;
                             end if;
 
-                            occupied_sum <= occupied_sum + run_occupied;
+                            occupied_sum <= occupied_sum + run_occupied_v;
 
                                           report "percolation_core run complete: grid_width=" & integer'image(N_ROWS_G) &
                                               " grid_steps=" & integer'image(to_integer(CfgStepsPerRun)) &
-                                   " run_occupied=" & integer'image(to_integer(run_occupied)) &
+                                   " run_occupied=" & integer'image(to_integer(run_occupied_v)) &
                                    " runs_done=" & integer'image(to_integer(new_runs_done)) &
                                               " frontier_busy=" & std_logic'image(frontier_busy_s) &
                                               " spanning=" & std_logic'image(frontier_spanning_s)
@@ -271,6 +293,7 @@ begin
                     when others =>
                         state <= 0;
                 end case;
+                end if;
             end if;
         end if;
     end process;
