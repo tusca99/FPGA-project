@@ -52,6 +52,20 @@ architecture Behavioral of percolation_core is
     signal frontier_done_s    : std_logic := '0';
     signal frontier_spanning_s : std_logic := '0';
     signal run_occupied : unsigned(31 downto 0) := (others => '0');
+    signal cfg_p_reg        : std_logic_vector(31 downto 0) := (others => '0');
+    signal rng_row_bits     : std_logic_vector(N_ROWS_G - 1 downto 0) := (others => '0');
+    signal rng_row_bits_dup : std_logic_vector(N_ROWS_G - 1 downto 0) := (others => '0');
+
+    attribute KEEP : string;
+    attribute KEEP of rng_row_bits     : signal is "true";
+    attribute KEEP of rng_row_bits_dup : signal is "true";
+
+    attribute MAX_FANOUT : integer;
+    attribute MAX_FANOUT of rng_row_bits     : signal is 16;
+    attribute MAX_FANOUT of rng_row_bits_dup : signal is 16;
+    attribute MAX_FANOUT of cfg_p_reg        : signal is 16;
+    attribute MAX_FANOUT of rng_rst_s        : signal is 32;
+
     -- Popcount width: ceil(log2(N_ROWS_G + 1))
     function popcount_width(n : positive) return integer is
         variable width : integer := 1;
@@ -136,7 +150,7 @@ begin
             rst        => rng_rst_s,
             master_key => rng_master_key_s,
             run_tag    => rng_run_tag_s,
-            threshold  => CfgP,
+            threshold  => cfg_p_reg,
             words_out  => open,
             valid_mask => open,
             site_open  => rng_site_open_s,
@@ -214,6 +228,8 @@ begin
                     popcount_valid_reg<= '0';
                 end if;
 
+                cfg_p_reg <= CfgP;
+
                 if RunEn = '1' then
                     run_enable <= '1';
                 else
@@ -280,6 +296,8 @@ begin
                             end if;
                         elsif (rows_sent < grid_steps_reg) and (frontier_busy_s = '0') then
                             row_bits_v := flags_to_slv(rng_site_open_s);
+                            rng_row_bits     <= row_bits_v;
+                            rng_row_bits_dup <= row_bits_v;
                             hk_chunk_open_s  <= row_bits_v;
                             hk_chunk_valid_s <= '1';
                             -- Pipeline stage 1: register popcount for next cycle

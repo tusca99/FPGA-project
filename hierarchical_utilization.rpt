@@ -1,7 +1,7 @@
 Copyright 1986-2022 Xilinx, Inc. All Rights Reserved. Copyright 2022-2025 Advanced Micro Devices, Inc. All Rights Reserved.
 ---------------------------------------------------------------------------------------------------------------------------------------------
 | Tool Version : Vivado v.2025.2 (lin64) Build 6299465 Fri Nov 14 12:34:56 MST 2025
-| Date         : Mon Apr 27 17:50:57 2026
+| Date         : Fri May  8 08:52:28 2026
 | Host         : fedora.fritz.box running 64-bit unknown
 | Command      : report_utilization -hierarchical -file hierarchical_utilization.rpt
 | Design       : percolation_uart_top
@@ -19,20 +19,92 @@ Table of Contents
 1. Utilization by Hierarchy
 ---------------------------
 
-+--------------------------+--------------------------+------------+------------+---------+------+------+--------+--------+------------+
-|         Instance         |          Module          | Total LUTs | Logic LUTs | LUTRAMs | SRLs |  FFs | RAMB36 | RAMB18 | DSP Blocks |
-+--------------------------+--------------------------+------------+------------+---------+------+------+--------+--------+------------+
-| percolation_uart_top     |                    (top) |       1019 |       1019 |       0 |    0 | 1090 |      0 |      0 |          0 |
-|   (percolation_uart_top) |                    (top) |          2 |          2 |       0 |    0 |   97 |      0 |      0 |          0 |
-|   core_inst              |         percolation_core |        889 |        889 |       0 |    0 |  858 |      0 |      0 |          0 |
-|     (core_inst)          |         percolation_core |         75 |         75 |       0 |    0 |   53 |      0 |      0 |          0 |
-|     frontier_inst        | percolation_bfs_frontier |         75 |         75 |       0 |    0 |   13 |      0 |      0 |          0 |
-|     rng_inst             |            rng_hybrid_64 |        739 |        739 |       0 |    0 |  792 |      0 |      0 |          0 |
-|       trivium_bank       |            trivium_array |        720 |        720 |       0 |    0 |  768 |      0 |      0 |          0 |
-|   rx_inst                |              uart_msg_rx |         88 |         88 |       0 |    0 |   54 |      0 |      0 |          0 |
-|     rx_inst              |                  uart_rx |         51 |         51 |       0 |    0 |   39 |      0 |      0 |          0 |
-|   tx_inst                |              uart_msg_tx |         35 |         35 |       0 |    0 |   66 |      0 |      0 |          0 |
-|     (tx_inst)            |              uart_msg_tx |         22 |         22 |       0 |    0 |   51 |      0 |      0 |          0 |
-+--------------------------+--------------------------+------------+------------+---------+------+------+--------+--------+------------+
++------------------------------+--------------------------+------------+------------+---------+------+-------+--------+--------+------------+
+|           Instance           |          Module          | Total LUTs | Logic LUTs | LUTRAMs | SRLs |  FFs  | RAMB36 | RAMB18 | DSP Blocks |
++------------------------------+--------------------------+------------+------------+---------+------+-------+--------+--------+------------+
+| percolation_uart_top         |                    (top) |      19469 |      19469 |       0 |    0 | 33248 |      0 |      2 |          0 |
+|   (percolation_uart_top)     |                    (top) |          1 |          1 |       0 |    0 |   233 |      0 |      0 |          0 |
+|   core_inst                  |         percolation_core |      19298 |      19298 |       0 |    0 | 32698 |      0 |      2 |          0 |
+|     (core_inst)              |         percolation_core |        147 |        147 |       0 |    0 |   302 |      0 |      0 |          0 |
+|     frontier_inst            | percolation_bfs_frontier |        920 |        920 |       0 |    0 |   277 |      0 |      0 |          0 |
+|     rng_inst                 |            rng_hybrid_64 |      18231 |      18231 |       0 |    0 | 32119 |      0 |      2 |          0 |
+|       (rng_inst)             |            rng_hybrid_64 |        642 |        642 |       0 |    0 | 10607 |      0 |      0 |          0 |
+|       aes_inst               |                  aes_enc |        589 |        589 |       0 |    0 |   264 |      0 |      2 |          0 |
+|         controller_inst      |               controller |        201 |        201 |       0 |    0 |     8 |      0 |      0 |          0 |
+|           reg_inst           |      reg__parameterized0 |        201 |        201 |       0 |    0 |     8 |      0 |      0 |          0 |
+|         key_schedule_inst    |             key_schedule |        388 |        388 |       0 |    0 |   128 |      0 |      2 |          0 |
+|           reg_inst           |                   reg_78 |        388 |        388 |       0 |    0 |   128 |      0 |      2 |          0 |
+|         reg_inst             |                      reg |          0 |          0 |       0 |    0 |   128 |      0 |      0 |          0 |
+|       trivium_bank           |            trivium_array |      17000 |      17000 |       0 |    0 | 21248 |      0 |      0 |          0 |
+|         (trivium_bank)       |            trivium_array |         64 |         64 |       0 |    0 |     0 |      0 |      0 |          0 |
+|         gen_rows[0].row_rng  |              rng_trivium |        267 |        267 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[10].row_rng |            rng_trivium_0 |        263 |        263 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[11].row_rng |            rng_trivium_1 |        264 |        264 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[12].row_rng |            rng_trivium_2 |        264 |        264 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[13].row_rng |            rng_trivium_3 |        263 |        263 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[14].row_rng |            rng_trivium_4 |        263 |        263 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[15].row_rng |            rng_trivium_5 |        268 |        268 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[16].row_rng |            rng_trivium_6 |        263 |        263 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[17].row_rng |            rng_trivium_7 |        263 |        263 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[18].row_rng |            rng_trivium_8 |        263 |        263 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[19].row_rng |            rng_trivium_9 |        264 |        264 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[1].row_rng  |           rng_trivium_10 |        263 |        263 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[20].row_rng |           rng_trivium_11 |        264 |        264 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[21].row_rng |           rng_trivium_12 |        264 |        264 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[22].row_rng |           rng_trivium_13 |        263 |        263 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[23].row_rng |           rng_trivium_14 |        271 |        271 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[24].row_rng |           rng_trivium_15 |        272 |        272 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[25].row_rng |           rng_trivium_16 |        265 |        265 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[26].row_rng |           rng_trivium_17 |        266 |        266 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[27].row_rng |           rng_trivium_18 |        264 |        264 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[28].row_rng |           rng_trivium_19 |        263 |        263 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[29].row_rng |           rng_trivium_20 |        263 |        263 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[2].row_rng  |           rng_trivium_21 |        265 |        265 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[30].row_rng |           rng_trivium_22 |        263 |        263 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[31].row_rng |           rng_trivium_23 |        266 |        266 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[32].row_rng |           rng_trivium_24 |        263 |        263 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[33].row_rng |           rng_trivium_25 |        263 |        263 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[34].row_rng |           rng_trivium_26 |        266 |        266 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[35].row_rng |           rng_trivium_27 |        264 |        264 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[36].row_rng |           rng_trivium_28 |        263 |        263 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[37].row_rng |           rng_trivium_29 |        263 |        263 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[38].row_rng |           rng_trivium_30 |        265 |        265 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[39].row_rng |           rng_trivium_31 |        266 |        266 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[3].row_rng  |           rng_trivium_32 |        263 |        263 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[40].row_rng |           rng_trivium_33 |        263 |        263 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[41].row_rng |           rng_trivium_34 |        263 |        263 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[42].row_rng |           rng_trivium_35 |        265 |        265 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[43].row_rng |           rng_trivium_36 |        263 |        263 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[44].row_rng |           rng_trivium_37 |        265 |        265 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[45].row_rng |           rng_trivium_38 |        263 |        263 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[46].row_rng |           rng_trivium_39 |        265 |        265 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[47].row_rng |           rng_trivium_40 |        265 |        265 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[48].row_rng |           rng_trivium_41 |        265 |        265 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[49].row_rng |           rng_trivium_42 |        263 |        263 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[4].row_rng  |           rng_trivium_43 |        264 |        264 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[50].row_rng |           rng_trivium_44 |        268 |        268 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[51].row_rng |           rng_trivium_45 |        263 |        263 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[52].row_rng |           rng_trivium_46 |        263 |        263 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[53].row_rng |           rng_trivium_47 |        263 |        263 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[54].row_rng |           rng_trivium_48 |        272 |        272 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[55].row_rng |           rng_trivium_49 |        265 |        265 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[56].row_rng |           rng_trivium_50 |        268 |        268 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[57].row_rng |           rng_trivium_51 |        263 |        263 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[58].row_rng |           rng_trivium_52 |        264 |        264 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[59].row_rng |           rng_trivium_53 |        265 |        265 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[5].row_rng  |           rng_trivium_54 |        264 |        264 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[60].row_rng |           rng_trivium_55 |        264 |        264 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[61].row_rng |           rng_trivium_56 |        263 |        263 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[62].row_rng |           rng_trivium_57 |        266 |        266 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[63].row_rng |           rng_trivium_58 |        272 |        272 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[6].row_rng  |           rng_trivium_59 |        264 |        264 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[7].row_rng  |           rng_trivium_60 |        264 |        264 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[8].row_rng  |           rng_trivium_61 |        263 |        263 |       0 |    0 |   332 |      0 |      0 |          0 |
+|         gen_rows[9].row_rng  |           rng_trivium_62 |        265 |        265 |       0 |    0 |   332 |      0 |      0 |          0 |
+|   rx_inst                    |              uart_msg_rx |         47 |         47 |       0 |    0 |   171 |      0 |      0 |          0 |
+|     (rx_inst)                |              uart_msg_rx |          2 |          2 |       0 |    0 |   134 |      0 |      0 |          0 |
+|   tx_inst                    |              uart_msg_tx |        118 |        118 |       0 |    0 |   133 |      0 |      0 |          0 |
+|     (tx_inst)                |              uart_msg_tx |        105 |        105 |       0 |    0 |   118 |      0 |      0 |          0 |
++------------------------------+--------------------------+------------+------------+---------+------+-------+--------+--------+------------+
 
 

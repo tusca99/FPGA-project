@@ -4,9 +4,9 @@ use IEEE.NUMERIC_STD.ALL;
 
 entity percolation_uart_top is
     generic (
-        CLK_FREQ  : integer := 100_000_000;
+        CLK_FREQ  : integer := 250_000_000;
         BAUD_RATE : integer := 115200;
-        N_ROWS_G  : positive := 16;
+        N_ROWS_G  : positive := 64;
         REQ_BYTES : positive := 16;
         RSP_BYTES : positive := 16
     );

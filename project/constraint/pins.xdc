@@ -2,6 +2,12 @@
 set_property -dict {PACKAGE_PIN E3 IOSTANDARD LVCMOS33} [get_ports Clk]
 create_clock -period 10.000 -name sys_clk_pin -waveform {0.000 5.000} -add [get_ports Clk]
 
+## High fanout net constraints
+set_property MAX_FANOUT 32 [get_nets -of_objects [get_pins core_inst/rng_inst/trivium_bank/gen_rows[50].row_rng/core_cfg_init_s_reg]]
+set_property MAX_FANOUT 32 [get_nets -of_objects [get_pins core_inst/rng_inst/load_rows_s_reg]]
+set_property MAX_FANOUT 16 [get_nets -of_objects [get_pins core_inst/frontier_inst/pipe_stage_reg_n_0_[1]]]
+set_property MAX_FANOUT 16 [get_nets -of_objects [get_pins core_inst/frontier_inst/pipe_stage_reg_n_0_[2]]]
+
 ## Reset
 set_property -dict {PACKAGE_PIN C2 IOSTANDARD LVCMOS33} [get_ports Rst]
 

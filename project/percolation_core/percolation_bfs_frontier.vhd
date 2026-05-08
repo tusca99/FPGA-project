@@ -29,7 +29,17 @@ architecture Behavioral of percolation_bfs_frontier is
 
     signal rows_received      : unsigned(31 downto 0) := (others => '0');
     signal p_spanning         : std_logic := '0';
-    signal previous_reach_row : std_logic_vector(N_ROWS_G - 1 downto 0) := (others => '0');
+    signal previous_reach_row     : std_logic_vector(N_ROWS_G - 1 downto 0) := (others => '0');
+    signal previous_reach_row_dup : std_logic_vector(N_ROWS_G - 1 downto 0) := (others => '0');
+
+    attribute KEEP : string;
+    attribute KEEP of previous_reach_row     : signal is "true";
+    attribute KEEP of previous_reach_row_dup : signal is "true";
+
+    attribute MAX_FANOUT : integer;
+    attribute MAX_FANOUT of previous_reach_row     : signal is 16;
+    attribute MAX_FANOUT of previous_reach_row_dup : signal is 16;
+    attribute MAX_FANOUT of pipe_stage           : signal is 16;
 
     function any_set(row : std_logic_vector(N_ROWS_G - 1 downto 0); width : integer) return std_logic is
     begin
@@ -136,7 +146,7 @@ begin
                             pipe_open_v := pipe_open_row;
                             pipe_reach_v := pipe_reach_row;
                             pipe_row_index_v := pipe_row_index;
-                            prev_reach_v := previous_reach_row;
+                            prev_reach_v := previous_reach_row_dup;
                             row_has_reach := '0';
 
                             if pipe_active_v = '1' then
@@ -192,6 +202,7 @@ begin
                             pipe_reach_row <= pipe_reach_v;
                             pipe_row_index <= pipe_row_index_v;
                             previous_reach_row <= prev_reach_v;
+                            previous_reach_row_dup <= prev_reach_v;
 
                             if (rows_received_v = grid_steps) and (pipe_active_v = '0') then
                                 state <= COMPLETE;
