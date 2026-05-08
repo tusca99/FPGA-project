@@ -25,7 +25,16 @@ architecture Behavioral of percolation_bfs_frontier is
     signal grid_steps         : unsigned(31 downto 0) := to_unsigned(N_ROWS_G, 32);
     signal rows_seen          : unsigned(31 downto 0) := (others => '0');
     signal p_spanning         : std_logic := '0';
-    signal previous_reach_row : std_logic_vector(N_ROWS_G - 1 downto 0) := (others => '0');
+    signal previous_reach_row     : std_logic_vector(N_ROWS_G - 1 downto 0) := (others => '0');
+    signal previous_reach_row_dup : std_logic_vector(N_ROWS_G - 1 downto 0) := (others => '0');
+
+    attribute KEEP : string;
+    attribute KEEP of previous_reach_row     : signal is "true";
+    attribute KEEP of previous_reach_row_dup : signal is "true";
+
+    attribute MAX_FANOUT : integer;
+    attribute MAX_FANOUT of previous_reach_row     : signal is 16;
+    attribute MAX_FANOUT of previous_reach_row_dup : signal is 16;
 
     type state_t is (IDLE, RUN, COMPLETE);
     signal state : state_t := IDLE;
@@ -84,6 +93,7 @@ begin
                 state              <= IDLE;
                 p_spanning         <= '0';
                 previous_reach_row <= (others => '0');
+                previous_reach_row_dup <= (others => '0');
             else
                 if CfgInit = '1' then
                     if GridSteps = 0 then
@@ -97,6 +107,7 @@ begin
                     state              <= IDLE;
                     p_spanning         <= '0';
                     previous_reach_row <= (others => '0');
+                    previous_reach_row_dup <= (others => '0');
                 else
                     case state is
                         when IDLE =>
@@ -111,6 +122,7 @@ begin
                                 rows_seen          <= (others => '0');
                                 p_spanning         <= '0';
                                 previous_reach_row <= (others => '0');
+                                previous_reach_row_dup <= (others => '0');
                                 state              <= RUN;
                             end if;
 
@@ -122,7 +134,7 @@ begin
                                 if rows_seen_v = 0 then
                                     seed_row_v := ChunkOpen;
                                 else
-                                    seed_row_v := ChunkOpen and previous_reach_row;
+                                    seed_row_v := ChunkOpen and previous_reach_row_dup;
                                 end if;
 
                                 -- Compute horizontal reachability in one cycle
@@ -130,6 +142,7 @@ begin
 
                                 -- Update previous reachability for next row
                                 previous_reach_row <= row_reach_v;
+                                previous_reach_row_dup <= row_reach_v;
 
                                 -- Check spanning on last row
                                 if rows_seen_v = grid_steps - 1 then

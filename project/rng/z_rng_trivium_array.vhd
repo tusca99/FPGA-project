@@ -23,11 +23,34 @@ entity trivium_array is
 end entity trivium_array;
 
 architecture rtl of trivium_array is
+    constant GROUP_SIZE_C : integer := 8;
+    constant NUM_GROUPS_C : integer := N_ROWS_G / GROUP_SIZE_C;
+
     signal row_words_s : word_array_t(0 to N_ROWS_G - 1) := (others => (others => '0'));
     signal row_valid_s : flag_array_t(0 to N_ROWS_G - 1) := (others => '0');
     signal row_open_s  : flag_array_t(0 to N_ROWS_G - 1) := (others => '0');
+
+    signal rst_group  : std_logic_vector(NUM_GROUPS_C - 1 downto 0) := (others => '0');
+    signal load_group : std_logic_vector(NUM_GROUPS_C - 1 downto 0) := (others => '0');
+    signal threshold_dup : std_logic_vector(31 downto 0) := (others => '0');
+
+    attribute KEEP : string;
+    attribute KEEP of rst_group     : signal is "true";
+    attribute KEEP of load_group    : signal is "true";
+    attribute KEEP of threshold_dup : signal is "true";
+
+    attribute MAX_FANOUT : integer;
+    attribute MAX_FANOUT of rst_group     : signal is 32;
+    attribute MAX_FANOUT of load_group    : signal is 32;
+    attribute MAX_FANOUT of threshold_dup : signal is 16;
 begin
+    rst_group   <= (others => rst);
+    load_group  <= (others => load);
+    threshold_dup <= threshold;
+
     gen_rows : for index in 0 to N_ROWS_G - 1 generate
+        constant GROUP_IDX_C : integer := index / GROUP_SIZE_C;
+    begin
         row_rng : entity work.rng_trivium
             generic map (
                 num_bits => WORD_WIDTH,
@@ -36,8 +59,8 @@ begin
             )
             port map (
                 clk       => clk,
-                rst       => rst,
-                reseed    => load,
+                rst       => rst_group(GROUP_IDX_C),
+                reseed    => load_group(GROUP_IDX_C),
                 newkey    => keys(index),
                 newiv     => ivs(index),
                 out_ready => '1',
@@ -46,7 +69,7 @@ begin
             );
 
         row_open_s(index) <= '1'
-            when row_valid_s(index) = '1' and unsigned(row_words_s(index)) < unsigned(threshold)
+            when row_valid_s(index) = '1' and unsigned(row_words_s(index)) < unsigned(threshold_dup)
             else '0';
     end generate;
 
