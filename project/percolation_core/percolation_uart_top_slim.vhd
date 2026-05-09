@@ -2,11 +2,11 @@ library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 use IEEE.NUMERIC_STD.ALL;
 
-entity percolation_uart_top is
+entity percolation_uart_top_slim is
     generic (
         CLK_FREQ  : integer := 100_000_000;
-        BAUD_RATE : integer := 115200;
-        N_ROWS_G  : positive := 8;
+        BAUD_RATE : integer := 9600;
+        N_ROWS_G  : positive := 32;
         REQ_BYTES : positive := 16;
         RSP_BYTES : positive := 16
     );
@@ -17,16 +17,18 @@ entity percolation_uart_top is
         uart_tx_o : out std_logic;
         led_rgb_o  : out std_logic_vector(2 downto 0)
     );
-end percolation_uart_top;
+end entity;
 
-architecture Behavioral of percolation_uart_top is
+architecture Behavioral of percolation_uart_top_slim is
     constant REQ_BITS : natural := REQ_BYTES * 8;
     constant RSP_BITS : natural := RSP_BYTES * 8;
+
 
     type state_t is (IDLE, WAIT_CLEAR, RUN_WAIT, TX_PULSE, TX_WAIT_BUSY, TX_WAIT_DONE);
     signal state : state_t := IDLE;
 
     signal baud_tick_s : std_logic := '0';
+    signal half_tick_s : std_logic := '0';
 
     signal req_msg_s   : std_logic_vector(REQ_BITS-1 downto 0) := (others => '0');
     signal req_valid_s : std_logic := '0';
@@ -35,16 +37,17 @@ architecture Behavioral of percolation_uart_top is
     signal tx_start_s : std_logic := '0';
     signal tx_busy_s  : std_logic := '0';
 
-    signal core_cfg_p_s      : std_logic_vector(31 downto 0) := (others => '0');
-    signal core_cfg_steps_s  : unsigned(31 downto 0) := (others => '0');
-    signal core_cfg_seed_s   : std_logic_vector(31 downto 0) := (others => '0');
-    signal core_cfg_runs_s   : std_logic_vector(31 downto 0) := (others => '0');
-    signal core_cfg_init_s   : std_logic := '0';
-    signal core_run_en_s     : std_logic := '0';
-    signal core_step_count_s : std_logic_vector(31 downto 0) := (others => '0');
-    signal core_spanning_s   : std_logic_vector(31 downto 0) := (others => '0');
-    signal core_total_s      : std_logic_vector(31 downto 0) := (others => '0');
-    signal core_done_s       : std_logic := '0';
+    signal core_cfg_p_s        : std_logic_vector(31 downto 0) := (others => '0');
+        signal core_cfg_steps_s    : unsigned(31 downto 0) := (others => '0');
+    signal core_cfg_seed_s     : std_logic_vector(31 downto 0) := (others => '0');
+    signal core_cfg_runs_s     : std_logic_vector(31 downto 0) := (others => '0');
+    signal core_cfg_init_s     : std_logic := '0';
+    signal core_run_en_s       : std_logic := '0';
+    signal core_step_count_s   : std_logic_vector(31 downto 0) := (others => '0');
+    signal core_spanning_s     : std_logic_vector(31 downto 0) := (others => '0');
+    signal core_total_s        : std_logic_vector(31 downto 0) := (others => '0');
+    signal core_done_s         : std_logic := '0';
+
 begin
     led_rgb_o <= "001" when state = IDLE else
                  "110";
@@ -58,7 +61,7 @@ begin
             Clk       => Clk,
             Rst       => Rst,
             baud_tick => baud_tick_s,
-            half_tick => open
+            half_tick => half_tick_s
         );
 
     rx_inst : entity work.uart_msg_rx
@@ -71,6 +74,8 @@ begin
             Clk       => Clk,
             Rst       => Rst,
             uart_rx_i => uart_rx_i,
+            baud_tick => baud_tick_s,
+            half_tick => half_tick_s,
             msg_data  => req_msg_s,
             msg_valid => req_valid_s,
             busy      => open
@@ -182,4 +187,5 @@ begin
             end if;
         end if;
     end process;
+
 end Behavioral;

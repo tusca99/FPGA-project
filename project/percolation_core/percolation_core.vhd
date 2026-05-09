@@ -41,7 +41,8 @@ architecture Behavioral of percolation_core is
     signal runs_done    : unsigned(31 downto 0) := (others => '0');
     signal spanning_cnt : unsigned(31 downto 0) := (others => '0');
     signal occupied_sum : unsigned(31 downto 0) := (others => '0');
-    signal run_occupied : unsigned(31 downto 0) := (others => '0');
+    subtype occupied_count_t is unsigned(15 downto 0);
+    signal run_occupied : occupied_count_t := (others => '0');
 
     signal state        : integer range 0 to 2 := 0;
     signal frontier_start_s   : std_logic := '0';
@@ -87,27 +88,16 @@ architecture Behavioral of percolation_core is
     constant C_GOLDEN1 : unsigned(31 downto 0) := x"9E3779B9";
     constant C_GOLDEN2 : unsigned(31 downto 0) := x"243F6A88";
 
-    function popcount_tree(bits : std_logic_vector) return unsigned is
-        constant WIDTH : integer := bits'length;
-        constant HALF  : integer := WIDTH / 2;
-        variable result_width : integer := 1;
-        variable p : integer := 2;
+    function count_ones(bits : std_logic_vector) return occupied_count_t is
+        variable result : occupied_count_t := (others => '0');
     begin
-        -- compute ceil(log2(WIDTH + 1))
-        while p < WIDTH + 1 loop
-            result_width := result_width + 1;
-            p := p * 2;
+        for index in bits'range loop
+            if bits(index) = '1' then
+                result := result + 1;
+            end if;
         end loop;
 
-        if WIDTH = 1 then
-            return unsigned'(0 => bits(bits'right));
-        elsif WIDTH = 2 then
-            return resize(unsigned'(0 => bits(bits'right)), result_width)
-                 + resize(unsigned'(0 => bits(bits'right + 1)), result_width);
-        else
-            return resize(popcount_tree(bits(bits'right + HALF - 1 downto bits'right)), result_width)
-                 + resize(popcount_tree(bits(bits'left downto bits'right + HALF)), result_width);
-        end if;
+        return result;
     end function;
 
     function flags_to_slv(flags : flag_array_t) return std_logic_vector is
@@ -181,7 +171,6 @@ begin
     process(Clk)
         variable new_runs_done   : unsigned(31 downto 0);
         variable row_bits_v      : std_logic_vector(N_ROWS_G - 1 downto 0);
-        variable run_occupied_v  : unsigned(31 downto 0);
     begin
         if rising_edge(Clk) then
             if Rst = '0' then
@@ -272,7 +261,7 @@ begin
                             row_bits_v := flags_to_slv(rng_site_open_s);
                             hk_chunk_open_s  <= row_bits_v;
                             hk_chunk_valid_s <= '1';
-                            run_occupied <= run_occupied + resize(popcount_tree(row_bits_v), 32);
+                            run_occupied <= run_occupied + count_ones(row_bits_v);
                         end if;
 
                     when others =>
