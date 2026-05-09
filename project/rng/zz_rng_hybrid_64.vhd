@@ -6,7 +6,7 @@ use work.rng_pkg.all;
 
 entity rng_hybrid_64 is
     generic (
-        N_ROWS_G : positive := 64
+        N_ROWS_G : positive := 32
     );
     port (
         clk        : in  std_logic;

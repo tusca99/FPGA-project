@@ -4,7 +4,7 @@ use IEEE.NUMERIC_STD.ALL;
 
 entity percolation_led_top is
     generic (
-        N_ROWS_G : positive := 64
+        N_ROWS_G : positive := 32
     );
     port (
         Clk       : in  std_logic;

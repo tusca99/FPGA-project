@@ -6,7 +6,7 @@ use work.rng_pkg.all;
 
 entity trivium_array is
     generic (
-        N_ROWS_G     : positive := 64;
+        N_ROWS_G     : positive := 32;
         GROUP_SIZE_G : positive := 4
     );
     port (

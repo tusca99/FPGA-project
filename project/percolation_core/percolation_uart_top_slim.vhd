@@ -6,7 +6,7 @@ entity percolation_uart_top_slim is
     generic (
         CLK_FREQ  : integer := 100_000_000;
         BAUD_RATE : integer := 9600;
-        N_ROWS_G  : positive := 64;
+        N_ROWS_G  : positive := 32;
         REQ_BYTES : positive := 16;
         RSP_BYTES : positive := 16
     );

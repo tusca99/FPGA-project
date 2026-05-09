@@ -5,7 +5,7 @@ use work.rng_pkg.all;
 
 entity percolation_bfs_frontier is
     generic (
-        N_ROWS_G : positive := 64
+        N_ROWS_G : positive := 32
     );
     port (
         Clk           : in std_logic;
