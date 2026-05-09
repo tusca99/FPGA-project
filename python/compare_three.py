@@ -93,7 +93,7 @@ def sw_sweep(probabilities: list[float], runs: int, width: int, steps: int, seed
     return bfs_rates, fpga_rates
 
 
-def hw_sweep(probabilities: list[float], runs: int, steps: int, seed: int, port: str, baudrate: int, timeout: float):
+def hw_sweep(probabilities: list[float], runs: int, width: int, steps: int, seed: int, port: str, baudrate: int, timeout: float):
     """Run hardware sweep using cfg_runs per request for speed."""
     client = PercolationClient(port=port, baudrate=baudrate, timeout=timeout)
     hw_rates = []
@@ -111,7 +111,7 @@ def hw_sweep(probabilities: list[float], runs: int, steps: int, seed: int, port:
             time.sleep(0.05)
             resp = client.run(req)
             rate = resp.spanning_count / runs
-            avg_occ = resp.total_occupied / (runs * steps * 32)
+            avg_occ = resp.total_occupied / (runs * steps * width)
             hw_rates.append(rate)
             print(f"  HW p={p:.4f}: spanning={resp.spanning_count}/{runs} ({rate:.4f}), avg_occ={avg_occ:.4f}")
             time.sleep(0.2)
@@ -129,11 +129,12 @@ def plot_three_way(probabilities, bfs_rates, sw_fpga_rates, hw_rates, output, ru
     if hw_rates is not None:
         ax1.plot(probabilities, hw_rates, '^-', label='HW FPGA (current bitstream)', linewidth=2, markersize=6)
     ax1.axvline(x=0.5927, color='r', linestyle='--', alpha=0.5, label='Critical p=0.5927')
-    ax1.set_xlabel('Occupation Probability p')
+    ax1.set_xlabel('Occupation Probability p (log scale)')
+    ax1.set_xscale('log')
     ax1.set_ylabel('Spanning Probability')
     ax1.set_title(f'Spanning Probability vs p (N={width}x{steps}, {runs} runs)')
     ax1.legend()
-    ax1.grid(True, alpha=0.3)
+    ax1.grid(True, alpha=0.3, which='both')
     ax1.set_ylim(-0.05, 1.05)
 
     # Difference plot
@@ -142,11 +143,12 @@ def plot_three_way(probabilities, bfs_rates, sw_fpga_rates, hw_rates, output, ru
         ax2.plot(probabilities, diff_sw_hw, 'o-', color='red', linewidth=2, markersize=6, label='|SW FPGA - HW FPGA|')
     diff_bfs_sw = [abs(b - s) for b, s in zip(bfs_rates, sw_fpga_rates)]
     ax2.plot(probabilities, diff_bfs_sw, 's-', color='blue', linewidth=2, markersize=6, label='|BFS - SW FPGA|')
-    ax2.set_xlabel('Occupation Probability p')
+    ax2.set_xlabel('Occupation Probability p (log scale)')
+    ax2.set_xscale('log')
     ax2.set_ylabel('Absolute Difference')
     ax2.set_title('Algorithm Differences')
     ax2.legend()
-    ax2.grid(True, alpha=0.3)
+    ax2.grid(True, alpha=0.3, which='both')
     ax2.set_ylim(-0.05, 1.05)
 
     plt.tight_layout()
@@ -160,6 +162,7 @@ def main():
     parser.add_argument('--baudrate', type=int, default=115200)
     parser.add_argument('--timeout', type=float, default=2.0)
     parser.add_argument('--runs', type=int, default=100)
+    parser.add_argument('--width', type=int, default=32)
     parser.add_argument('--steps', type=int, default=64)
     parser.add_argument('--seed', type=lambda x: int(x, 0), default=0x12345678)
     parser.add_argument('--pmin', type=float, default=0.1)
@@ -171,12 +174,12 @@ def main():
 
     probabilities = [args.pmin + i * (args.pmax - args.pmin) / (args.points - 1) for i in range(args.points)]
 
-    print(f"Three-way comparison: runs={args.runs}, grid={args.steps}x32")
+    print(f"Three-way comparison: runs={args.runs}, grid={args.steps}x{args.width}")
     print(f"Probabilities: {[f'{p:.4f}' for p in probabilities]}\n")
 
     # Software sweeps
     print("Running software sweeps...")
-    bfs_rates, sw_fpga_rates = sw_sweep(probabilities, args.runs, 32, args.steps, args.seed)
+    bfs_rates, sw_fpga_rates = sw_sweep(probabilities, args.runs, args.width, args.steps, args.seed)
     print()
 
     # Hardware sweep
@@ -184,13 +187,13 @@ def main():
     if not args.software_only:
         print(f"Running hardware sweep on {args.port}...")
         try:
-            hw_rates = hw_sweep(probabilities, args.runs, args.steps, args.seed, args.port, args.baudrate, args.timeout)
+            hw_rates = hw_sweep(probabilities, args.runs, args.width, args.steps, args.seed, args.port, args.baudrate, args.timeout)
             print()
         except Exception as e:
             print(f"Hardware error: {e}")
             print()
 
-    plot_three_way(probabilities, bfs_rates, sw_fpga_rates, hw_rates, args.output, args.runs, 32, args.steps)
+    plot_three_way(probabilities, bfs_rates, sw_fpga_rates, hw_rates, args.output, args.runs, args.width, args.steps)
 
     # Summary
     print("\n=== Summary ===")

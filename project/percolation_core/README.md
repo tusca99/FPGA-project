@@ -15,6 +15,7 @@ Questo e` il data-plane MVP per il progetto di site percolation.
 - Statistiche derivate come la media delle celle occupate vanno calcolate lato host dai contatori grezzi.
 - `uart_msg_loopback_top` e il percorso RNG sintetizzano gia` in tempi brevi; il debug corrente e` concentrato su `percolation_core.vhd`.
 - Se un nuovo problema appare, partire dal testbench standalone del core prima di riaprire il wrapper UART.
+- Stato attuale: il percorso di spanning e la semantica della frontier sono quasi allineati, ma il contatore di occupazione in simulazione resta da correggere; prima di chiudere il lavoro serve una verifica finale del conteggio `TotalOccupied`.
 
 ## File chiave
 

@@ -42,7 +42,7 @@ def hw_sweep(probabilities, runs, steps, seed, port, baudrate, timeout):
                 time.sleep(0.1)
 
             rate = spanning / runs
-            avg_occ = occupied / (runs * steps * 64)
+            avg_occ = occupied / (runs * steps * 32)
             results.append((p, rate, avg_occ))
             print(f"p={p:.4f}: spanning={spanning}/{runs} ({rate:.4f}), avg_occ={avg_occ:.4f}")
     finally:

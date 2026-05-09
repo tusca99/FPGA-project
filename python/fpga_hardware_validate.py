@@ -98,7 +98,7 @@ def fpga_sweep(
                 if run_idx % 10 == 9:
                     time.sleep(0.05)
             rates.append(spanning_count / runs)
-            avg_occ = total_occupied / (runs * steps * 64)
+            avg_occ = total_occupied / (runs * steps * 32)
             print(f"  FPGA p={p:.4f}: {spanning_count}/{runs} = {spanning_count/runs:.4f}, avg_occ={avg_occ:.4f}")
     finally:
         client.close()

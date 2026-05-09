@@ -63,6 +63,7 @@ Questi artefatti sono generati da Vivado e non vanno versionati:
 - Il README di `project/uart_message_bin/` resta dedicato solo al sottosistema UART binario.
 - Prima validare `percolation_core` standalone, poi integrarlo dietro il top UART.
 - Se Vivado segnala problemi di simulazione, il primo check da fare e` che il progetto sia stato creato da [project/recreate_vivado_project.tcl](project/recreate_vivado_project.tcl) e non da un progetto in-memory temporaneo.
+- Stato attuale: la parte di connettivita` e la simulazione standalone sono vicine al target, ma il contatore di occupazione mostra ancora un fattore circa 2x e va rivisto prima di considerare il bitstream finale come chiuso.
 
 ## Strumenti Python
 
