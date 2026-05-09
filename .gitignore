@@ -28,3 +28,5 @@ project/*.jou
 project/*.log
 project/*.backup
 project/*.str
+__pycache__/
+*.pyc
