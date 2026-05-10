@@ -6,6 +6,7 @@ entity percolation_core_tb is
 end entity;
 
 architecture Behavioral of percolation_core_tb is
+    constant N_ROWS_G    : positive := 4;
     signal Clk          : std_logic := '0';
     signal Rst          : std_logic := '0';
 
@@ -13,20 +14,25 @@ architecture Behavioral of percolation_core_tb is
     signal StepAddValid : std_logic := '0';
     signal StepAddCount : std_logic_vector(31 downto 0) := (others => '0');
 
-    signal CfgP         : std_logic_vector(31 downto 0) := (others => '0');
-    signal CfgGridSize  : std_logic_vector(15 downto 0) := (others => '0');
-    signal CfgSeed      : std_logic_vector(31 downto 0) := (others => '0');
-    signal CfgRuns      : std_logic_vector(31 downto 0) := (others => '0');
-    signal CfgInit      : std_logic := '0';
+    signal CfgP          : std_logic_vector(31 downto 0) := (others => '0');
+    signal CfgStepsPerRun: unsigned(31 downto 0) := (others => '0');
+    signal CfgSeed       : std_logic_vector(31 downto 0) := (others => '0');
+    signal CfgRuns       : std_logic_vector(31 downto 0) := (others => '0');
+    signal CfgInit       : std_logic := '0';
 
     signal StepCount    : std_logic_vector(31 downto 0);
     signal PendingSteps : std_logic_vector(31 downto 0);
     signal SpanningCount: std_logic_vector(31 downto 0);
     signal TotalOccupied: std_logic_vector(31 downto 0);
-    signal MeanOccupied : std_logic_vector(31 downto 0);
+    signal RngBusy      : std_logic;
+    signal RngAllValid  : std_logic;
+    signal Done         : std_logic;
 
 begin
     dut: entity work.percolation_core
+        generic map (
+            N_ROWS_G => N_ROWS_G
+        )
         port map (
             Clk => Clk,
             Rst => Rst,
@@ -34,7 +40,7 @@ begin
             StepAddValid => StepAddValid,
             StepAddCount => StepAddCount,
             CfgP => CfgP,
-            CfgGridSize => CfgGridSize,
+            CfgStepsPerRun => CfgStepsPerRun,
             CfgSeed => CfgSeed,
             CfgRuns => CfgRuns,
             CfgInit => CfgInit,
@@ -42,7 +48,9 @@ begin
             PendingSteps => PendingSteps,
             SpanningCount => SpanningCount,
             TotalOccupied => TotalOccupied,
-            MeanOccupied => MeanOccupied
+            RngBusy => RngBusy,
+            RngAllValid => RngAllValid,
+            Done => Done
         );
 
     clk_proc : process
@@ -61,20 +69,38 @@ begin
         wait for 20 ns;
         Rst <= '1';
 
-        CfgGridSize <= x"0008"; -- 8x8
-        CfgP <= x"9999999A"; -- approx 0.6
+        CfgStepsPerRun <= to_unsigned(64, 32);
+        CfgP <= x"970A3D70"; -- p ~= 0.59 in UQ32
         CfgSeed <= x"12345678";
-        CfgRuns <= x"000000A0"; -- 16 runs
+        CfgRuns <= x"00000010"; -- 16 runs
         CfgInit <= '1';
         wait for 10 ns;
         CfgInit <= '0';
 
+        -- Check RNG readiness before starting the run.
+        for timeout_cycles in 0 to 5000 loop
+            wait until rising_edge(Clk);
+            exit when (RngBusy = '0') and (RngAllValid = '1');
+        end loop;
+
+        assert (RngBusy = '0') and (RngAllValid = '1')
+            report "RNG did not become ready" severity failure;
+
         RunEn <= '1';
-        wait for 25000 ns;
+        for cycle_index in 0 to 1_000_000 loop
+            wait until rising_edge(Clk);
+            exit when Done = '1';
+        end loop;
         RunEn <= '0';
 
-        assert to_integer(unsigned(StepCount)) > 0
-            report "Percolation core failed to run any step" severity failure;
+        assert Done = '1'
+            report "Percolation core did not assert Done" severity failure;
+
+        assert to_integer(unsigned(StepCount)) = 16
+            report "Percolation core did not complete the requested 16 runs" severity failure;
+
+        assert to_integer(unsigned(TotalOccupied)) > 0
+            report "Percolation core reported zero occupied sites across the batch" severity failure;
 
         report "StepCount=" & integer'image(to_integer(unsigned(StepCount))) severity note;
         report "SpanningCount=" & integer'image(to_integer(unsigned(SpanningCount))) severity note;

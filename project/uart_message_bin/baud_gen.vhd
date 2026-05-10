@@ -41,7 +41,6 @@ begin
                     counter <= 0;
                     tick_s <= '1';
                 else
-                    -- increment and raise half_tick when reaching halfway
                     if counter = HALF_TICK_COUNT - 1 then
                         half_s <= '1';
                     end if;

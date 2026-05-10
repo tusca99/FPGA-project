@@ -1,0 +1,6 @@
+-r requirements.txt
+
+# Optional analysis and plotting stack.
+numpy>=1.26
+matplotlib>=3.8
+numba>=0.59

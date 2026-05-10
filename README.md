@@ -4,9 +4,10 @@ Repository FPGA per validare il core di site percolation e il control-plane UART
 
 ## Struttura
 
-- `project/percolation_core/`: core di percolation e testbench standalone
-- `project/uart_message_bin/`: wrapper UART binari, top di loopback e testbench
-- `project/constraint/`: vincoli di pin, incluso `pins.xdc` per il mapping delle porte fisiche della board, ad esempio UART
+- [project/percolation_core/README.md](project/percolation_core/README.md): core di percolation, testbench standalone e roadmap della connettivita`
+- [project/uart_message_bin/README.md](project/uart_message_bin/README.md): wrapper UART binari, top di loopback e testbench
+- [project/constraint/](project/constraint/): vincoli di pin, incluso `pins.xdc` per il mapping delle porte fisiche della board, ad esempio UART
+- [project/strategia_implementazione_fpga.md](project/strategia_implementazione_fpga.md): panoramica generale e stato del progetto
 - `Papers/`: materiale di riferimento
 
 ## Flusso consigliato
@@ -14,6 +15,8 @@ Repository FPGA per validare il core di site percolation e il control-plane UART
 Il progetto Vivado va ricreato quando necessario, invece di modificare a mano i file generati.
 
 Lo script di ricostruzione vive in [project/recreate_vivado_project.tcl](project/recreate_vivado_project.tcl) e prende i sorgenti direttamente dalle cartelle della repo.
+
+Per evitare che Vivado saturi la RAM della macchina, usa il wrapper [project/run_vivado_limited.sh](project/run_vivado_limited.sh): di default impone un tetto di 16 GiB, regolabile con `VIVADO_MAX_GB`.
 
 Comando principale:
 
@@ -31,7 +34,7 @@ vivado -mode batch -source project/recreate_vivado_project.tcl -tclargs percolat
 
 ```bash
 cd /path/to/FPGA-project
-vivado -mode batch -source project/recreate_vivado_project.tcl -tclargs loopback
+VIVADO_MAX_GB=18 project/run_vivado_limited.sh -mode batch -source project/recreate_vivado_project.tcl -tclargs loopback
 ```
 
 Il progetto viene creato in `project/.vivado/FPGA-project/FPGA-project.xpr`.
@@ -60,3 +63,10 @@ Questi artefatti sono generati da Vivado e non vanno versionati:
 - Il README di `project/uart_message_bin/` resta dedicato solo al sottosistema UART binario.
 - Prima validare `percolation_core` standalone, poi integrarlo dietro il top UART.
 - Se Vivado segnala problemi di simulazione, il primo check da fare e` che il progetto sia stato creato da [project/recreate_vivado_project.tcl](project/recreate_vivado_project.tcl) e non da un progetto in-memory temporaneo.
+- Stato attuale: la parte di connettivita` e la simulazione standalone sono vicine al target, ma il contatore di occupazione mostra ancora un fattore circa 2x e va rivisto prima di considerare il bitstream finale come chiuso.
+
+## Strumenti Python
+
+Per il client UART, il riferimento Python puro e i benchmark, vedi [python/README.md](python/README.md).
+Se vuoi il bootstrap rapido per un collega, usa [python/bootstrap.sh](python/bootstrap.sh).
+Per il contratto request/response del core vedi [project/percolation_core/UART_PROTOCOL_V2.md](project/percolation_core/UART_PROTOCOL_V2.md).

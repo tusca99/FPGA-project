@@ -63,9 +63,9 @@ begin
         port map (
             Clk       => Clk,
             Rst       => Rst,
+            uart_rx_i => uart_rx_i,
             baud_tick => baud_tick_s,
             half_tick => half_tick_s,
-            uart_rx_i => uart_rx_i,
             msg_data  => rx_msg_s,
             msg_valid => rx_valid_s,
             busy      => rx_busy_s

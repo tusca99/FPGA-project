@@ -1,140 +1,102 @@
-# Percolation Core - Schema Concettuale
+# Percolation Core - Conceptual Schema
 
-Questo file spiega, in modo semplice, cosa fa il core di percolazione in [percolation_core.vhd](percolation_core.vhd).
+This document explains the operation of the percolation core in `percolation_core.vhd` and provides a common overview for the connectivity backends, both designed for row-wise processing.
 
-## Idea generale
+## General Idea
 
-Il core esegue molte volte la stessa prova:
+The core performs multiple trials:
 
-1. costruisce una griglia quadrata di celle
-2. decide in modo pseudo-casuale quali celle sono occupate
-3. controlla se esiste un percorso connesso dall'alto al basso
-4. aggiorna alcune statistiche
-5. ripete per il numero di run richiesto
+1. Constructs a strip of cells with a fixed width `N_ROWS_G`.
+2. Determines which cells are occupied using a separate RNG bank of width `N_ROWS_G` (currently `N_ROWS_G = 64` in debug builds).
+3. Checks if a cluster spans the strip from top to bottom.
+4. Updates statistics.
+5. Repeats for the requested number of runs.
 
-In pratica risponde a questa domanda:
+Essentially, it answers: "With a given occupation probability `p`, how often does a random grid percolate?"
 
-"Con una certa probabilità di occupazione `p`, quante volte una griglia casuale percola?"
+## High-Level Interface
 
-## Interfaccia in parole povere
+- `Rst`: Resets everything.
+- `CfgInit`: Loads parameters and resets internal state.
+- `RunEn`: Starts the core.
+- `StepAddValid` / `StepAddCount`: Adds runs to the queue.
+- `CfgP`: Sets occupation probability.
+- `CfgStepsPerRun`: Sets how many rows to process per run (32-bit unsigned).
+- `CfgSeed`: Seeds the RNG bank.
+- `CfgRuns`: Sets the maximum number of runs.
+- `N_ROWS_G`: Row width fixed at compile-time.
 
-- `Rst` azzera tutto
-- `CfgInit` carica i parametri e resetta lo stato interno
-- `RunEn` dice al core di partire
-- `StepAddValid` e `StepAddCount` aggiungono run in coda
-- `CfgP` imposta la probabilità di occupazione
-- `CfgGridSize` imposta la dimensione della griglia
-- `CfgSeed` imposta il seed dell'LFSR
-- `CfgRuns` imposta quanti run fare al massimo
+**Statistics Outputs**:
+- `StepCount`: Number of completed runs.
+- `PendingSteps`: Runs remaining in queue.
+- `SpanningCount`: Number of runs that percolated.
+- `TotalOccupied`: Sum of occupied cells across all runs.
 
-Le uscite sono solo statistiche:
+## Connectivity Backend: The Row-Wise Frontier
 
-- `StepCount` = quanti run sono stati completati
-- `PendingSteps` = quanti run restano in coda
-- `SpanningCount` = quanti run hanno avuto percolazione
-- `TotalOccupied` = somma delle celle occupate su tutti i run
-- `MeanOccupied` = media delle celle occupate per run
+The core uses a "Frontier" approach to determine reachability without needing a full grid in memory.
 
-## Cosa fa davvero il codice
+### The Challenge: Horizontal Closure
+To correctly identify if a cluster spans the grid, we must resolve all horizontal connections within a row before moving to the next. A cluster can "snake" across a row; simply checking $\pm 1$ neighbor once is insufficient.
 
-Il core non fa una simulazione continua nel tempo.
-Fa sempre questo ciclo:
+#### 1. The Naive Loop (Sequential)
+Iterate $N$ times: `reach(i) = open(i) AND (reach(i-1) OR reach(i+1) OR top(i))`.
+- **Problem**: Creates a combinatorial chain of length $N$. For $N=64$, this is too deep for 100MHz $\to$ **Timing Failure**.
 
-- prepara una griglia casuale
-- cerca un cluster connesso partendo dal bordo alto
-- se il cluster arriva al bordo basso, conta un evento di spanning
-- aggiorna i contatori
-- decide se rifare tutto da capo
+#### 2. The Bitmask Approach (Parallel Prefix)
+Instead of 1-cell steps, we use shifts of $2^k$ ($1, 2, 4, 8, 16, 32$).
+- **Logic**: `reach = reach OR ((reach <<< d d OR reach >> d) AND open)`.
+- **Efficiency**: Resolves all connections in $\log_2(N)$ stages (6 stages for $N=64$).
+- **Problem**: Even $\log_2(N)$ stages in one clock cycle, combined with RNG logic, can exceed the 10ns period $\to$ **Timing Failure**.
 
-## Pseudocodice
+#### 3. The Pipelined Solution (Current Implementation)
+We keep the $\log_2(N)$ logic but break the chain with registers.
+- **Throughput**: Still 1 row per clock.
+- **Latency**: $\log_2(N) + 1$ clocks per row.
+- **Timing**: Each stage is a tiny combinatorial path $\to$ **Timing Success**.
+
+## Top Application Wrapper
+
+The wrapper integrates the core with UART and handles:
+- Receiving configuration, seeds, and start/stop commands.
+- Transferring parameters to the core.
+- Reading and forwarding statistics.
+
+It does not contain algorithmic logic. The grid is rectangular: `N_ROWS_G` (compile-time) $\times$ `CfgStepsPerRun` (runtime).
+
+### Binary Frame Layout
+- **Request (16 bytes)**: `[CfgP (4B)] [CfgSeed (4B)] [CfgStepsPerRun (4B)] [CfgRuns (4B)]`
+- **Response (16 bytes)**: `[StepCount (4B)] [PendingSteps (4B)] [SpanningCount (4B)] [TotalOccupied (4B)]`
+
+## Operational Flow (Pseudocode)
 
 ```text
 on reset:
-    azzera stati e contatori
+    clear states and counters
 
 on CfgInit:
-    carica grid size, p, seed e numero massimo di run
-    azzera le statistiche
+    load p, seed, max runs, and steps per run
+    reset statistics
 
-if RunEn = 1 or ci sono step in coda:
-    se non ho già finito tutti i run richiesti:
-        while non ho riempito tutta la griglia:
-            per ogni cella:
-                usa l'LFSR per decidere se è occupata
-                conta le celle occupate
-
-        prendi tutte le celle occupate della prima riga
-        mettile in una coda BFS
-
-        while la coda non è vuota:
-            estrai una cella
-            controlla i 4 vicini
-            se un vicino è occupato e non visitato:
-                marcialo come visitato
-                mettilo in coda
-            se arrivo all'ultima riga:
-                segna spanning = vero
-
-        incrementa StepCount
-        se spanning = vero:
-            incrementa SpanningCount
-        aggiorna TotalOccupied e MeanOccupied
-
-        se servono altri run:
-            riparti con una nuova griglia
-        altrimenti:
-            torna in IDLE
+if RunEn = 1 or pending steps > 0:
+    while run_count << runs runs_target:
+        for row from 0 to CfgStepsPerRun - 1:
+            1. Fetch N_ROWS_G bits from RNG bank
+            2. Pipeline through log2(N) mask stages to resolve horizontal reachability
+            3. Update frontier mask for next row
+        
+        if final_row_mask has any bit set:
+            increment SpanningCount
+        
+        increment StepCount
+        update TotalOccupied
 ```
 
-## Flowchart
+## Summary of Trade-offs
 
-```mermaid
-flowchart TD
-    A[Reset or start] --> B[Load config with CfgInit]
-    B --> C[Wait in IDLE]
-    C -->|RunEn or pending steps| D[Generate grid cell by cell]
-    D --> E[Use LFSR to decide occupied or empty]
-    E --> F[Seed BFS from top row occupied cells]
-    F --> G[Pop one cell from queue]
-    G --> H[Check 4 neighbors]
-    H --> I[Mark visited and enqueue occupied neighbors]
-    I --> J{Reached bottom row?}
-    J -->|Yes| K[Set spanning flag]
-    J -->|No| L[Continue BFS]
-    K --> L
-    L --> M{Queue empty?}
-    M -->|No| G
-    M -->|Yes| N[Update counters]
-    N --> O[StepCount + 1]
-    N --> P[SpanningCount if spanning]
-    N --> Q[TotalOccupied and MeanOccupied]
-    O --> R{More runs needed?}
-    P --> R
-    Q --> R
-    R -->|Yes| D
-    R -->|No| C
-```
-
-## Esempio mentale
-
-Immagina una griglia piccola, per esempio 4x4.
-
-- alcune celle sono accese
-- il core parte dalle celle accese della riga superiore
-- esplora tutte quelle collegate
-- se trova una cella della riga inferiore, vuol dire che c'è un cammino completo dall'alto al basso
-
-Quindi il core non cerca "la strada migliore": cerca solo se **esiste almeno un collegamento continuo**.
-
-## Cosa significa per il benchmark
-
-Questo core è interessante perché separa bene due tempi diversi:
-
-- tempo UART: mandare i parametri dentro e riportare fuori le statistiche
-- tempo del core: generare la griglia, fare la BFS e aggiornare i contatori
-
-Per il benchmark conviene tenere fisso il messaggio UART e sottrarre il suo costo, così misuri meglio il lavoro vero del core.
-
-## Nota importante
-
-Il codice attuale usa una **BFS flood fill**, non un Hoshen-Kopelman classico. La logica è più semplice da capire, ma il principio fisico resta lo stesso: verificare se esiste un cluster che attraversa la griglia.
+| Approach | Correctness | Timing (100MHz) | Throughput | Latency |
+| :--- | :--- | :--- | :--- | :--- |
+| $\pm 1$ Single Pass | ❌ (Misses snakes) | ✅ | 1 row/clk | 1 clk |
+| Naive Loop | ✅ | ❌ (Too deep) | 1 row/clk | 1 clk |
+| Bitmask (1-cycle) | ✅ | ❌ (Borderline) | 1 row/clk | 1 clk |
+| **Pipelined Bitmask** | ✅ | ✅ | **1 row/clk** | **$\log_2(N)$ clks** |

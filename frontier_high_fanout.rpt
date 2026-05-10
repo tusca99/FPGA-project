@@ -1,0 +1,222 @@
+Copyright 1986-2022 Xilinx, Inc. All Rights Reserved. Copyright 2022-2025 Advanced Micro Devices, Inc. All Rights Reserved.
+---------------------------------------------------------------------------------------------------------------------------------------------
+| Tool Version : Vivado v.2025.2 (lin64) Build 6299465 Fri Nov 14 12:34:56 MST 2025
+| Date         : Fri May  8 13:40:49 2026
+| Host         : fedora.fritz.box running 64-bit unknown
+| Command      : report_high_fanout_nets -max_nets 200 -file frontier_high_fanout.rpt
+| Design       : percolation_uart_top
+| Device       : xc7a100t
+| Design State : Routed
+---------------------------------------------------------------------------------------------------------------------------------------------
+
+High Fan-out Nets Information
+
+1. Summary
+----------
+
++---------------------------------------------------------------------------------+--------+-------------+
+| Net Name                                                                        | Fanout | Driver Type |
++---------------------------------------------------------------------------------+--------+-------------+
+| rx_inst/rx_inst/SR[0]                                                           |    824 | LUT1        |
+| core_inst/rng_inst/trivium_bank/gen_rows[0].row_rng/load_rows_s_reg             |    560 | LUT2        |
+| core_inst/rng_inst/trivium_bank/gen_rows[12].row_rng/cfg_init_rng_reg_rep__258  |    560 | LUT2        |
+| core_inst/rng_inst/trivium_bank/gen_rows[16].row_rng/cfg_init_rng_reg_rep__284  |    560 | LUT2        |
+| core_inst/rng_inst/trivium_bank/gen_rows[20].row_rng/cfg_init_rng_reg_rep__310  |    560 | LUT2        |
+| core_inst/rng_inst/trivium_bank/gen_rows[24].row_rng/cfg_init_rng_reg_rep__336  |    560 | LUT2        |
+| core_inst/rng_inst/trivium_bank/gen_rows[28].row_rng/cfg_init_rng_reg_rep__362  |    560 | LUT2        |
+| core_inst/rng_inst/trivium_bank/gen_rows[32].row_rng/cfg_init_rng_reg_rep__388  |    560 | LUT2        |
+| core_inst/rng_inst/trivium_bank/gen_rows[39].row_rng/cfg_init_rng_reg_rep__414  |    560 | LUT2        |
+| core_inst/rng_inst/trivium_bank/gen_rows[43].row_rng/cfg_init_rng_reg_rep__154  |    560 | LUT2        |
+| core_inst/rng_inst/trivium_bank/gen_rows[47].row_rng/cfg_init_rng_reg_rep__128  |    560 | LUT2        |
+| core_inst/rng_inst/trivium_bank/gen_rows[4].row_rng/cfg_init_rng_reg_rep__206   |    560 | LUT2        |
+| core_inst/rng_inst/trivium_bank/gen_rows[51].row_rng/cfg_init_rng_reg_rep__102  |    560 | LUT2        |
+| core_inst/rng_inst/trivium_bank/gen_rows[55].row_rng/cfg_init_rng_reg_rep__76   |    560 | LUT2        |
+| core_inst/rng_inst/trivium_bank/gen_rows[59].row_rng/cfg_init_rng_reg_rep__50   |    560 | LUT2        |
+| core_inst/rng_inst/trivium_bank/gen_rows[63].row_rng/cfg_init_rng_reg_rep__24   |    560 | LUT2        |
+| core_inst/rng_inst/trivium_bank/gen_rows[8].row_rng/cfg_init_rng_reg_rep__232   |    560 | LUT2        |
+| core_inst/cfg_init_rng_i_1_n_0                                                  |    440 | LUT3        |
+| rx_inst/core_cfg_p_s[0]                                                         |    353 | LUT2        |
+| core_inst/rng_inst/load_rows_s_i_1_n_0                                          |    336 | LUT2        |
+| core_inst/runs_done[0]_i_1_n_0                                                  |    164 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[0]          |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[16]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[69]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[68]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[17]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[67]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[66]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[65]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[9]          |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[45]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[53]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[61]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[44]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[52]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[51]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[43]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[50]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[56]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[49]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[59]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[48]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[41]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[57]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[42]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[10]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[11]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[40]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[12]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[60]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[13]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[8]          |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[64]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[28]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[29]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[27]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[26]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[25]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[24]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[77]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[76]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[75]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[74]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[73]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[72]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[37]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[36]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[34]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[18]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[20]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[21]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[1]          |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[2]          |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[3]          |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[4]          |    160 | LUT2        |
+| core_inst/rng_inst/aes_rst_n_reg_n_0                                            |    160 | FDRE        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[19]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[58]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[32]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[33]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[35]         |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[5]          |    160 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[30]         |    144 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[38]         |    144 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[6]          |    144 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[22]         |    144 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[62]         |    144 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[70]         |    144 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[78]         |    144 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[46]         |    144 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[14]         |    144 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[54]         |    144 | LUT2        |
+| core_inst/rng_inst/FSM_onehot_state_reg_n_0_[2]                                 |    142 | FDRE        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[31]         |    136 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[39]         |    136 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[23]         |    136 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[7]          |    136 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[79]         |    136 | LUT2        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/E[0]                       |    136 | LUT6        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[71]         |    136 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[63]         |    136 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[55]         |    136 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[47]         |    136 | LUT2        |
+| core_inst/rng_inst/aes_inst/key_schedule_inst/reg_inst/aes_cipher_s[15]         |    136 | LUT2        |
+| core_inst/rng_inst/seed_index_reg_n_0_[5]                                       |    134 | FDRE        |
+| core_inst/rng_inst/aes_plain_s[0]                                               |    133 | FDRE        |
+| core_inst/rng_inst/seed_index_reg_n_0_[6]                                       |    133 | FDRE        |
+| core_inst/rng_inst/master_key_reg[0]                                            |    132 | FDSE        |
+| rx_inst/rx_inst/E[0]                                                            |    132 | LUT2        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/current_stata[127]_i_2_n_0 |    128 | LUT6        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/current_stata[127]_i_4_n_0 |    128 | LUT6        |
+| core_inst/state[0]                                                              |    112 | FDRE        |
+| tx_inst/tx_start_s_0                                                            |    110 | FDRE        |
+| tx_inst/FSM_onehot_state_reg_n_0_[3]                                            |    108 | FDRE        |
+| tx_inst/Q[0]                                                                    |    102 | FDSE        |
+| core_inst/rng_inst/aes_rst_n_reg_rep_n_0                                        |    101 | FDRE        |
+| tx_inst/FSM_onehot_state_reg_n_0_[2]                                            |    101 | FDRE        |
+| core_inst/frontier_inst/FSM_onehot_state[2]_i_1_n_0                             |    100 | LUT2        |
+| tx_inst/tx_inst/E[0]                                                            |     99 | LUT6        |
+| core_inst/FSM_onehot_state_reg[2][0]                                            |     96 | LUT2        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_50[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_89[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_51[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_11[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_81[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_4[0]     |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_80[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_79[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_78[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_77[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_75[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_43[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_93[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_6[0]     |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[6]_10[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_7[0]     |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_49[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_48[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_47[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_88[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_87[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_86[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_85[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_63[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[6]_8[0]     |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[6]_9[0]     |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_17[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_92[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_65[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_66[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_67[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_68[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_82[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_76[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_84[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_74[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_83[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_3[0]     |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_94[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_41[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_37[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_2[0]     |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_38[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_1[0]     |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_0[0]     |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5][0]       |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_39[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_40[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_8[0]     |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[6]_5[0]     |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[6]_4[0]     |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[6]_3[0]     |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[6]_2[0]     |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[6]_1[0]     |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[6]_0[0]     |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[6][0]       |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_14[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_13[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_42[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_12[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[6]_6[0]     |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_5[0]     |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_10[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_9[0]     |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_22[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_69[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_28[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_27[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_45[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_26[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_25[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_24[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_23[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_29[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_21[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_20[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[6]_18[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_53[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_54[0]    |     80 | LUT4        |
+| core_inst/rng_inst/aes_inst/controller_inst/reg_inst/seed_index_reg[5]_55[0]    |     80 | LUT4        |
++---------------------------------------------------------------------------------+--------+-------------+
+
+

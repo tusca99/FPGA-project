@@ -18,6 +18,8 @@ entity uart_msg_tx is
 end uart_msg_tx;
 
 architecture Behavioral of uart_msg_tx is
+    constant MSG_BITS : natural := N_BYTES * 8;
+
     signal tx_start_s  : std_logic := '0';
     signal tx_busy_s   : std_logic := '0';
     signal tx_data_s   : std_logic_vector(7 downto 0) := (others => '0');
@@ -25,7 +27,7 @@ architecture Behavioral of uart_msg_tx is
     type state_t is (IDLE, LOAD, WAIT_TX, NEXT_BYTE);
     signal state : state_t := IDLE;
     signal byte_idx : integer range 0 to N_BYTES := 0;
-    signal msg_reg  : std_logic_vector(N_BYTES*8-1 downto 0) := (others => '0');
+    signal msg_reg  : std_logic_vector(MSG_BITS-1 downto 0) := (others => '0');
     signal start_prev : std_logic := '0';
 
 begin
@@ -42,9 +44,6 @@ begin
         );
 
     process(Clk)
-        variable byte_lo : integer;
-        variable byte_hi : integer;
-        variable packed_byte : integer;
     begin
         if rising_edge(Clk) then
             if Rst = '0' then
@@ -67,10 +66,7 @@ begin
                         end if;
 
                     when LOAD =>
-                        packed_byte := (N_BYTES - 1) - byte_idx;
-                        byte_lo := packed_byte * 8;
-                        byte_hi := byte_lo + 7;
-                        tx_data_s <= msg_reg(byte_hi downto byte_lo);
+                        tx_data_s <= msg_reg(MSG_BITS-1 downto MSG_BITS-8);
                         tx_start_s <= '1';
                         state <= WAIT_TX;
 
@@ -85,6 +81,7 @@ begin
                                 state <= IDLE;
                             else
                                 byte_idx <= byte_idx + 1;
+                                msg_reg <= msg_reg(MSG_BITS-9 downto 0) & x"00";
                                 state <= LOAD;
                             end if;
                         end if;

@@ -46,7 +46,7 @@ The FPGA's value here is **speed**: you can run thousands of independent realiza
                          +------------------+
                          |  Grid in BRAM    |
                          |  + Union-Find    |
-                         |  or BFS/DFS FSM  |
+                        |  or row-wise HK FSM  |
                          +------------------+
 ```
 
@@ -55,7 +55,7 @@ The FPGA's value here is **speed**: you can run thousands of independent realiza
 The core challenge is the connectivity check. Two approaches are available:
 
 - **Hoshen-Kopelman algorithm** — a single-pass labeling algorithm, very suitable for hardware implementation row by row. This is probably the best choice.
-- **BFS/DFS flood fill** — simpler to understand but requires a stack or queue in BRAM, trickier in VHDL.
+- **Approccio globale** — simpler to understand but requires a stack or queue in BRAM, trickier in VHDL.
 
 Hoshen-Kopelman is the classic choice for hardware percolation and there is academic literature on FPGA implementations you can reference.
 

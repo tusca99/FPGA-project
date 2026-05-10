@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "percolation-uart"
+version = "0.1.0"
+description = "UART client, reference simulator, and benchmarks for the FPGA percolation core"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "pyserial>=3.5",
+]
+
+[project.optional-dependencies]
+analysis = [
+    "numpy>=1.26",
+    "matplotlib>=3.8",
+    "numba>=0.59",
+]
+
+[project.scripts]
+percolation-benchmark = "percolation_uart.benchmark:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["percolation_uart*"]

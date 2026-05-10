@@ -1,0 +1,6 @@
+pyserial>=3.5
+
+[analysis]
+numpy>=1.26
+matplotlib>=3.8
+numba>=0.59
