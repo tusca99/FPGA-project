@@ -265,7 +265,7 @@ begin
                             end if;
 
                             state <= 0;
-                        elsif frontier_busy_s = '1' then
+                        elsif frontier_busy_s = '1' and row_pending = '1' then
                             -- Frontier accepted row: accumulate pipelined popcount
                             run_occupied <= run_occupied + row_popcount_pipe;
                             row_pending <= '0';
