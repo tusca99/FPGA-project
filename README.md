@@ -1,72 +1,77 @@
-# FPGA Project
+# FPGA Percolation Project
 
-Repository FPGA per validare il core di site percolation e il control-plane UART binario a messaggi fissi.
+Site percolation on Artix-7 A7-100T (xc7a100tcsg324-1), 100 MHz single-clock.
+Validates directed percolation threshold (~0.605 for 64×64) via UART-controlled sweeps.
 
-## Struttura
+## Architecture
 
-- [project/percolation_core/README.md](project/percolation_core/README.md): core di percolation, testbench standalone e roadmap della connettivita`
-- [project/uart_message_bin/README.md](project/uart_message_bin/README.md): wrapper UART binari, top di loopback e testbench
-- [project/constraint/](project/constraint/): vincoli di pin, incluso `pins.xdc` per il mapping delle porte fisiche della board, ad esempio UART
-- [project/strategia_implementazione_fpga.md](project/strategia_implementazione_fpga.md): panoramica generale e stato del progetto
-- `Papers/`: materiale di riferimento
+```
+┌─────────────┐     ┌─────────────┐     ┌─────────────────┐
+│   RNG Bank  │────▶│   Core      │────▶│   Frontier      │
+│ (64 Trivium)│     │ (controller)│     │ (reachability)  │
+└─────────────┘     └─────────────┘     └─────────────────┘
+       │                   │                     │
+       │ site_open[0..63]  │ row_bits            │ ChunkOpen
+       │ (every cycle)     │ (when frontier      │ (when ChunkValid)
+       │                   │  ready)               │
+       ▼                   ▼                     ▼
+   Random bits         Occupancy row         Reachability mask
+   compared to        sent to frontier      computed via prefix
+   threshold CfgP                            scan (1 cycle/row)
+```
 
-## Flusso consigliato
+## Key Modules
 
-Il progetto Vivado va ricreato quando necessario, invece di modificare a mano i file generati.
+| File | Role |
+|------|------|
+| `project/percolation_core/percolation_core.vhd` | Orchestrates RNG + frontier, accumulates statistics |
+| `project/percolation_core/percolation_bfs_frontier.vhd` | Row-wise reachability via bidirectional associative prefix scan |
+| `project/rng/zz_rng_hybrid_64.vhd` | 64× Trivium RNG bank, AES-CTR seeded |
+| `project/percolation_core/percolation_uart_top.vhd` | UART wrapper: 16-byte request/response |
 
-Lo script di ricostruzione vive in [project/recreate_vivado_project.tcl](project/recreate_vivado_project.tcl) e prende i sorgenti direttamente dalle cartelle della repo.
+## Protocol
 
-Per evitare che Vivado saturi la RAM della macchina, usa il wrapper [project/run_vivado_limited.sh](project/run_vivado_limited.sh): di default impone un tetto di 16 GiB, regolabile con `VIVADO_MAX_GB`.
+- **Request (16 bytes)**: `[CfgP (4B)] [CfgSeed (4B)] [CfgStepsPerRun (4B)] [CfgRuns (4B)]`
+- **Response (16 bytes)**: `[StepCount (4B)] [SpanningCount (4B)] [TotalOccupied (4B)] [SpanningOccupied (4B)]`
 
-Comando principale:
+See `project/percolation_core/UART_PROTOCOL_V2.md` for full details.
+
+## Build & Simulation
 
 ```bash
+# Rebuild Vivado project
 cd /path/to/FPGA-project
 vivado -mode batch -source project/recreate_vivado_project.tcl
-```
 
-Modalita` opzionali se vuoi cambiare il focus senza toccare i file a mano:
-
-```bash
-cd /path/to/FPGA-project
+# Optional targets
 vivado -mode batch -source project/recreate_vivado_project.tcl -tclargs percolation
+vivado -mode batch -source project/recreate_vivado_project.tcl -tclargs loopback
 ```
+
+Project created in `project/.vivado/FPGA-project/FPGA-project.xpr`.
+
+## Validation
 
 ```bash
-cd /path/to/FPGA-project
-VIVADO_MAX_GB=18 project/run_vivado_limited.sh -mode batch -source project/recreate_vivado_project.tcl -tclargs loopback
+# Three-way comparison: BFS reference vs SW FPGA model vs HW FPGA
+python python/compare_three.py --runs 1000 --points 20 --output three_way.png
 ```
 
-Il progetto viene creato in `project/.vivado/FPGA-project/FPGA-project.xpr`.
+## Documentation
 
-Per aprirlo in GUI:
+- `project/percolation_core/README.md` — Core details and connectivity backend
+- `project/percolation_core/percolation_core_schema.md` — Conceptual schema
+- `project/percolation_core/bfs_frontier.md` — Frontier algorithm (prefix scan)
+- `project/percolation_core/UART_PROTOCOL_V2.md` — Binary UART protocol
+- `project/rng/RNG.md` — RNG architecture (Trivium + AES-CTR)
+- `project/uart_message_bin/README.md` — UART binary wrappers
+- `python/README.md` — Host-side Python tools
 
-```bash
-vivado project/.vivado/FPGA-project/FPGA-project.xpr
-```
+## Status
 
-Se vuoi rilanciare la simulazione dopo una ricostruzione, apri il progetto salvato e usa il top di simulazione corrispondente al modo scelto: `uart_msg_loopback_tb` per il loopback, `percolation_core_tb` per il core.
-
-## File generati da ignorare
-
-Questi artefatti sono generati da Vivado e non vanno versionati:
-
-- `project/FPGA-project.cache/`
-- `project/FPGA-project.hw/`
-- `project/FPGA-project.ip_user_files/`
-- `project/FPGA-project.sim/`
-- `project/FPGA-project.runs/`
-- `project/.vivado/`
-
-## Note operative
-
-- Il README di `project/uart_message_bin/` resta dedicato solo al sottosistema UART binario.
-- Prima validare `percolation_core` standalone, poi integrarlo dietro il top UART.
-- Se Vivado segnala problemi di simulazione, il primo check da fare e` che il progetto sia stato creato da [project/recreate_vivado_project.tcl](project/recreate_vivado_project.tcl) e non da un progetto in-memory temporaneo.
-- Stato attuale: la parte di connettivita` e la simulazione standalone sono vicine al target, ma il contatore di occupazione mostra ancora un fattore circa 2x e va rivisto prima di considerare il bitstream finale come chiuso.
-
-## Strumenti Python
-
-Per il client UART, il riferimento Python puro e i benchmark, vedi [python/README.md](python/README.md).
-Se vuoi il bootstrap rapido per un collega, usa [python/bootstrap.sh](python/bootstrap.sh).
-Per il contratto request/response del core vedi [project/percolation_core/UART_PROTOCOL_V2.md](project/percolation_core/UART_PROTOCOL_V2.md).
+- ✅ RNG verified: occupancy matches p (bias < 0.001)
+- ✅ Frontier algorithm: prefix scan validated against BFS (1000 random tests)
+- ✅ Threshold: ~0.6047 for directed percolation on 64×64 (expected ~0.605)
+- ✅ Timing: combinatorial prefix scan meets 100 MHz at N=64
+- ✅ UART end-to-end: 16-byte request/response working
+- ⚠️  For N≥128, pipelined version needed (see `bfs_frontier.md`)

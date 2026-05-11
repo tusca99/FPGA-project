@@ -1,53 +1,86 @@
 # Percolation Core
 
-Questo e` il data-plane MVP per il progetto di site percolation.
+Data-plane for site percolation on FPGA. Single-clock 100 MHz.
 
-## Stato attuale
+## Current Implementation
 
-- Il core lavora in single-clock e usa un generatore RNG dedicato per riempire la griglia.
-- La direzione di connettivita` ha due varianti tenute separate: frontier row-wise a due righe come base principale e HK row-wise ridotto come alternativa per cluster statistics.
-- La variante frontier e` piu` adatta se la chiusura orizzontale della riga viene implementata come dilatazione bitmask a potenze di due, con numero di stage che cresce automaticamente con `N_ROWS_G`.
-- Il backend principale non materializza tutta la griglia: mantiene solo riga corrente e riga precedente.
-- La forma runtime del problema e` una striscia a larghezza fissa `N_ROWS_G` e altezza richiesta da `CfgStepsPerRun`.
-- Il campo `CfgStepsPerRun` viaggia nel frame UART come word unsigned a 32 bit.
-- `Done` indica che la batch richiesta e` terminata.
-- `ConnStepCount` e` cumulativo su tutte le run della richiesta, non per singola run.
-- Statistiche derivate come la media delle celle occupate vanno calcolate lato host dai contatori grezzi.
-- `uart_msg_loopback_top` e il percorso RNG sintetizzano gia` in tempi brevi; il debug corrente e` concentrato su `percolation_core.vhd`.
-- Se un nuovo problema appare, partire dal testbench standalone del core prima di riaprire il wrapper UART.
-- Stato attuale: il percorso di spanning e la semantica della frontier sono quasi allineati, ma il contatore di occupazione in simulazione resta da correggere; prima di chiudere il lavoro serve una verifica finale del conteggio `TotalOccupied`.
+### Modules
 
-## File chiave
+| File | Role |
+|------|------|
+| `percolation_core.vhd` | Top-level controller: orchestrates RNG + frontier, accumulates statistics |
+| `percolation_bfs_frontier.vhd` | Row-wise reachability engine (bidirectional associative prefix scan) |
+| `percolation_uart_top.vhd` | UART wrapper: 16-byte request/response, no algorithmic logic |
+| `percolation_core_tb.vhd` | Standalone testbench for core validation |
+| `percolation_uart_top_tb.vhd` | End-to-end UART testbench |
 
-- `percolation_core.vhd`: core principale, configurazione, generazione griglia e statistiche.
-- `bfs_frontier.md`: documento di progetto per il backend frontier row-wise / wavefront a due righe.
-- `hk_row_wise.md`: documento di progetto per il modulo HK row-wise ridotto.
-- `percolation_core_tb.vhd`: testbench standalone del core.
-- `percolation_uart_top.vhd`: top applicativo UART + core.
-- `percolation_uart_top_tb.vhd`: testbench end-to-end del wrapper UART.
-- `UART_PROTOCOL_V2.md`: contratto request/response del control-plane.
-- `percolation_core_schema.md`: schema e note di progetto.
+### Key Features
 
-## Direzione di evoluzione
+- **RNG**: 64 independent Trivium stream ciphers, AES-CTR seeded, producing 64 random bits/cycle
+- **Frontier**: Bidirectional associative prefix scan for exact horizontal closure in 1 cycle/row
+- **Statistics**: StepCount, SpanningCount, TotalOccupied, SpanningOccupied
+- **Grid shape**: Width fixed at `N_ROWS_G` (compile-time, default 64), height from `CfgStepsPerRun` (runtime)
 
-La parte di connettivita` ha due strade documentate:
+### Algorithm
 
-- Frontier row-wise / wavefront a due righe per reachability e percolazione semplice
-- HK row-wise ridotto per statistiche di cluster e label di componente
+1. Core waits for RNG ready (`rng_busy='0'`, `rng_all_valid='1'`)
+2. For each run, streams `CfgStepsPerRun` rows to the frontier
+3. Frontier computes reachability row-by-row:
+   - Row 0: seed = open (all open sites are starting points)
+   - Row N: seed = open AND previous_reach (vertical propagation)
+   - Horizontal closure via prefix scan (see `bfs_frontier.md`)
+4. After last row: if any reach bit set → spanning detected
+5. Core accumulates: occupied sites per run, spanning-occupied sites per run
 
-In entrambi i casi il modulo deve restare sintetizzabile, streaming e con interfaccia stabile verso il core applicativo.
+### Interface
 
-Limite importante del path attuale:
+```vhdl
+entity percolation_core is
+    generic (N_ROWS_G : positive := 64);
+    port (
+        Clk            : in std_logic;
+        Rst            : in std_logic; -- active low
+        RunEn          : in std_logic;
+        StepAddValid   : in std_logic;
+        StepAddCount   : in std_logic_vector(31 downto 0);
+        CfgP           : in std_logic_vector(31 downto 0); -- UQ32 threshold
+        CfgStepsPerRun : in unsigned(31 downto 0);
+        CfgSeed        : in std_logic_vector(31 downto 0);
+        CfgRuns        : in std_logic_vector(31 downto 0);
+        CfgInit        : in std_logic;
+        StepCount      : out std_logic_vector(31 downto 0);
+        PendingSteps   : out std_logic_vector(31 downto 0);
+        SpanningCount  : out std_logic_vector(31 downto 0);
+        TotalOccupied  : out std_logic_vector(31 downto 0);
+        SpanningOccupied : out std_logic_vector(31 downto 0);
+        RngBusy        : out std_logic;
+        RngAllValid    : out std_logic;
+        Done           : out std_logic
+    );
+end entity;
+```
 
-- `CfgStepsPerRun` estende solo l'altezza della run, non la larghezza
-- il core mantiene la larghezza fissa `N_ROWS_G`
-- per un caso quadrato, imposta `CfgStepsPerRun = N_ROWS_G`
+### Timing per Run (N=64, GridSteps=64)
 
-Per la frontier row-wise, il compromesso migliore su FPGA e` evitare sia il loop cella-per-cella completamente combinatorio sia una queue globale. Una dilatazione bitmask a pochi stage o una piccola pipeline danno la stessa semantica con timing piu` facile da chiudere.
+| Phase | Cycles | Description |
+|-------|--------|-------------|
+| Start overhead | 1 | Core asserts `frontier_start_s` |
+| Row streaming | 64 × 1 | One row per cycle (prefix scan = 1 cycle/row) |
+| Done detection | 1 | Frontier asserts `Done` |
+| Accumulation | 1 | Core adds `run_occupied` to `occupied_sum` |
+| **Total** | **~67** | Per run |
 
-## Doc collegate
+## Validation
 
-- [README radice](../../README.md)
-- [Strategia e stato del progetto](../strategia_implementazione_fpga.md)
-- [UART binary scaffold](../uart_message_bin/README.md)
-- [Python tools](../../python/README.md)
+- Threshold ~0.6047 for directed percolation on 64×64 (expected ~0.605)
+- Occupancy bias < 0.001 vs probability p
+- Prefix scan validated against BFS reference (1000 random grids)
+
+## Doc Links
+
+- [BFS Frontier Algorithm](bfs_frontier.md) — Prefix scan reachability details
+- [Core Schema](percolation_core_schema.md) — Conceptual architecture
+- [UART Protocol](UART_PROTOCOL_V2.md) — Binary frame layout
+- [RNG Architecture](../rng/RNG.md) — Trivium + AES-CTR seeding
+- [UART Binary Scaffold](../uart_message_bin/README.md) — Wrapper details
+- [Python Tools](../../python/README.md) — Host-side validation

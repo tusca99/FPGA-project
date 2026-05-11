@@ -124,6 +124,13 @@ def hw_sweep(probabilities: list[float], runs: int, width: int, steps: int, seed
                 'reachable_fraction': reachable_fraction,
                 'spanning_mass': spanning_mass,
             })
+            # Validation checks
+            occ_error = abs(avg_occ - p)
+            if occ_error > 0.02:
+                print(f"    ⚠️ OCCUPANCY BIAS: expected ~{p:.4f}, got {avg_occ:.4f} (error={occ_error:.4f})")
+            if resp.spanning_count > 0 and resp.spanning_count < 10:
+                print(f"    ⚠️ LOW STATISTICS: only {resp.spanning_count} spanning runs — mass unreliable")
+
             print(f"  HW p={p:.4f}: span={resp.spanning_count}/{runs} ({rate:.4f}), "
                   f"occ={avg_occ:.4f}, reach={avg_reachable:.1f}, "
                   f"reach_frac={reachable_fraction:.4f}, mass={spanning_mass:.1f}")
@@ -253,6 +260,35 @@ def main():
         print(f"HW FPGA critical threshold:            ~{hw_thr:.4f}" if hw_thr else "HW FPGA threshold: out of range")
         if hw_thr and hw_thr < 0.5:
             print("  WARNING: HW critical threshold << 0.5 indicates broken bitstream (log2 shift-OR bug)")
+
+    # Physical validation of HW metrics
+    if hw_metrics:
+        print("\n=== Physical Validation ===")
+        max_occ_error = max(abs(m['avg_occ'] - m['p']) for m in hw_metrics)
+        print(f"Max occupancy bias: {max_occ_error:.4f} (should be < 0.02)")
+        if max_occ_error > 0.02:
+            print("  ⚠️ FAIL: Occupancy bias too large — check RNG or accumulation logic")
+        else:
+            print("  ✓ PASS: Occupancy matches p correctly")
+
+        # Check reach_frac monotonicity (should increase with p)
+        reach_fracs = [m['reachable_fraction'] for m in hw_metrics]
+        non_mono = sum(1 for i in range(len(reach_fracs)-1) if reach_fracs[i+1] < reach_fracs[i] - 0.05)
+        print(f"Reachable fraction monotonicity: {non_mono} violations")
+        if non_mono > 3:
+            print("  ⚠️ FAIL: reachable_fraction not monotonic — possible accumulation bug")
+        else:
+            print("  ✓ PASS: reachable_fraction increases with p as expected")
+
+        # Check critical region behavior
+        if hw_thr:
+            crit_idx = min(range(len(probabilities)), key=lambda i: abs(probabilities[i] - hw_thr))
+            crit_reach = hw_metrics[crit_idx]['reachable_fraction']
+            print(f"Reachable fraction at p_c={hw_thr:.3f}: {crit_reach:.3f}")
+            if 0.2 < crit_reach < 0.5:
+                print("  ✓ PASS: Critical region shows fractal front (20-50% reachable)")
+            else:
+                print("  ⚠️ UNEXPECTED: Critical reachable_fraction outside expected 0.2-0.5 range")
 
 
 if __name__ == '__main__':

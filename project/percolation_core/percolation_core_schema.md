@@ -1,102 +1,131 @@
-# Percolation Core - Conceptual Schema
+# Percolation Core — Conceptual Schema
 
-This document explains the operation of the percolation core in `percolation_core.vhd` and provides a common overview for the connectivity backends, both designed for row-wise processing.
+## Overview
 
-## General Idea
+The core performs multiple independent trials of site percolation on a 2D grid strip:
 
-The core performs multiple trials:
+1. **Width**: fixed at compile-time by `N_ROWS_G` (default 64)
+2. **Height**: runtime parameter `CfgStepsPerRun` (e.g., 64 for square grid)
+3. **Occupancy**: each site open with probability `p` = `CfgP` (UQ32 fixed-point)
+4. **Goal**: determine if an open path exists from top row to bottom row
 
-1. Constructs a strip of cells with a fixed width `N_ROWS_G`.
-2. Determines which cells are occupied using a separate RNG bank of width `N_ROWS_G` (currently `N_ROWS_G = 64` in debug builds).
-3. Checks if a cluster spans the strip from top to bottom.
-4. Updates statistics.
-5. Repeats for the requested number of runs.
+## Architecture
 
-Essentially, it answers: "With a given occupation probability `p`, how often does a random grid percolate?"
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    percolation_core.vhd                       │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────────┐ │
+│  │   RNG Bank  │───▶│   Core FSM  │───▶│   Frontier      │ │
+│  │ (64 Trivium)│    │ (orchestrate)│    │ (reachability)  │ │
+│  └─────────────┘    └─────────────┘    └─────────────────┘ │
+│         │                  │                      │           │
+│         │ site_open[0..63] │ row_bits            │ ChunkOpen │
+│         │ (every cycle)    │ (when frontier      │ (valid)   │
+│         │                  │  ready)               │           │
+│         ▼                  ▼                      ▼           │
+│     Random bits         Occupancy row         Reachability    │
+│     vs threshold        sent to frontier      computed via    │
+│                         (1 cycle/row)       prefix scan     │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+                    ┌─────────────────┐
+                    │  Statistics     │
+                    │  StepCount      │
+                    │  SpanningCount  │
+                    │  TotalOccupied  │
+                    │  SpanningOccupied│
+                    └─────────────────┘
+```
 
 ## High-Level Interface
 
-- `Rst`: Resets everything.
-- `CfgInit`: Loads parameters and resets internal state.
-- `RunEn`: Starts the core.
-- `StepAddValid` / `StepAddCount`: Adds runs to the queue.
-- `CfgP`: Sets occupation probability.
-- `CfgStepsPerRun`: Sets how many rows to process per run (32-bit unsigned).
-- `CfgSeed`: Seeds the RNG bank.
-- `CfgRuns`: Sets the maximum number of runs.
-- `N_ROWS_G`: Row width fixed at compile-time.
+| Signal | Direction | Description |
+|--------|-----------|-------------|
+| `Rst` | In | Active-low reset |
+| `CfgInit` | In | Load config, reset state |
+| `RunEn` | In | Start batch execution |
+| `CfgP` | In | Occupation probability (UQ32) |
+| `CfgStepsPerRun` | In | Grid height (rows per run) |
+| `CfgSeed` | In | RNG seed |
+| `CfgRuns` | In | Maximum runs in batch |
+| `StepCount` | Out | Completed runs |
+| `SpanningCount` | Out | Runs with spanning cluster |
+| `TotalOccupied` | Out | Sum of occupied sites across all runs |
+| `SpanningOccupied` | Out | Sum of reachable sites in spanning runs |
+| `Done` | Out | Batch complete |
 
-**Statistics Outputs**:
-- `StepCount`: Number of completed runs.
-- `PendingSteps`: Runs remaining in queue.
-- `SpanningCount`: Number of runs that percolated.
-- `TotalOccupied`: Sum of occupied cells across all runs.
+## Connectivity Backend: Row-Wise Frontier
 
-## Connectivity Backend: The Row-Wise Frontier
+The frontier processes the grid row-by-row without storing the full grid:
 
-The core uses a "Frontier" approach to determine reachability without needing a full grid in memory.
+1. **Receive occupancy**: `open = ChunkOpen` (from RNG bank)
+2. **Vertical seeding**:
+   - Row 0: `seed = open` (all open sites are seeds)
+   - Row N: `seed = open AND previous_reach` (only sites above reachable ones)
+3. **Horizontal closure**: compute all sites reachable from any seed via contiguous open cells
+4. **Save**: `previous_reach = reach` for next row
+5. **Spanning check**: last row has any reachable site → spanning
 
-### The Challenge: Horizontal Closure
-To correctly identify if a cluster spans the grid, we must resolve all horizontal connections within a row before moving to the next. A cluster can "snake" across a row; simply checking $\pm 1$ neighbor once is insufficient.
+### Horizontal Closure Methods
 
-#### 1. The Naive Loop (Sequential)
-Iterate $N$ times: `reach(i) = open(i) AND (reach(i-1) OR reach(i+1) OR top(i))`.
-- **Problem**: Creates a combinatorial chain of length $N$. For $N=64$, this is too deep for 100MHz $\to$ **Timing Failure**.
+| Approach | Correctness | Timing (100MHz, N=64) | Throughput | Latency |
+| :--- | :--- | :--- | :--- | :--- |
+| Naive ±1 loop | ✅ | ❌ (too deep) | 1 row/clk | 1 clk |
+| Combinatorial mask (log2 stages) | ✅ | ⚠️ (marginal) | 1 row/clk | 1 clk |
+| **Associative prefix scan** | ✅ | ✅ | **1 row/clk** | **1 clk** |
+| Pipelined prefix (3 cycles) | ✅ | ✅ | 1 row/3 clks | 3 clks |
 
-#### 2. The Bitmask Approach (Parallel Prefix)
-Instead of 1-cell steps, we use shifts of $2^k$ ($1, 2, 4, 8, 16, 32$).
-- **Logic**: `reach = reach OR ((reach <<< d d OR reach >> d) AND open)`.
-- **Efficiency**: Resolves all connections in $\log_2(N)$ stages (6 stages for $N=64$).
-- **Problem**: Even $\log_2(N)$ stages in one clock cycle, combined with RNG logic, can exceed the 10ns period $\to$ **Timing Failure**.
+**Current choice**: Associative prefix scan (bidirectional Kogge-Stone style).
+Mathematically equivalent to iterative ±1 propagation but computed in one cycle.
 
-#### 3. The Pipelined Solution (Current Implementation)
-We keep the $\log_2(N)$ logic but break the chain with registers.
-- **Throughput**: Still 1 row per clock.
-- **Latency**: $\log_2(N) + 1$ clocks per row.
-- **Timing**: Each stage is a tiny combinatorial path $\to$ **Timing Success**.
+## Operational Flow
+
+```
+on reset:
+    clear all counters and state
+
+on CfgInit:
+    load p, seed, runs_target, steps_per_run
+    reset statistics
+
+while runs_done < runs_target:
+    1. Wait for RNG ready
+    2. Assert frontier_start
+    3. Stream CfgStepsPerRun rows:
+       - Fetch N_ROWS_G bits from RNG
+       - Send to frontier (ChunkValid + ChunkOpen)
+       - Frontier computes reachability in 1 cycle
+    4. When frontier_done:
+       - Increment StepCount
+       - If spanning: increment SpanningCount
+       - Accumulate TotalOccupied and SpanningOccupied
+```
 
 ## Top Application Wrapper
 
-The wrapper integrates the core with UART and handles:
-- Receiving configuration, seeds, and start/stop commands.
-- Transferring parameters to the core.
-- Reading and forwarding statistics.
+`percolation_uart_top.vhd` integrates the core with UART:
+- Receives 16-byte configuration via UART
+- Loads parameters and starts core
+- Captures 16-byte response when Done
+- Forwards response via UART
+- Contains **no algorithmic logic**
 
-It does not contain algorithmic logic. The grid is rectangular: `N_ROWS_G` (compile-time) $\times$ `CfgStepsPerRun` (runtime).
+## Binary Frame Layout
 
-### Binary Frame Layout
 - **Request (16 bytes)**: `[CfgP (4B)] [CfgSeed (4B)] [CfgStepsPerRun (4B)] [CfgRuns (4B)]`
-- **Response (16 bytes)**: `[StepCount (4B)] [PendingSteps (4B)] [SpanningCount (4B)] [TotalOccupied (4B)]`
+- **Response (16 bytes)**: `[StepCount (4B)] [SpanningCount (4B)] [TotalOccupied (4B)] [SpanningOccupied (4B)]`
 
-## Operational Flow (Pseudocode)
+## Validation Results
 
-```text
-on reset:
-    clear states and counters
+- Threshold ~0.6047 for directed percolation on 64×64 (expected ~0.605)
+- Occupancy bias < 0.001 vs probability p
+- Prefix scan validated against BFS reference (1000 random grids)
+- Mass (avg reachable sites in spanning runs) ~1800 at criticality
 
-on CfgInit:
-    load p, seed, max runs, and steps per run
-    reset statistics
+## Doc Links
 
-if RunEn = 1 or pending steps > 0:
-    while run_count << runs runs_target:
-        for row from 0 to CfgStepsPerRun - 1:
-            1. Fetch N_ROWS_G bits from RNG bank
-            2. Pipeline through log2(N) mask stages to resolve horizontal reachability
-            3. Update frontier mask for next row
-        
-        if final_row_mask has any bit set:
-            increment SpanningCount
-        
-        increment StepCount
-        update TotalOccupied
-```
-
-## Summary of Trade-offs
-
-| Approach | Correctness | Timing (100MHz) | Throughput | Latency |
-| :--- | :--- | :--- | :--- | :--- |
-| $\pm 1$ Single Pass | ❌ (Misses snakes) | ✅ | 1 row/clk | 1 clk |
-| Naive Loop | ✅ | ❌ (Too deep) | 1 row/clk | 1 clk |
-| Bitmask (1-cycle) | ✅ | ❌ (Borderline) | 1 row/clk | 1 clk |
-| **Pipelined Bitmask** | ✅ | ✅ | **1 row/clk** | **$\log_2(N)$ clks** |
+- [BFS Frontier](bfs_frontier.md) — Prefix scan algorithm details
+- [UART Protocol](UART_PROTOCOL_V2.md) — Binary frame specification
+- [RNG Architecture](../rng/RNG.md) — Trivium + AES-CTR seeding
+- [Core README](README.md) — Module-level documentation
