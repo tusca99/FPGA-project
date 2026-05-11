@@ -158,6 +158,7 @@ def main():
     parser.add_argument('--pmin', type=float, default=0.1)
     parser.add_argument('--pmax', type=float, default=0.9)
     parser.add_argument('--points', type=int, default=9)
+    parser.add_argument('--workers', type=int, default=0, help='Number of worker threads for software sweeps; 0 uses auto')
     parser.add_argument('--output', type=str, default=str(DEFAULT_OUTPUT))
     parser.add_argument('--software-only', action='store_true')
     args = parser.parse_args()
@@ -173,7 +174,14 @@ def main():
 
     # Software sweeps
     print("Running software sweeps...")
-    bfs_rates, sw_fpga_rates, _ = run_sweep_software(probabilities, args.runs, args.width, args.steps, args.seed)
+    bfs_rates, sw_fpga_rates, _ = run_sweep_software(
+        probabilities,
+        args.runs,
+        args.width,
+        args.steps,
+        args.seed,
+        workers=args.workers,
+    )
     print()
 
     # Hardware sweep
