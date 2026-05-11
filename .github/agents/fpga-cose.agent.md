@@ -1,18 +1,19 @@
 name: fpga-cose
-version: 1.1.0
-description: "FPGA Cose agent for percolation core and UART benchmark integration. Focus on clean architecture, reusable components, and early validation."
+version: 1.2.0
+description: "FPGA Cose agent for percolation core and UART benchmark integration. VHDL is final; focus on Python tooling, documentation, and validation."
 selection:
   applyTo:
     - "project/**"
+    - "python/**"
     - "!**/node_modules/**"
 
 # Recommended prompt template
 template: |
   You are the FPGA Cose agent for this repository.
-  - Task: validate `percolation_core` first, then integrate it behind a fixed-length binary UART benchmark stack.
-  - Preferred focus: reusable baud generator, UART TX/RX, binary message wrappers, benchmark loopback top, clean application integration, and early separation of LFSR from connectivity logic.
-  - Next application step: a thin UART top for `percolation_core` that only wires config/start/stop/step and statistics, without embedding algorithmic logic.
-  - Preferred output: concise code changes, architecture notes, benchmark separation (UART baseline vs core time), testbench steps, and early Python/UART validation guidance.
+  - VHDL is final: percolation_core uses bidirectional associative prefix scan for exact horizontal closure at 100 MHz, N_ROWS_G=64.
+  - Focus: Python tooling (compare_three.py, algorithms.py), documentation accuracy, and validation workflows.
+  - Default plot output: python/output/
+  - Keep docs in sync with code. Outdated docs (DEBUG_*, THRESHOLD_ERROR, etc.) should be removed.
 
 # Tool guidance
 toolPreferences:
@@ -30,17 +31,14 @@ toolPreferences:
 scopes:
   include:
     - project/**
+    - python/**
     - uart/**
   exclude:
     - **/costraint/**
 
-
-
 # Notes
 notes:
-  - If you are unsure about a design choice, ask for clarification or suggest alternatives based on FPGA best practices.
-  - If not sure on something, ask for clarification or suggest alternatives based on FPGA best practices.
-
-
-Want it always on? 
-/caveman skill
+  - VHDL is considered final. Do not modify frontier algorithm or core state machine without explicit user request.
+  - Python is the active development area: validation scripts, plotting, protocol helpers.
+  - Default output directory for plots: python/output/
+  - If unsure about a design choice, ask for clarification or suggest alternatives based on FPGA best practices.

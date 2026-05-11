@@ -1,201 +1,62 @@
 # Copilot Instructions for FPGA Project
 
-## Architettura e Componenti Principali
+## Architecture
 
-- Il progetto è organizzato in due aree principali:
-  - `project/uart_message_bin/`: stack UART binario a messaggi fissi per benchmark e integrazione con core applicativi
-  - `project/percolation_core/`: core di site percolation da validare prima dell’integrazione UART
-- Il `percolation_core` è da considerare un MVP di lavoro, non il punto finale dell’architettura:
-  - separare quanto prima la generazione casuale in un modulo LFSR dedicato
-  - tenere la connettività come blocco separato, partendo da BFS/flood fill e lasciando aperta l’evoluzione verso Hoshen-Kopelman / Union-Find
-  - prevedere un top o wrapper sottile che colleghi configurazione, start/stop, UART e statistiche senza contenere logica algoritmica pesante
-- Il top module di benchmark è `project/uart_message_bin/uart_msg_loopback_top.vhd`, che integra:
-  - Generatore di baud rate (`baud_gen.vhd`)
-  - Trasmettitore UART (`uart_tx.vhd`)
-  - Ricevitore UART (`uart_rx.vhd`, self-timed nell’albero attivo; `half_tick` resta solo nel legacy `uart_modular/`)
-  - Wrapper binari a lunghezza fissa (`uart_msg_rx.vhd`, `uart_msg_tx.vhd`)
-  - Loopback di benchmark con misura latenza (`uart_msg_loopback_tb.vhd`)
-- Il core applicativo da discutere e validare prima dell’integrazione è `project/percolation_core/percolation_core.vhd`.
-- I testbench disponibili coprono il loopback binario e il core percolation (`uart_msg_loopback_tb.vhd`, `percolation_core_tb.vhd`).
+- `project/percolation_core/`: data-plane MVP — site percolation core
+  - `percolation_core.vhd`: orchestrates RNG + frontier, accumulates statistics
+  - `percolation_bfs_frontier.vhd`: row-wise reachability via bidirectional associative prefix scan
+  - `percolation_uart_top.vhd`: thin UART wrapper (16-byte request/response)
+- `project/rng/`: RNG bank — 64× Trivium + AES-CTR seeding
+  - `zz_rng_hybrid_64.vhd`: parameterized by `N_ROWS_G` (default 64)
+- `project/uart_message_bin/`: UART binary wrappers
+  - `uart_msg_rx.vhd`, `uart_msg_tx.vhd`: fixed-length message I/O
+  - `uart_msg_loopback_top.vhd`: loopback benchmark
+- `python/`: host-side validation
+  - `percolation_uart/algorithms.py`: BFS reference + FPGA-directed algorithm
+  - `compare_three.py`: three-way validation (BFS / SW FPGA / HW FPGA)
+  - `try.py`: quick hardware test
 
-## Flusso di lavoro tipico
+## Protocol (v3.0)
 
-- **Build e sintesi:**  
-  - Non sono presenti script di build automatici; la sintesi e l’implementazione vanno fatte tramite Vivado (GUI o TCL).
-  - I vincoli di pin sono definiti in `costraint/pins.xdc` (adattato per Arty A7).
-  - Il warning Vivado `Project 1-236` sui vincoli fisici in `pins.xdc` è atteso: la sintesi ignora i vincoli solo di implementation e li sposta nel file generato `.Xil/*_propImpl.xdc`.
-- **Simulazione:**  
-  - Usa i testbench VHDL (`*_tb.vhd`) per simulare i moduli in Vivado o ModelSim.
-  - I testbench generano clock, reset e stimoli e verificano sia la trasmissione UART sia il comportamento del core percolation.
-  - Dopo un primo refactor funzionale, aggiungere quanto prima un controllo Python end-to-end via UART per validare protocollo, statistiche e benchmark prima di rifinire l’architettura interna.
-- **Debug:**  
-  - Prima validare `percolation_core` da solo, poi integrarlo con UART binaria.
-  - Per benchmark UART usare messaggi a lunghezza fissa e confrontare il tempo baseline UART con il tempo totale del core.
+- **Request (16 bytes)**: `[CfgP (4B UQ32)] [CfgSeed (4B)] [CfgStepsPerRun (4B)] [CfgRuns (4B)]`
+- **Response (16 bytes)**: `[StepCount (4B)] [SpanningCount (4B)] [TotalOccupied (4B)] [SpanningOccupied (4B)]`
+- Grid width fixed at `N_ROWS_G` (compile-time, default 64), height from `CfgStepsPerRun`
 
-## Convenzioni e pattern
+## Current Status
 
-- **Reset attivo basso** (`Rst = '0'`) in tutti i moduli.
-- **Parametri di clock e baud rate** passati come `generic` nei moduli.
-- **Sincronizzazione dei segnali di input** (pulsante, RX) tramite doppio flip-flop.
-- **Gestione edge detection** per pulsanti e segnali asincroni.
-- **Benchmark UART**: mantenere lunghezza messaggio, clock e baud rate costanti per sottrarre il baseline UART dal tempo del core.
-- **Anti byte-loss (UART-controlled designs)**:
-  - RX: `uart_rx` genera `rx_valid` “stirato`; catturare il byte su fronte di salita (edge-detect) e inserirlo nel wrapper del messaggio.
-  - TX: accodare le risposte e trasmettere solo quando `tx_busy='0'`.
-  - Il ramo attivo di `uart_rx` non deve dipendere da `half_tick`; se si accelera o si parametrizza il baud rate nei testbench, il percorso RX deve restare coerente con `baud_gen` senza timing hardcoded che assumano 115200 fisso.
-- **Testbench**: clock a 100 MHz, sequenze di reset e stimoli ben definite; per `percolation_core` fare prima validazione standalone e poi validazione via Python su UART appena esiste un flusso minimo end-to-end funzionante.
-- **Separazione funzionale**: LFSR, connettività e wrapper/top devono restare separati per facilitare lavoro parallelo, sostituzione dell’algoritmo di connettività e benchmark puliti.
+- ✅ RNG verified: occupancy matches p (bias < 0.001)
+- ✅ Frontier: associative prefix scan validated against BFS (1000 random tests)
+- ✅ Threshold: ~0.6047 for directed percolation on 64×64 (expected ~0.605)
+- ✅ Timing: prefix scan meets 100 MHz at N=64
+- ✅ UART end-to-end: 16-byte request/response working
+- ⚠️  For N≥128, pipelined version needed
 
-## Protocollo UART ASCII (MVP)
+## Conventions
 
-- **Formato comando**: una riga ASCII terminata da `\n` (eventuale `\r` ignorato).
-- **Case-insensitive**: i comandi sono accettati in maiuscolo/minuscolo.
-- **Numeri**: supportati in decimale (`123`) o esadecimale con prefisso `0x` (`0x1A2B`).
-- **Comandi supportati (implementati)**:
-  - `PING` → risposta: `PONG\n`
-  - `HELP` → risposta: lista comandi
-  - `RD <addr>` → risposta: `RD 0xAAAAAAAA 0xVVVVVVVV\n` (addr mascherato su 32 bit; regfile indicizzato sui 5 LSB)
-  - `WR <addr> <val>` → risposta: `OK\n`
-  - `START` / `STOP` → risposta: `OK\n`
-  - `STEP <n>` → risposta: `OK\n` (accoda `n` step nel core applicativo)
-  - `METRICS` → risposta: `STEP 0x... RX_OVR 0x... TX_OVR 0x...\n`
-- **Error handling**: comando sconosciuto o argomento non parsabile → `ERR\n`.
+- **Reset active low** (`Rst = '0'`)
+- **Clock**: 100 MHz single-clock (Arty A7-100T)
+- **Parameters**: generics for compile-time, ports for runtime
+- **Synchronization**: double flip-flop for async inputs
 
-## MVP applicativo attuale (100 MHz): `percolation_core.vhd`
+## Build
 
-- Il progetto sta lavorando in single-clock a **100 MHz** (Arty A7): evitare multi-clock/CDC finché non necessario.
-- Il data-plane attuale da validare è il **site percolation core** in `project/percolation_core/percolation_core.vhd`.
-- Il control-plane finale sarà UART binaria a messaggi fissi per benchmark e controllo del core.
-- L’obiettivo pratico attuale e` arrivare a una pipeline minima ma verificabile: generazione casuale separata, connettività funzionante, top sottile, test Python via UART e benchmark statistiche.
-- Il prossimo file da introdurre dovrà essere un top applicativo sottile, per esempio `project/percolation_core/percolation_uart_top.vhd`, con responsabilità limitata a:
-  - ricezione configurazione via UART
-  - caricamento seed e parametri
-  - start/stop/step del core
-  - lettura e inoltro delle statistiche
-  - nessuna logica algoritmica di griglia o connettività
+```bash
+vivado -mode batch -source project/recreate_vivado_project.tcl
+vivado -mode batch -source project/recreate_vivado_project.tcl -tclargs percolation
+```
 
-**Mappa registri (via `RD/WR`, indice = 5 LSB dell’addr)**
-- Config:
-  - `10`: `vel0` (signed16 in `[15:0]`)
-  - `11`: `vel1` (signed16 in `[15:0]`)
-  - `13`: `init_pos0` (signed16 in `[15:0]`)
-  - `14`: `init_pos1` (signed16 in `[15:0]`)
-- Stato (read-back):
-  - `2`: `step_count`
-  - `5`: `pending_steps`
-  - `6`: `pos0` (sign-extended)
-  - `7`: `pos1` (sign-extended)
-  - `8`: `dist2 = (pos1-pos0)^2`
+## Validation
 
-Nota: alcune entry di stato (es. `2,5,6,7,8`) vengono sovrascritte continuamente dal core.
+```bash
+# Three-way comparison
+python python/compare_three.py --runs 1000 --points 20 --output output/three_way.png
 
-## Pattern consigliati per estensioni (Percolation / UART benchmark)
+# Quick hardware test
+python python/try.py
+```
 
-- **Regfile come API stabile**: mappare parametri e risultati in registri (lettura/scrittura via `RD/WR`).
-- **Telemetria scalare prima, stream dopo**: iniziare con contatori/energie/acceptance rate; evitare dump massivi via UART.
-- **Separazione control-plane / data-plane**:
-  - Control-plane: wrapper binario UART, parametri fissi, start/stop/step del core.
-  - Data-plane: `percolation_core` che aggiorna step, spanning count e statistiche.
-- **Separazione per sottoblocchi**: generatore casuale, algoritmo di connettività e top di integrazione devono poter evolvere in modo indipendente.
-- **Top applicativo sottile**: il top finale deve limitarsi a legare UART e core, senza ripetere parsing o logica di benchmark già esistenti nei wrapper binari.
+## Notes
 
-## Flusso di validazione consigliato
-
-1. Separare il blocco LFSR dal resto del core e validarlo in modo indipendente.
-2. Validare `project/percolation_core/percolation_core.vhd` con il suo testbench standalone, mantenendo BFS come baseline iniziale.
-3. Introdurre il top applicativo sottile per legare UART e core, senza aggiungere logica algoritmica nuova.
-4. Integrare il core nel top UART binario solo dopo che la semantica dei segnali è chiara.
-4. Aggiungere quanto prima un controllo Python via UART per verificare end-to-end funzionamento e statistiche.
-5. Misurare il baseline UART con messaggi fissi e sottrarlo dal tempo totale per il benchmark.
-
-## Testbench (raccomandazioni)
-
-- Aggiungere TB che testa round-trip “a livello byte” (senza dover simulare ogni bit UART) stimolando FIFO RX e verificando FIFO TX/risposte.
-- Includere test negativi: linea troppo lunga, argomenti invalidi, comandi sconosciuti.
-
-## File chiave
-
-- `uart/uart_modular/uart_top.vhd`: top module, punto di partenza per estensioni.
-- `uart/uart_modular/baud_gen.vhd`: generatore di baud rate parametrico.
-- `uart/uart_modular/uart_tx.vhd` / `uart_rx.vhd`: moduli trasmettitore/ricevitore.
-- `uart/uart_modular/byte_fifo.vhd`: FIFO byte per RX/TX (anti byte-loss).
-- `uart/uart_modular/ascii_cmd_parser.vhd`: parser comandi ASCII (newline-terminated).
-- `uart/uart_modular/uart_tx_tb.vhd`, `uart_mod_tx_tb.vhd`: testbench di riferimento.
-- `uart/costraint/pins.xdc`: vincoli di pin per la board Arty A7.
-- `project/percolation_core/percolation_core.vhd`: MVP corrente del core, da rifattorizzare in sottoblocchi riusabili.
-- `project/percolation_core/percolation_uart_top.vhd`: futuro wrapper sottile per UART + core applicativo.
-- `project/uart_message_bin/uart_msg_loopback_top.vhd`: top di benchmark binario e punto di verifica del baseline UART.
-
-## Esempi di pattern
-
-- **Aggiunta di un nuovo modulo**:  
-  - Definire l’entity e l’architecture in VHDL.
-  - Instanziare nel top module e collegare segnali tramite port map.
-- **Estensione protocollo UART**:  
-  - Modificare `uart_tx`/`uart_rx` per supportare frame diversi (es. 9 bit, parità).
-- **Debug hardware**:  
-  - Usare LED o segnali di output per visualizzare eventi (es. ricezione carattere specifico).
-
-## Analisi e Sperimentazione Paper
-
-- I paper analizzati in `project/useful_papers/` e riassunti in `project/papers.md` possono ispirare estensioni hardware (es. acceleratori MCMC, Ising, Monte Carlo) integrabili tramite UART.
-- Documentare ogni nuovo modulo ispirato ai paper, specificando: input/output, parametri configurabili via UART, e pattern di testbench.
-
-## Reference design paper-6 (cartella `project/code-from-paper-6`)
-
-- `project/code-from-paper-6` contiene un **reference design** del paper 6 (Verilog + Vivado IP) con progetto `MD1.xpr`.
-- È **fortemente board/device-specific** (target `xc7a200tfbg484-2`, clocking multi-dominio, Ethernet/MDIO e link GTP) e **non è un drop-in** per Arty A7-100T.
-- Per l’MVP su Arty A7 si usa UART come control-plane; il reference design va considerato soprattutto come:
-  - fonte di idee/pattern (es. organizzazione neighbor boxes, LUT force),
-  - confronto architetturale per una futura estensione (eventualmente con board più adatte o riducendo drasticamente I/O).
-- Parti realisticamente riusabili (con adattamenti): kernel/idee da `ForceNonBond.v`, `NeighborBox.v`, logica di stepping in `MDmachine.v`.
-- Parti non realistiche su Arty A7 (as-is): top `MD.v`, sottosistemi `ETHlink/`, `GTP/`, `mdio/`, IP/clocking dedicati.
-
-## Piano d’azione (stato corrente)
-
-- Completato: UART base verificata e funzionante (TX/RX OK). Il problema osservato in precedenza era byte loss occasionale sotto carico; mitigato con RX FIFO + TX FIFO.
-- Completato: stack UART binario a messaggi fissi e loopback benchmark funzionante.
-- Completato: i top `uart_msg_loopback_top` e `rng` sintetizzano in tempi brevi; non sono il focus del debug corrente.
-- In corso: validazione standalone di `project/percolation_core/percolation_core.vhd` con `percolation_core_tb.vhd`; il sospetto principale resta nel core, non nel wrapper UART.
-- Completato: la cleanup dei warning più evidenti è stata applicata nel sorgente, rimuovendo il percorso `half_tick` dai moduli attivi e il registro `grid_size` non usato nel core; manca ancora una nuova sintesi pulita per confermare il log aggiornato.
-- Da fare: definire il contratto tra LFSR, connettività e top sottile; introdurre presto un test Python via UART; poi integrare il core nel top UART e misurare il baseline.
-
----
-
-## 🔴 BLOCKING ISSUE: Hardware Spanning=0 (Active Debug)
-
-**Status**: SpanningCount and TotalOccupied always 0 on hardware, despite StepCount incrementing correctly.
-
-**Evidence**:
-- ✅ StepCount=cfg_runs (message encoding/decoding correct)
-- ✅ frontier_done_s fires (confirmed by runs_done incrementing)
-- ❌ frontier_spanning_s always '0' (spanning_cnt line 247 never increments)
-- ❌ run_occupied never updated (occupied_sum stays 0)
-
-**Testbench Status** (FIXED 26-Apr-2026):
-- Was using wrong parameters: CfgStepsPerRun=0x0001 (should 0x0040=64), CfgRuns=0xF10 (should 0x10=16)
-- Corrected in `project/percolation_core/percolation_core_tb.vhd`
-- Need to run simulation with corrected values to confirm core works with N_ROWS_G=64
-
-**Hypothesis** (Priority):
-1. **RNG produces all zeros** on hardware (no occupied sites → no connectivity possible)
-2. **Frontier row indexing bug** → pending_row_index never reaches grid_steps-1 (spanning detection at line 216-224)
-3. **Frontier reach logic** → row_reach_v always computed as 0 despite input
-
-**Next Debug Steps**:
-1. Run corrected percolation_core_tb simulation to verify core logic works with 64×64
-2. Rebuild bitstream with debug_spanning_detected LED (magenta output if spanning detected)
-3. Program FPGA and check LED color:
-   - Magenta → spanning IS detected, problem elsewhere
-   - Off → spanning NEVER detected, problem in frontier or RNG
-4. Add RNG debug output (expose rng_site_open_s) to verify occupancy varies
-5. Trace frontier state machine: verify pending_row_index reaches grid_steps-1
-
-**Files Modified**:
-- `project/percolation_core/percolation_core_tb.vhd` - Fixed test parameters
-- `project/percolation_core/percolation_uart_top.vhd` - Added debug_spanning_detected LED
-- See `DEBUG_STATE.md` for full details
-
----
-
-Aggiorna queste istruzioni se aggiungi nuovi moduli o cambi il flusso di lavoro.
+- VHDL is final; focus on Python tooling and documentation
+- `python/output/` is the default directory for plots
+- Keep docs in sync with code; outdated docs cause confusion

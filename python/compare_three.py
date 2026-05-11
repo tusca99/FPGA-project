@@ -152,7 +152,7 @@ def main():
     parser.add_argument('--pmin', type=float, default=0.1)
     parser.add_argument('--pmax', type=float, default=0.9)
     parser.add_argument('--points', type=int, default=9)
-    parser.add_argument('--output', type=str, default='three_way_comparison.png')
+    parser.add_argument('--output', type=str, default='output/three_way_comparison.png')
     parser.add_argument('--software-only', action='store_true')
     args = parser.parse_args()
 
