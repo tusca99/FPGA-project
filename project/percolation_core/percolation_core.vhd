@@ -92,6 +92,8 @@ architecture Behavioral of percolation_core is
     attribute MAX_FANOUT of cfg_init_rng   : signal is 16;
     attribute MAX_FANOUT of cfg_init_front : signal is 16;
     signal rng_site_open_s   : flag_array_t(0 to N_ROWS_G - 1) := (others => '0');
+    signal rng_site_open_reg : flag_array_t(0 to N_ROWS_G - 1) := (others => '0');
+    attribute KEEP of rng_site_open_reg : signal is "true";
     signal rng_all_valid_s   : std_logic := '0';
     signal rng_busy_s        : std_logic := '1';
     signal rng_rst_s         : std_logic := '1';
@@ -223,6 +225,9 @@ begin
                     cfg_init_rng   <= '0';
                     cfg_init_front <= '0';
 
+                    -- Pipeline register: latch RNG output every cycle
+                    rng_site_open_reg <= rng_site_open_s;
+
                     if RunEn = '1' then
                         run_enable <= '1';
                     else
@@ -281,8 +286,8 @@ begin
                             run_spanning_occupied <= run_spanning_occupied + frontier_reach_pop_s;
                             row_pending <= '0';
                         elsif (frontier_busy_s = '0') and (row_pending = '0') then
-                            -- Frontier ready: send next row
-                            row_bits_v := flags_to_slv(rng_site_open_s);
+                            -- Frontier ready: send next row (use registered RNG output)
+                            row_bits_v := flags_to_slv(rng_site_open_reg);
                             hk_chunk_open_s  <= row_bits_v;
                             hk_chunk_valid_s <= '1';
                             row_bits_reg <= row_bits_v;
