@@ -130,7 +130,7 @@ def plot_three_way(probabilities, bfs_rates, sw_fpga_rates, hw_rates, output, ru
         ax1.plot(probabilities, hw_rates, '^-', label='HW FPGA (current bitstream)', linewidth=2, markersize=6)
     ax1.axvline(x=0.5927, color='r', linestyle='--', alpha=0.5, label='Critical p=0.5927')
     ax1.set_xlabel('Occupation Probability p (log scale)')
-    ax1.set_xscale('log')
+    #ax1.set_xscale('log')
     ax1.set_ylabel('Spanning Probability')
     ax1.set_title(f'Spanning Probability vs p (N={width}x{steps}, {runs} runs)')
     ax1.legend()
@@ -144,7 +144,7 @@ def plot_three_way(probabilities, bfs_rates, sw_fpga_rates, hw_rates, output, ru
     diff_bfs_sw = [abs(b - s) for b, s in zip(bfs_rates, sw_fpga_rates)]
     ax2.plot(probabilities, diff_bfs_sw, 's-', color='blue', linewidth=2, markersize=6, label='|BFS - SW FPGA|')
     ax2.set_xlabel('Occupation Probability p (log scale)')
-    ax2.set_xscale('log')
+    #ax2.set_xscale('log')
     ax2.set_ylabel('Absolute Difference')
     ax2.set_title('Algorithm Differences')
     ax2.legend()

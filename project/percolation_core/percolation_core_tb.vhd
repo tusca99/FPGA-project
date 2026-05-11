@@ -6,7 +6,7 @@ entity percolation_core_tb is
 end entity;
 
 architecture Behavioral of percolation_core_tb is
-    constant N_ROWS_G    : positive := 4;
+    constant N_ROWS_G    : positive := 64;
     signal Clk          : std_logic := '0';
     signal Rst          : std_logic := '0';
 
