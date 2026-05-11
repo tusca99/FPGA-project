@@ -112,8 +112,9 @@ def hw_sweep(probabilities: list[float], runs: int, width: int, steps: int, seed
             resp = client.run(req)
             rate = resp.spanning_count / runs
             avg_occ = resp.total_occupied / (runs * steps * width)
+            spanning_density = resp.spanning_occupied / resp.total_occupied if resp.total_occupied > 0 else 0.0
             hw_rates.append(rate)
-            print(f"  HW p={p:.4f}: spanning={resp.spanning_count}/{runs} ({rate:.4f}), avg_occ={avg_occ:.4f}")
+            print(f"  HW p={p:.4f}: spanning={resp.spanning_count}/{runs} ({rate:.4f}), avg_occ={avg_occ:.4f}, span_density={spanning_density:.4f}")
             time.sleep(0.2)
     finally:
         client.close()

@@ -164,3 +164,86 @@ print(
     f"Steps: {step_count}, Spanning: {spanning}, Occupied: {occupied}, Status: {status}"
 )
 ```
+
+
+Yes — the Status word is 32 bits with only bit 0 used. Here are concrete ways to repurpose it, ranked by scientific value:
+
+---
+
+## Option 1: Spanning Cluster Size (Most Scientifically Useful)
+
+Replace Status with **`SpanningClusterOccupied`** — the total count of sites that are both **open AND reachable** (part of the spanning cluster) across all runs.
+
+**Why it matters:** In percolation theory, the key quantity is not just "does a spanning cluster exist?" but "what fraction of occupied sites are in it?" At $p_c$, the spanning cluster is a vanishing fraction of all occupied sites; above $p_c$, it grows rapidly.
+
+**FPGA change:** Add a `spanning_occupied` counter in the core, incremented with `count_ones(reach_result)` when `frontier_spanning_s='1'` on the last row. Or simpler: count `reach_result AND row_bits` for every row, accumulate per run.
+
+**Software computation after:**
+```python
+spanning_density = resp.spanning_cluster_size / resp.total_occupied
+# At p_c ≈ 0.6, this should follow known scaling laws
+```
+
+---
+
+## Option 2: Pack Status as Bit-Flags (Best for Debugging)
+
+Keep it as status but use all 32 bits for diagnostic flags:
+
+| Bits | Field | Meaning |
+|------|-------|---------|
+| [0] | `ERROR` | 1 = command rejected, config out of range, etc. |
+| [1] | `RNG_BUSY` | 1 = RNG was still warming up when run started |
+| [2] | `CLAMPED` | 1 = GridSteps was clamped to max or min |
+| [3] | `OVERRUN` | 1 = a new request arrived while running (dropped) |
+| [4] | `SPANNING` | 1 = at least one spanning cluster was found |
+| [5] | `TIMEOUT` | 1 = run took longer than expected (if you add watchdog) |
+| [15:8] | `ACTUAL_ROWS` | Low byte of rows processed (verify GridSteps wasn't ignored) |
+| [31:16] | `RUNTIME_CYCLES` | High 16 bits of cycle counter (coarse timing) |
+
+This makes the FPGA self-reporting its health. Very useful when you run unattended sweeps overnight.
+
+---
+
+## Option 3: Exact Cycle Count (Best for Benchmarking)
+
+Use the 32 bits as **`CyclesPerRun`** — how many clock cycles the last run took.
+
+**Why:** Your theoretical prediction is $2 \times \text{GridSteps} + 3$ cycles per run. Measuring the actual cycles validates the model and detects stalls.
+
+**FPGA change:** Add a 32-bit cycle counter in `percolation_uart_top` that counts from `CfgInit` to `Done`. Reset on each request, latch into response.
+
+**Validation:**
+```python
+expected = 2 * steps + 3
+actual = resp.cycles_per_run
+assert actual == expected, f"Timing mismatch: expected {expected}, got {actual}"
+```
+
+---
+
+## Option 4: Maximum Cluster Size (Harder but Doable)
+
+Track the size of the **largest cluster** found in any single run. This requires the frontier to output `count_ones(reach_result)` per row and the core to track the max across rows.
+
+For directed percolation, the "largest cluster" is just the final `reach_result` on the last row if spanning, or the max over all rows if not. Actually, for directed percolation, cluster size grows monotonically with rows, so max cluster size = final row's reachable count.
+
+**FPGA change:** In the core, when `frontier_done_s='1'`, compare `run_occupied` to a `max_cluster_size` register. But `run_occupied` counts ALL open sites, not just reachable ones. You'd need a separate `run_reachable` accumulator.
+
+---
+
+## My Recommendation
+
+**Do Option 1 (SpanningClusterSize) + Option 2 bit-flags packed into the high bits.**
+
+New response format:
+| Word | Field |
+|------|-------|
+| 0 | StepCount |
+| 1 | SpanningCount |
+| 2 | TotalOccupied |
+| 3 | `SpanningClusterSize` [31:16] + `StatusFlags` [15:0] |
+
+This gives you a major new physics metric (spanning cluster mass) plus 16 bits of diagnostic flags. The spanning cluster size is the most interesting quantity you're currently throwing away.
+
+Want me to implement the FPGA changes for spanning cluster counting?

@@ -44,6 +44,7 @@ architecture Behavioral of percolation_uart_top is
     signal core_step_count_s : std_logic_vector(31 downto 0) := (others => '0');
     signal core_spanning_s   : std_logic_vector(31 downto 0) := (others => '0');
     signal core_total_s      : std_logic_vector(31 downto 0) := (others => '0');
+    signal core_spanning_occ_s : std_logic_vector(31 downto 0) := (others => '0');
     signal core_done_s       : std_logic := '0';
 begin
     led_rgb_o <= "001" when state = IDLE else
@@ -109,6 +110,7 @@ begin
             PendingSteps   => open,
             SpanningCount  => core_spanning_s,
             TotalOccupied  => core_total_s,
+            SpanningOccupied => core_spanning_occ_s,
             RngBusy        => open,
             RngAllValid    => open,
             Done           => core_done_s
@@ -153,7 +155,7 @@ begin
                         core_run_en_s <= '1';
                         if core_done_s = '1' then
                             core_run_en_s <= '0';
-                            tx_msg_s <= core_step_count_s & core_spanning_s & core_total_s & x"00000000";
+                            tx_msg_s <= core_step_count_s & core_spanning_s & core_total_s & core_spanning_occ_s;
                             state <= TX_PULSE;
                         end if;
 

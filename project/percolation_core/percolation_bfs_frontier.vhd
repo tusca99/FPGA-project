@@ -23,7 +23,8 @@ entity percolation_bfs_frontier is
         ChunkValid    : in std_logic;
         Busy          : out std_logic;
         Done          : out std_logic;
-        Spanning      : out std_logic
+        Spanning      : out std_logic;
+        ReachPopcount : out unsigned(15 downto 0)
     );
 end entity percolation_bfs_frontier;
 
@@ -144,6 +145,17 @@ architecture prefix_scan of percolation_bfs_frontier is
     -- Combinatorial result
     signal reach_result : std_logic_vector(N_ROWS_G - 1 downto 0);
 
+    function count_ones(bits : std_logic_vector) return unsigned is
+        variable result : unsigned(15 downto 0) := (others => '0');
+    begin
+        for index in bits'range loop
+            if bits(index) = '1' then
+                result := result + 1;
+            end if;
+        end loop;
+        return result;
+    end function;
+
 begin
     -- Combinatorial: exact horizontal closure via prefix scan
     reach_result <= horizontal_reach(current_seed, current_open);
@@ -151,6 +163,7 @@ begin
     Busy     <= '0' when (state = RUN_READY) else '1';
     Done     <= '1' when (state = COMPLETE)  else '0';
     Spanning <= p_spanning;
+    ReachPopcount <= count_ones(reach_result);
 
     process(Clk)
         variable cfg_steps_u    : unsigned(31 downto 0);

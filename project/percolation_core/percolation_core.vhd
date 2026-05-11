@@ -27,6 +27,7 @@ entity percolation_core is
         PendingSteps   : out std_logic_vector(31 downto 0);
         SpanningCount  : out std_logic_vector(31 downto 0);
         TotalOccupied  : out std_logic_vector(31 downto 0);
+        SpanningOccupied : out std_logic_vector(31 downto 0);
         RngBusy        : out std_logic;
         RngAllValid    : out std_logic;
         Done           : out std_logic
@@ -41,8 +42,10 @@ architecture Behavioral of percolation_core is
     signal runs_done    : unsigned(31 downto 0) := (others => '0');
     signal spanning_cnt : unsigned(31 downto 0) := (others => '0');
     signal occupied_sum : unsigned(31 downto 0) := (others => '0');
+    signal spanning_occupied_sum : unsigned(31 downto 0) := (others => '0');
     subtype occupied_count_t is unsigned(15 downto 0);
     signal run_occupied : occupied_count_t := (others => '0');
+    signal run_spanning_occupied : occupied_count_t := (others => '0');
 
     signal state        : integer range 0 to 2 := 0;
     signal row_pending  : std_logic := '0';
@@ -60,6 +63,7 @@ architecture Behavioral of percolation_core is
     signal frontier_busy_s    : std_logic := '0';
     signal frontier_done_s    : std_logic := '0';
     signal frontier_spanning_s : std_logic := '0';
+    signal frontier_reach_pop_s : unsigned(15 downto 0) := (others => '0');
     
     -- Popcount width: ceil(log2(N_ROWS_G + 1))
     function popcount_width(n : positive) return integer is
@@ -166,13 +170,15 @@ begin
             ChunkValid    => hk_chunk_valid_s,
             Busy          => frontier_busy_s,
             Done          => frontier_done_s,
-            Spanning      => frontier_spanning_s
+            Spanning      => frontier_spanning_s,
+            ReachPopcount => frontier_reach_pop_s
         );
 
     StepCount     <= std_logic_vector(runs_done);
     PendingSteps  <= std_logic_vector(pending);
     SpanningCount <= std_logic_vector(spanning_cnt);
     TotalOccupied <= std_logic_vector(occupied_sum);
+    SpanningOccupied <= std_logic_vector(spanning_occupied_sum);
     RngBusy       <= rng_busy_s;
     RngAllValid   <= rng_all_valid_s;
     Done          <= '1' when (runs_target /= 0) and (runs_done >= runs_target) else '0';
@@ -205,7 +211,9 @@ begin
                     runs_done      <= (others => '0');
                     spanning_cnt   <= (others => '0');
                     occupied_sum   <= (others => '0');
+                    spanning_occupied_sum <= (others => '0');
                     run_occupied   <= (others => '0');
+                    run_spanning_occupied <= (others => '0');
                     state          <= 0;
                     frontier_start_s <= '0';
                     hk_chunk_valid_s <= '0';
@@ -251,10 +259,12 @@ begin
                             end if;
 
                             occupied_sum <= occupied_sum + run_occupied;
+                            spanning_occupied_sum <= spanning_occupied_sum + run_spanning_occupied;
 
                                           report "percolation_core run complete: grid_width=" & integer'image(N_ROWS_G) &
                                               " grid_steps=" & integer'image(to_integer(CfgStepsPerRun)) &
                                    " run_occupied=" & integer'image(to_integer(run_occupied)) &
+                                   " run_spanning=" & integer'image(to_integer(run_spanning_occupied)) &
                                    " runs_done=" & integer'image(to_integer(new_runs_done)) &
                                               " frontier_busy=" & std_logic'image(frontier_busy_s) &
                                               " spanning=" & std_logic'image(frontier_spanning_s)
@@ -268,6 +278,7 @@ begin
                         elsif frontier_busy_s = '1' and row_pending = '1' then
                             -- Frontier accepted row: accumulate pipelined popcount
                             run_occupied <= run_occupied + row_popcount_pipe;
+                            run_spanning_occupied <= run_spanning_occupied + frontier_reach_pop_s;
                             row_pending <= '0';
                         elsif (frontier_busy_s = '0') and (row_pending = '0') then
                             -- Frontier ready: send next row

@@ -90,18 +90,18 @@ class PercolationResponse:
     step_count: int
     spanning_count: int
     total_occupied: int
-    status: int
+    spanning_occupied: int
 
     @property
     def is_error(self) -> bool:
-        return self.status != 0
+        return False  # No status word in v3.1; errors are implicit (step_count mismatch)
 
     def as_tuple(self) -> tuple[int, int, int, int]:
         return (
             self.step_count,
             self.spanning_count,
             self.total_occupied,
-            self.status,
+            self.spanning_occupied,
         )
 
 
@@ -135,12 +135,12 @@ def decode_response(payload: bytes) -> PercolationResponse:
     if len(payload) != RESPONSE_BYTES:
         raise ProtocolError(f"expected {RESPONSE_BYTES} response bytes, got {len(payload)}")
 
-    step_count, spanning_count, total_occupied, status = struct.unpack(
+    step_count, spanning_count, total_occupied, spanning_occupied = struct.unpack(
         ">IIII", payload
     )
     return PercolationResponse(
         step_count=step_count,
         spanning_count=spanning_count,
         total_occupied=total_occupied,
-        status=status,
+        spanning_occupied=spanning_occupied,
     )
