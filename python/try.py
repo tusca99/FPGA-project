@@ -36,7 +36,7 @@ with UartTransport(port="/dev/ttyUSB1", baudrate=115200, timeout=2.0) as ser:
                 f"StepCount={response.step_count} "
                 f"SpanningCount={response.spanning_count} "
                 f"TotalOccupied={response.total_occupied} "
-                f"Status={response.status}"
+                f"SpanningOccupied={response.spanning_occupied}"
             )
         else:
             print(f"ERROR: Got {len(resp_bytes)} bytes instead of 16")

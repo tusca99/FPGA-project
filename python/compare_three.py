@@ -97,9 +97,9 @@ def hw_sweep(probabilities: list[float], runs: int, width: int, steps: int, seed
     """Run hardware sweep using cfg_runs per request for speed."""
     client = PercolationClient(port=port, baudrate=baudrate, timeout=timeout)
     hw_rates = []
+    hw_metrics = []  # list of dicts with detailed metrics per p
     try:
         for p in probabilities:
-            # Use cfg_runs=runs in ONE request instead of runs individual requests
             req = PercolationRequest.from_probability(
                 probability=p,
                 cfg_seed=seed,
@@ -112,45 +112,80 @@ def hw_sweep(probabilities: list[float], runs: int, width: int, steps: int, seed
             resp = client.run(req)
             rate = resp.spanning_count / runs
             avg_occ = resp.total_occupied / (runs * steps * width)
-            spanning_density = resp.spanning_occupied / resp.total_occupied if resp.total_occupied > 0 else 0.0
+            avg_reachable = resp.spanning_occupied / runs  # average reachable sites per run
+            reachable_fraction = resp.spanning_occupied / resp.total_occupied if resp.total_occupied > 0 else 0.0
+            spanning_mass = resp.spanning_occupied / resp.spanning_count if resp.spanning_count > 0 else 0.0
             hw_rates.append(rate)
-            print(f"  HW p={p:.4f}: spanning={resp.spanning_count}/{runs} ({rate:.4f}), avg_occ={avg_occ:.4f}, span_density={spanning_density:.4f}")
+            hw_metrics.append({
+                'p': p,
+                'spanning_rate': rate,
+                'avg_occ': avg_occ,
+                'avg_reachable': avg_reachable,
+                'reachable_fraction': reachable_fraction,
+                'spanning_mass': spanning_mass,
+            })
+            print(f"  HW p={p:.4f}: span={resp.spanning_count}/{runs} ({rate:.4f}), "
+                  f"occ={avg_occ:.4f}, reach={avg_reachable:.1f}, "
+                  f"reach_frac={reachable_fraction:.4f}, mass={spanning_mass:.1f}")
             time.sleep(0.2)
     finally:
         client.close()
-    return hw_rates
+    return hw_rates, hw_metrics
 
 
-def plot_three_way(probabilities, bfs_rates, sw_fpga_rates, hw_rates, output, runs, width, steps):
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+def plot_three_way(probabilities, bfs_rates, sw_fpga_rates, hw_rates, hw_metrics, output, runs, width, steps):
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
 
-    # Spanning probability plot
+    # Plot 1: Spanning probability
+    ax1 = axes[0, 0]
     ax1.plot(probabilities, bfs_rates, 'o-', label='BFS (undirected)', linewidth=2, markersize=6)
     ax1.plot(probabilities, sw_fpga_rates, 's-', label='SW FPGA (directed)', linewidth=2, markersize=6)
     if hw_rates is not None:
-        ax1.plot(probabilities, hw_rates, '^-', label='HW FPGA (current bitstream)', linewidth=2, markersize=6)
+        ax1.plot(probabilities, hw_rates, '^-', label='HW FPGA', linewidth=2, markersize=6)
     ax1.axvline(x=0.5927, color='r', linestyle='--', alpha=0.5, label='Critical p=0.5927')
-    ax1.set_xlabel('Occupation Probability p (log scale)')
-    #ax1.set_xscale('log')
+    ax1.set_xlabel('Occupation Probability p')
     ax1.set_ylabel('Spanning Probability')
-    ax1.set_title(f'Spanning Probability vs p (N={width}x{steps}, {runs} runs)')
+    ax1.set_title(f'Spanning Probability (N={width}x{steps}, {runs} runs)')
     ax1.legend()
-    ax1.grid(True, alpha=0.3, which='both')
+    ax1.grid(True, alpha=0.3)
     ax1.set_ylim(-0.05, 1.05)
 
-    # Difference plot
+    # Plot 2: Algorithm differences
+    ax2 = axes[0, 1]
     if hw_rates is not None:
         diff_sw_hw = [abs(s - h) for s, h in zip(sw_fpga_rates, hw_rates)]
         ax2.plot(probabilities, diff_sw_hw, 'o-', color='red', linewidth=2, markersize=6, label='|SW FPGA - HW FPGA|')
     diff_bfs_sw = [abs(b - s) for b, s in zip(bfs_rates, sw_fpga_rates)]
     ax2.plot(probabilities, diff_bfs_sw, 's-', color='blue', linewidth=2, markersize=6, label='|BFS - SW FPGA|')
-    ax2.set_xlabel('Occupation Probability p (log scale)')
-    #ax2.set_xscale('log')
+    ax2.set_xlabel('Occupation Probability p')
     ax2.set_ylabel('Absolute Difference')
     ax2.set_title('Algorithm Differences')
     ax2.legend()
-    ax2.grid(True, alpha=0.3, which='both')
+    ax2.grid(True, alpha=0.3)
     ax2.set_ylim(-0.05, 1.05)
+
+    # Plot 3: Reachable fraction (physics metric)
+    ax3 = axes[1, 0]
+    if hw_metrics:
+        reach_fracs = [m['reachable_fraction'] for m in hw_metrics]
+        ax3.plot(probabilities, reach_fracs, 'D-', color='green', linewidth=2, markersize=6, label='Reachable / Occupied')
+        ax3.set_xlabel('Occupation Probability p')
+        ax3.set_ylabel('Reachable Fraction')
+        ax3.set_title('Percolation Front Density')
+        ax3.legend()
+        ax3.grid(True, alpha=0.3)
+        ax3.set_ylim(-0.05, 1.05)
+
+    # Plot 4: Spanning cluster mass
+    ax4 = axes[1, 1]
+    if hw_metrics:
+        masses = [m['spanning_mass'] for m in hw_metrics]
+        ax4.plot(probabilities, masses, 'v-', color='purple', linewidth=2, markersize=6, label='Mass per spanning run')
+        ax4.set_xlabel('Occupation Probability p')
+        ax4.set_ylabel('Average Reachable Sites')
+        ax4.set_title('Spanning Cluster Mass')
+        ax4.legend()
+        ax4.grid(True, alpha=0.3)
 
     plt.tight_layout()
     plt.savefig(output, dpi=150)
@@ -185,16 +220,17 @@ def main():
 
     # Hardware sweep
     hw_rates = None
+    hw_metrics = None
     if not args.software_only:
         print(f"Running hardware sweep on {args.port}...")
         try:
-            hw_rates = hw_sweep(probabilities, args.runs, args.width, args.steps, args.seed, args.port, args.baudrate, args.timeout)
+            hw_rates, hw_metrics = hw_sweep(probabilities, args.runs, args.width, args.steps, args.seed, args.port, args.baudrate, args.timeout)
             print()
         except Exception as e:
             print(f"Hardware error: {e}")
             print()
 
-    plot_three_way(probabilities, bfs_rates, sw_fpga_rates, hw_rates, args.output, args.runs, args.width, args.steps)
+    plot_three_way(probabilities, bfs_rates, sw_fpga_rates, hw_rates, hw_metrics, args.output, args.runs, args.width, args.steps)
 
     # Summary
     print("\n=== Summary ===")

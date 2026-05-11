@@ -247,6 +247,7 @@ begin
                            ((run_enable = '1') or (pending /= 0)) and
                            ((runs_target = 0) or (runs_done < runs_target)) then
                             run_occupied <= (others => '0');
+                            run_spanning_occupied <= (others => '0');
                             frontier_start_s <= '1';
                             hk_chunk_valid_s <= '0';
                             hk_chunk_open_s <= (others => '0');
