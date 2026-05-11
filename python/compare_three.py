@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import time
+from pathlib import Path
 
 import matplotlib
 matplotlib.use('Agg')
@@ -20,6 +21,10 @@ import matplotlib.pyplot as plt
 from percolation_uart.algorithms import run_sweep_software
 from percolation_uart.client import PercolationClient
 from percolation_uart.protocol import PercolationRequest
+
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+DEFAULT_OUTPUT = SCRIPT_DIR / 'output' / 'three_way_comparison.png'
 
 
 def hw_sweep(probabilities, runs, width, steps, seed, port, baudrate, timeout):
@@ -126,6 +131,7 @@ def plot_three_way(probabilities, bfs_rates, sw_fpga_rates, hw_rates, hw_metrics
         ax4.grid(True, alpha=0.3)
 
     plt.tight_layout()
+    output.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(output, dpi=150)
     print(f"\nPlot saved to {output}")
 
@@ -152,9 +158,13 @@ def main():
     parser.add_argument('--pmin', type=float, default=0.1)
     parser.add_argument('--pmax', type=float, default=0.9)
     parser.add_argument('--points', type=int, default=9)
-    parser.add_argument('--output', type=str, default='output/three_way_comparison.png')
+    parser.add_argument('--output', type=str, default=str(DEFAULT_OUTPUT))
     parser.add_argument('--software-only', action='store_true')
     args = parser.parse_args()
+
+    output = Path(args.output)
+    if not output.is_absolute():
+        output = SCRIPT_DIR / output
 
     probabilities = [args.pmin + i * (args.pmax - args.pmin) / (args.points - 1) for i in range(args.points)]
 
@@ -177,7 +187,7 @@ def main():
         except Exception as e:
             print(f"Hardware error: {e}\n")
 
-    plot_three_way(probabilities, bfs_rates, sw_fpga_rates, hw_rates, hw_metrics, args.output, args.runs, args.width, args.steps)
+    plot_three_way(probabilities, bfs_rates, sw_fpga_rates, hw_rates, hw_metrics, output, args.runs, args.width, args.steps)
 
     # Summary
     print("\n=== Summary ===")
