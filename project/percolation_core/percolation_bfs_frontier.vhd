@@ -144,6 +144,7 @@ architecture prefix_scan of percolation_bfs_frontier is
 
     -- Combinatorial result
     signal reach_result : std_logic_vector(N_ROWS_G - 1 downto 0);
+    signal reach_popcount_reg : unsigned(15 downto 0) := (others => '0');
 
     function count_ones(bits : std_logic_vector) return unsigned is
         variable result : unsigned(15 downto 0) := (others => '0');
@@ -163,7 +164,7 @@ begin
     Busy     <= '0' when (state = RUN_READY) else '1';
     Done     <= '1' when (state = COMPLETE)  else '0';
     Spanning <= p_spanning;
-    ReachPopcount <= count_ones(reach_result);
+    ReachPopcount <= reach_popcount_reg;
 
     process(Clk)
         variable cfg_steps_u    : unsigned(31 downto 0);
@@ -237,6 +238,7 @@ begin
                             -- Single-cycle combinatorial closure (correct prefix scan)
                             previous_reach_row     <= reach_result;
                             previous_reach_row_dup <= reach_result;
+                            reach_popcount_reg     <= count_ones(reach_result);
                             rows_seen_v := rows_seen + 1;
                             rows_seen   <= rows_seen_v;
 
