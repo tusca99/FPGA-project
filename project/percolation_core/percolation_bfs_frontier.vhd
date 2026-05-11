@@ -3,11 +3,11 @@ use IEEE.STD_LOGIC_1164.ALL;
 use IEEE.NUMERIC_STD.ALL;
 use work.rng_pkg.all;
 
--- Correct Combinatorial Prefix Frontier
--- Uses bidirectional associative prefix scan for exact horizontal closure.
--- Algorithmically equivalent to iterative +/-1 propagation.
--- Depth: 2 * log2(N) stages for full prefix scan + final OR.
--- For N=64 @ 100MHz: ~7 LUT levels, easily meets timing.
+-- Pipelined Prefix Frontier (3 cycles per row)
+-- Cycle 1: RUN_READY - latch inputs (current_open, current_seed)
+-- Cycle 2: RUN_COMPUTE - compute reach_result_reg from latched inputs
+-- Cycle 3: RUN_SAVE - save previous_reach_row, compute reach_popcount_reg
+-- This breaks the long combinatorial path into two registered stages.
 
 entity percolation_bfs_frontier is
     generic (
@@ -28,8 +28,8 @@ entity percolation_bfs_frontier is
     );
 end entity percolation_bfs_frontier;
 
-architecture prefix_scan of percolation_bfs_frontier is
-    type state_t is (IDLE, RUN_READY, RUN_PROCESS, COMPLETE);
+architecture pipelined_prefix of percolation_bfs_frontier is
+    type state_t is (IDLE, RUN_READY, RUN_COMPUTE, RUN_SAVE, COMPLETE);
     signal state : state_t := IDLE;
 
     signal grid_steps         : unsigned(31 downto 0) := to_unsigned(N_ROWS_G, 32);
@@ -42,9 +42,15 @@ architecture prefix_scan of percolation_bfs_frontier is
     signal previous_reach_row     : std_logic_vector(N_ROWS_G - 1 downto 0) := (others => '0');
     signal previous_reach_row_dup : std_logic_vector(N_ROWS_G - 1 downto 0) := (others => '0');
 
+    -- Pipelined reachability result
+    signal reach_result_reg   : std_logic_vector(N_ROWS_G - 1 downto 0) := (others => '0');
+    signal reach_popcount_reg : unsigned(15 downto 0) := (others => '0');
+
     attribute KEEP : string;
     attribute KEEP of previous_reach_row     : signal is "true";
     attribute KEEP of previous_reach_row_dup : signal is "true";
+    attribute KEEP of reach_result_reg       : signal is "true";
+    attribute KEEP of reach_popcount_reg     : signal is "true";
 
     attribute MAX_FANOUT : integer;
     attribute MAX_FANOUT of previous_reach_row     : signal is 16;
@@ -60,16 +66,12 @@ architecture prefix_scan of percolation_bfs_frontier is
 
     -- Prefix scan pair: (A = all_open_in_segment, B = has_reachable_seed_in_segment)
     type pair_t is record
-        a : std_logic;  -- AND of all open cells in the segment
-        b : std_logic;  -- OR of (seed AND all_open_from_seed) in the segment
+        a : std_logic;
+        b : std_logic;
     end record;
 
     type pair_array_t is array (0 to N_ROWS_G - 1) of pair_t;
 
-    -- Associative combine: right_segment o left_segment
-    -- If we have left=[l..m] and right=[m+1..r], the combined [l..r] has:
-    --   A = right.A AND left.A  (all open in [l..r])
-    --   B = right.B OR (right.A AND left.B)  (seed in right part, or seed in left part that connects through right part)
     function combine_pair(left, right : pair_t) return pair_t is
         variable result : pair_t;
     begin
@@ -78,7 +80,6 @@ architecture prefix_scan of percolation_bfs_frontier is
         return result;
     end function;
 
-    -- Kogge-Stone style prefix scan (left-to-right)
     function prefix_scan_ltr(pairs : pair_array_t) return pair_array_t is
         variable temp   : pair_array_t;
         variable result : pair_array_t;
@@ -100,7 +101,6 @@ architecture prefix_scan of percolation_bfs_frontier is
         return temp;
     end function;
 
-    -- Reverse array for right-to-left scan
     function reverse_pairs(pairs : pair_array_t) return pair_array_t is
         variable result : pair_array_t;
     begin
@@ -110,7 +110,6 @@ architecture prefix_scan of percolation_bfs_frontier is
         return result;
     end function;
 
-    -- Compute horizontal reachability from seed and open vectors
     function horizontal_reach(
         seed  : std_logic_vector(N_ROWS_G - 1 downto 0);
         openv : std_logic_vector(N_ROWS_G - 1 downto 0)
@@ -121,30 +120,21 @@ architecture prefix_scan of percolation_bfs_frontier is
         variable rtl_pairs  : pair_array_t;
         variable result     : std_logic_vector(N_ROWS_G - 1 downto 0);
     begin
-        -- Build element pairs: (A=open, B=open AND seed)
         for i in 0 to N_ROWS_G - 1 loop
             pairs(i).a := openv(i);
             pairs(i).b := openv(i) and seed(i);
         end loop;
 
-        -- Left-to-right prefix scan: seed to the left (or at) reaches i
         ltr_prefix := prefix_scan_ltr(pairs);
-
-        -- Right-to-left prefix scan: seed to the right (or at) reaches i
         rtl_pairs  := reverse_pairs(pairs);
         rtl_prefix := prefix_scan_ltr(rtl_pairs);
 
-        -- Combine: cell i is reachable if any seed in its contiguous open segment reaches it
         for i in 0 to N_ROWS_G - 1 loop
             result(i) := ltr_prefix(i).b or rtl_prefix(N_ROWS_G - 1 - i).b;
         end loop;
 
         return result;
     end function;
-
-    -- Combinatorial result
-    signal reach_result : std_logic_vector(N_ROWS_G - 1 downto 0);
-    signal reach_popcount_reg : unsigned(15 downto 0) := (others => '0');
 
     function count_ones(bits : std_logic_vector) return unsigned is
         variable result : unsigned(15 downto 0) := (others => '0');
@@ -157,9 +147,11 @@ architecture prefix_scan of percolation_bfs_frontier is
         return result;
     end function;
 
+    -- Combinatorial: computed from registered inputs
+    signal reach_comb : std_logic_vector(N_ROWS_G - 1 downto 0);
+
 begin
-    -- Combinatorial: exact horizontal closure via prefix scan
-    reach_result <= horizontal_reach(current_seed, current_open);
+    reach_comb <= horizontal_reach(current_seed, current_open);
 
     Busy     <= '0' when (state = RUN_READY) else '1';
     Done     <= '1' when (state = COMPLETE)  else '0';
@@ -181,6 +173,8 @@ begin
                 current_seed       <= (others => '0');
                 previous_reach_row <= (others => '0');
                 previous_reach_row_dup <= (others => '0');
+                reach_result_reg   <= (others => '0');
+                reach_popcount_reg <= (others => '0');
             else
                 if CfgInit = '1' then
                     if GridSteps = 0 then
@@ -201,6 +195,8 @@ begin
                     current_seed       <= (others => '0');
                     previous_reach_row <= (others => '0');
                     previous_reach_row_dup <= (others => '0');
+                    reach_result_reg   <= (others => '0');
+                    reach_popcount_reg <= (others => '0');
                 else
                     case state is
                         when IDLE =>
@@ -220,6 +216,8 @@ begin
                                 p_spanning         <= '0';
                                 previous_reach_row <= (others => '0');
                                 previous_reach_row_dup <= (others => '0');
+                                reach_result_reg   <= (others => '0');
+                                reach_popcount_reg <= (others => '0');
                                 state              <= RUN_READY;
                             end if;
 
@@ -231,22 +229,26 @@ begin
                                 else
                                     current_seed <= ChunkOpen and previous_reach_row_dup;
                                 end if;
-                                state          <= RUN_PROCESS;
+                                state          <= RUN_COMPUTE;
                             end if;
 
-                        when RUN_PROCESS =>
-                            -- Single-cycle combinatorial closure (correct prefix scan)
-                            previous_reach_row     <= reach_result;
-                            previous_reach_row_dup <= reach_result;
-                            reach_popcount_reg     <= count_ones(reach_result);
+                        when RUN_COMPUTE =>
+                            -- Cycle 2: register reachability result from latched inputs
+                            reach_result_reg <= reach_comb;
+                            state            <= RUN_SAVE;
+
+                        when RUN_SAVE =>
+                            -- Cycle 3: save reachability and compute popcount
+                            previous_reach_row     <= reach_result_reg;
+                            previous_reach_row_dup <= reach_result_reg;
+                            reach_popcount_reg     <= count_ones(reach_result_reg);
                             rows_seen_v := rows_seen + 1;
                             rows_seen   <= rows_seen_v;
 
                             if is_last_row = '1' then
-                                p_spanning <= any_set(reach_result);
+                                p_spanning <= any_set(reach_result_reg);
                                 state      <= COMPLETE;
                             else
-                                -- Lookahead for next row
                                 if rows_seen_v = grid_steps - 1 then
                                     is_last_row <= '1';
                                 end if;
@@ -263,4 +265,4 @@ begin
             end if;
         end if;
     end process;
-end prefix_scan;
+end pipelined_prefix;
