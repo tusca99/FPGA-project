@@ -45,7 +45,6 @@ architecture Behavioral of percolation_core is
     signal run_occupied : occupied_count_t := (others => '0');
 
     signal state        : integer range 0 to 2 := 0;
-    signal row_pending  : std_logic := '0';
     signal frontier_start_s   : std_logic := '0';
     signal hk_chunk_valid_s : std_logic := '0';
     signal hk_chunk_open_s  : std_logic_vector(N_ROWS_G - 1 downto 0) := (others => '0');
@@ -198,7 +197,6 @@ begin
                     spanning_cnt   <= (others => '0');
                     occupied_sum   <= (others => '0');
                     run_occupied   <= (others => '0');
-                    row_pending    <= '0';
                     state          <= 0;
                     frontier_start_s <= '0';
                     hk_chunk_valid_s <= '0';
@@ -258,18 +256,13 @@ begin
                                 pending <= pending - 1;
                             end if;
 
-                            row_pending <= '0';
                             state <= 0;
-                        elsif frontier_busy_s = '1' then
-                            -- Frontier accepted the row and is processing it
-                            row_pending <= '0';
-                        elsif (frontier_busy_s = '0') and (row_pending = '0') then
-                            -- Frontier is ready and no row pending: send next row
+                        elsif frontier_busy_s = '0' then
+                            -- Frontier pipeline ready: send next row every cycle
                             row_bits_v := flags_to_slv(rng_site_open_s);
                             hk_chunk_open_s  <= row_bits_v;
                             hk_chunk_valid_s <= '1';
                             run_occupied <= run_occupied + count_ones(row_bits_v);
-                            row_pending <= '1';
                         end if;
 
                     when others =>
