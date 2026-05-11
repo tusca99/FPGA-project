@@ -162,7 +162,7 @@ def main():
     parser.add_argument('--baudrate', type=int, default=115200)
     parser.add_argument('--timeout', type=float, default=2.0)
     parser.add_argument('--runs', type=int, default=100)
-    parser.add_argument('--width', type=int, default=32)
+    parser.add_argument('--width', type=int, default=64)
     parser.add_argument('--steps', type=int, default=64)
     parser.add_argument('--seed', type=lambda x: int(x, 0), default=0x12345678)
     parser.add_argument('--pmin', type=float, default=0.1)
@@ -197,12 +197,24 @@ def main():
 
     # Summary
     print("\n=== Summary ===")
-    print(f"BFS critical threshold (spanning≈0.5): ~0.59")
-    print(f"SW FPGA directed critical threshold:   ~0.63")
+
+    def _interp_threshold(probs, rates):
+        """Linearly interpolate the p where spanning rate crosses 0.5."""
+        for i in range(len(rates) - 1):
+            if (rates[i] < 0.5 and rates[i+1] >= 0.5) or (rates[i] >= 0.5 and rates[i+1] < 0.5):
+                p0, p1 = probs[i], probs[i+1]
+                r0, r1 = rates[i], rates[i+1]
+                return p0 + (0.5 - r0) / (r1 - r0) * (p1 - p0)
+        return None
+
+    bfs_thr = _interp_threshold(probabilities, bfs_rates)
+    sw_thr = _interp_threshold(probabilities, sw_fpga_rates)
+    print(f"BFS critical threshold (spanning≈0.5): ~{bfs_thr:.4f}" if bfs_thr else "BFS threshold: out of range")
+    print(f"SW FPGA directed critical threshold:   ~{sw_thr:.4f}" if sw_thr else "SW FPGA threshold: out of range")
     if hw_rates is not None:
-        hw_half = next((p for p, r in zip(probabilities, hw_rates) if r >= 0.5), None)
-        print(f"HW FPGA critical threshold:            ~{hw_half}")
-        if hw_half and hw_half < 0.5:
+        hw_thr = _interp_threshold(probabilities, hw_rates)
+        print(f"HW FPGA critical threshold:            ~{hw_thr:.4f}" if hw_thr else "HW FPGA threshold: out of range")
+        if hw_thr and hw_thr < 0.5:
             print("  WARNING: HW critical threshold << 0.5 indicates broken bitstream (log2 shift-OR bug)")
 
 

@@ -45,12 +45,22 @@ architecture Behavioral of percolation_core is
     signal run_occupied : occupied_count_t := (others => '0');
 
     signal state        : integer range 0 to 2 := 0;
+    signal row_pending  : std_logic := '0';
+    signal row_bits_reg   : std_logic_vector(N_ROWS_G - 1 downto 0) := (others => '0');
+    signal row_popcount_pipe : occupied_count_t := (others => '0');
+    attribute KEEP : string;
+    attribute KEEP of row_bits_reg : signal is "true";
+    attribute KEEP of row_popcount_pipe : signal is "true";
+    attribute DONT_TOUCH : string;
+    attribute DONT_TOUCH of row_bits_reg : signal is "true";
+    attribute DONT_TOUCH of row_popcount_pipe : signal is "true";
     signal frontier_start_s   : std_logic := '0';
     signal hk_chunk_valid_s : std_logic := '0';
     signal hk_chunk_open_s  : std_logic_vector(N_ROWS_G - 1 downto 0) := (others => '0');
     signal frontier_busy_s    : std_logic := '0';
     signal frontier_done_s    : std_logic := '0';
     signal frontier_spanning_s : std_logic := '0';
+    
     -- Popcount width: ceil(log2(N_ROWS_G + 1))
     function popcount_width(n : positive) return integer is
         variable width : integer := 1;
@@ -69,7 +79,6 @@ architecture Behavioral of percolation_core is
     signal cfg_init_rng   : std_logic := '0';
     signal cfg_init_front : std_logic := '0';
 
-    attribute KEEP : string;
     attribute KEEP of cfg_init_core  : signal is "true";
     attribute KEEP of cfg_init_rng   : signal is "true";
     attribute KEEP of cfg_init_front : signal is "true";
@@ -225,7 +234,6 @@ begin
                            ((run_enable = '1') or (pending /= 0)) and
                            ((runs_target = 0) or (runs_done < runs_target)) then
                             run_occupied <= (others => '0');
-                            row_pending    <= '0';
                             frontier_start_s <= '1';
                             hk_chunk_valid_s <= '0';
                             hk_chunk_open_s <= (others => '0');
@@ -257,12 +265,18 @@ begin
                             end if;
 
                             state <= 0;
-                        elsif frontier_busy_s = '0' then
-                            -- Frontier pipeline ready: send next row every cycle
+                        elsif frontier_busy_s = '1' then
+                            -- Frontier accepted row: accumulate pipelined popcount
+                            run_occupied <= run_occupied + row_popcount_pipe;
+                            row_pending <= '0';
+                        elsif (frontier_busy_s = '0') and (row_pending = '0') then
+                            -- Frontier ready: send next row
                             row_bits_v := flags_to_slv(rng_site_open_s);
                             hk_chunk_open_s  <= row_bits_v;
                             hk_chunk_valid_s <= '1';
-                            run_occupied <= run_occupied + count_ones(row_bits_v);
+                            row_bits_reg <= row_bits_v;
+                            row_popcount_pipe <= count_ones(row_bits_v);
+                            row_pending <= '1';
                         end if;
 
                     when others =>

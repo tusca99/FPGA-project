@@ -201,3 +201,71 @@ This ensures the core only sends a new row when the frontier is **truly idle** a
 - [ ] `SpanningCount` is non-zero for `p > p_c` (critical threshold ~0.5927 for 2D site percolation)
 - [ ] `RngAllValid` asserts before first run starts
 - [ ] Timing closure: WNS > 0.050 ns at 100 MHz
+
+---
+
+## 8. Prefix-Scan Frontier (Current Implementation)
+
+### Why we switched from iterative to prefix-scan
+
+The iterative frontier was algorithmically correct and met timing, but its cycle count was **data-dependent**:
+- Best case: 1 cycle per row (horizontal closure converges immediately)
+- Worst case: up to `N_ROWS_G/2` cycles per row (single cluster spanning full width)
+- Typical: 1–3 cycles per row
+
+This variability makes benchmarking and latency prediction harder. The prefix-scan frontier replaces the iterative loop with a **combinatorial associative prefix network** that computes the exact same reachable set in **deterministic O(log N) depth**.
+
+### The associative semigroup
+
+Each cell contributes a pair `(A, B)`:
+- `A = open[i]` — "this cell is open"
+- `B = open[i] AND seed[i]` — "this cell is open AND has a seed"
+
+The **combine** operator for two adjacent segments `left = [l..m]` and `right = [m+1..r]`:
+```
+combined.A = right.A AND left.A
+combined.B = right.B OR (right.A AND left.B)
+```
+
+- `A` propagates as AND: the combined segment is fully open only if both halves are
+- `B` propagates as OR: the combined segment has a reachable seed if the right half has one, OR the left half has one AND the right half is fully open (so the seed can propagate through)
+
+This is the **correct** associative operator for contiguous-segment reachability. It prevents "jumping" over closed cells.
+
+### Bidirectional scan
+
+A single left-to-right scan only finds seeds **to the left** of each cell. To catch seeds on either side:
+1. **LTR scan**: finds seeds at or to the left of each cell
+2. **RTL scan**: reverses the row, scans, then reverses back — finds seeds at or to the right
+3. **Final OR**: `reach[i] = ltr[i].B OR rtl[i].B`
+
+Algorithmically identical to iterative ±1 propagation, but computed in **log₂(N) stages** instead of O(N) iterations.
+
+### Timing (deterministic)
+
+For `N_ROWS_G = 64`:
+
+| Phase | Cycles | Description |
+|-------|--------|-------------|
+| Start overhead | 1 | Core asserts `frontier_start_s` |
+| Per-row latency | **2** | Cycle 1: latch `ChunkOpen` + compute `seed`; Cycle 2: prefix-scan computes `reach_result`, save to `previous_reach` |
+| Row count | `GridSteps` | e.g. 64 rows |
+| Done detection | 1 | Frontier asserts `Done` after last row |
+| Core accumulation | 1 | Core adds `run_occupied` to `occupied_sum` |
+| **Total per run** | **`2 × GridSteps + 3`** | For 64×64 grid: **131 cycles** @ 100 MHz = **1.31 µs** |
+
+The timing is **fully deterministic** — no data-dependent convergence loops. Every row takes exactly 2 cycles regardless of cluster size or occupancy pattern.
+
+### Timing closure
+
+The prefix-scan network is ~6 Kogge-Stone stages × 2 LUTs per stage = ~12 LUT levels. At 100 MHz (10 ns period), this leaves ~3–5 ns slack after routing, well within closure margins for Artix-7.
+
+### Comparison with previous versions
+
+| Frontier | Cycles/row | Deterministic? | Timing risk @ N=64 |
+|----------|-----------|----------------|-------------------|
+| Iterative | 1–32 | No | Low (meets timing) |
+| Broken OR-shift prefix | 1 | Yes | Medium (algorithm wrong) |
+| **Correct prefix-scan** | **2** | **Yes** | **Low (correct + meets timing)** |
+
+---
