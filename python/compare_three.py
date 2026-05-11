@@ -2,7 +2,7 @@
 
 Usage:
     # With FPGA connected:
-    python compare_three.py --port /dev/ttyUSB1 --runs 100 --points 9
+    python compare_three.py --port /dev/ttyUSB1 --runs 1000 --points 20
 
     # Software-only (no hardware):
     python compare_three.py --software-only --runs 200 --points 13
@@ -11,93 +11,22 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import random
 import time
-from collections import deque
 
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
+from percolation_uart.algorithms import run_sweep_software
 from percolation_uart.client import PercolationClient
 from percolation_uart.protocol import PercolationRequest
 
 
-def bfs_spanning(grid: list[list[bool]]) -> bool:
-    """Standard 4-neighbor BFS (undirected percolation)."""
-    steps = len(grid)
-    width = len(grid[0])
-    visited = [[False] * width for _ in range(steps)]
-    queue = deque()
-    for c in range(width):
-        if grid[0][c]:
-            visited[0][c] = True
-            queue.append((0, c))
-    while queue:
-        r, c = queue.popleft()
-        if r == steps - 1:
-            return True
-        for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
-            nr, nc = r + dr, c + dc
-            if 0 <= nr < steps and 0 <= nc < width and not visited[nr][nc] and grid[nr][nc]:
-                visited[nr][nc] = True
-                queue.append((nr, nc))
-    return False
-
-
-def sw_fpga_directed_spanning(grid: list[list[bool]]) -> bool:
-    """Software FPGA directed percolation (corrected iterative ±1)."""
-    steps = len(grid)
-    width = len(grid[0])
-    prev_reach = [False] * width
-    for row_idx, open_row in enumerate(grid):
-        if row_idx == 0:
-            seed = open_row
-        else:
-            seed = [o and r for o, r in zip(open_row, prev_reach)]
-        reach = [o and s for o, s in zip(open_row, seed)]
-        while True:
-            new_reach = reach[:]
-            for i in range(width):
-                if reach[i]:
-                    new_reach[i] = True
-                else:
-                    left = reach[i - 1] if i > 0 else False
-                    right = reach[i + 1] if i < width - 1 else False
-                    if open_row[i] and (left or right):
-                        new_reach[i] = True
-            if new_reach == reach:
-                break
-            reach = new_reach
-        prev_reach = reach
-    return any(prev_reach)
-
-
-def sw_sweep(probabilities: list[float], runs: int, width: int, steps: int, seed: int):
-    """Run both software algorithms."""
-    bfs_rates = []
-    fpga_rates = []
-    for p in probabilities:
-        rng = random.Random(seed)
-        bfs_count = 0
-        fpga_count = 0
-        for _ in range(runs):
-            grid = [[rng.random() < p for _ in range(width)] for _ in range(steps)]
-            if bfs_spanning(grid):
-                bfs_count += 1
-            if sw_fpga_directed_spanning(grid):
-                fpga_count += 1
-        bfs_rates.append(bfs_count / runs)
-        fpga_rates.append(fpga_count / runs)
-        print(f"  SW p={p:.4f}: BFS={bfs_count}/{runs}, FPGA={fpga_count}/{runs}")
-    return bfs_rates, fpga_rates
-
-
-def hw_sweep(probabilities: list[float], runs: int, width: int, steps: int, seed: int, port: str, baudrate: int, timeout: float):
+def hw_sweep(probabilities, runs, width, steps, seed, port, baudrate, timeout):
     """Run hardware sweep using cfg_runs per request for speed."""
     client = PercolationClient(port=port, baudrate=baudrate, timeout=timeout)
     hw_rates = []
-    hw_metrics = []  # list of dicts with detailed metrics per p
+    hw_metrics = []
     try:
         for p in probabilities:
             req = PercolationRequest.from_probability(
@@ -110,30 +39,32 @@ def hw_sweep(probabilities: list[float], runs: int, width: int, steps: int, seed
             client.transport.reset_output_buffer()
             time.sleep(0.05)
             resp = client.run(req)
+
             rate = resp.spanning_count / runs
             avg_occ = resp.total_occupied / (runs * steps * width)
-            avg_reachable = resp.spanning_occupied / runs  # average reachable sites per run
-            reachable_fraction = resp.spanning_occupied / resp.total_occupied if resp.total_occupied > 0 else 0.0
-            spanning_mass = resp.spanning_occupied / resp.spanning_count if resp.spanning_count > 0 else 0.0
+            avg_reach = resp.spanning_occupied / runs
+            reach_frac = resp.spanning_occupied / resp.total_occupied if resp.total_occupied > 0 else 0.0
+            mass = resp.spanning_occupied / resp.spanning_count if resp.spanning_count > 0 else 0.0
+
             hw_rates.append(rate)
             hw_metrics.append({
                 'p': p,
                 'spanning_rate': rate,
                 'avg_occ': avg_occ,
-                'avg_reachable': avg_reachable,
-                'reachable_fraction': reachable_fraction,
-                'spanning_mass': spanning_mass,
+                'avg_reachable': avg_reach,
+                'reachable_fraction': reach_frac,
+                'spanning_mass': mass,
             })
-            # Validation checks
+
             occ_error = abs(avg_occ - p)
             if occ_error > 0.02:
-                print(f"    ⚠️ OCCUPANCY BIAS: expected ~{p:.4f}, got {avg_occ:.4f} (error={occ_error:.4f})")
-            if resp.spanning_count > 0 and resp.spanning_count < 10:
-                print(f"    ⚠️ LOW STATISTICS: only {resp.spanning_count} spanning runs — mass unreliable")
+                print(f"    ⚠️ OCCUPANCY BIAS: expected ~{p:.4f}, got {avg_occ:.4f}")
+            if 0 < resp.spanning_count < 10:
+                print(f"    ⚠️ LOW STATISTICS: only {resp.spanning_count} spanning runs")
 
             print(f"  HW p={p:.4f}: span={resp.spanning_count}/{runs} ({rate:.4f}), "
-                  f"occ={avg_occ:.4f}, reach={avg_reachable:.1f}, "
-                  f"reach_frac={reachable_fraction:.4f}, mass={spanning_mass:.1f}")
+                  f"occ={avg_occ:.4f}, reach={avg_reach:.1f}, "
+                  f"reach_frac={reach_frac:.4f}, mass={mass:.1f}")
             time.sleep(0.2)
     finally:
         client.close()
@@ -171,7 +102,7 @@ def plot_three_way(probabilities, bfs_rates, sw_fpga_rates, hw_rates, hw_metrics
     ax2.grid(True, alpha=0.3)
     ax2.set_ylim(-0.05, 1.05)
 
-    # Plot 3: Reachable fraction (physics metric)
+    # Plot 3: Reachable fraction
     ax3 = axes[1, 0]
     if hw_metrics:
         reach_fracs = [m['reachable_fraction'] for m in hw_metrics]
@@ -199,6 +130,16 @@ def plot_three_way(probabilities, bfs_rates, sw_fpga_rates, hw_rates, hw_metrics
     print(f"\nPlot saved to {output}")
 
 
+def _interp_threshold(probs, rates):
+    """Linearly interpolate the p where spanning rate crosses 0.5."""
+    for i in range(len(rates) - 1):
+        if (rates[i] < 0.5 and rates[i+1] >= 0.5) or (rates[i] >= 0.5 and rates[i+1] < 0.5):
+            p0, p1 = probs[i], probs[i+1]
+            r0, r1 = rates[i], rates[i+1]
+            return p0 + (0.5 - r0) / (r1 - r0) * (p1 - p0)
+    return None
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--port', default='/dev/ttyUSB1')
@@ -222,7 +163,7 @@ def main():
 
     # Software sweeps
     print("Running software sweeps...")
-    bfs_rates, sw_fpga_rates = sw_sweep(probabilities, args.runs, args.width, args.steps, args.seed)
+    bfs_rates, sw_fpga_rates, _ = run_sweep_software(probabilities, args.runs, args.width, args.steps, args.seed)
     print()
 
     # Hardware sweep
@@ -234,23 +175,12 @@ def main():
             hw_rates, hw_metrics = hw_sweep(probabilities, args.runs, args.width, args.steps, args.seed, args.port, args.baudrate, args.timeout)
             print()
         except Exception as e:
-            print(f"Hardware error: {e}")
-            print()
+            print(f"Hardware error: {e}\n")
 
     plot_three_way(probabilities, bfs_rates, sw_fpga_rates, hw_rates, hw_metrics, args.output, args.runs, args.width, args.steps)
 
     # Summary
     print("\n=== Summary ===")
-
-    def _interp_threshold(probs, rates):
-        """Linearly interpolate the p where spanning rate crosses 0.5."""
-        for i in range(len(rates) - 1):
-            if (rates[i] < 0.5 and rates[i+1] >= 0.5) or (rates[i] >= 0.5 and rates[i+1] < 0.5):
-                p0, p1 = probs[i], probs[i+1]
-                r0, r1 = rates[i], rates[i+1]
-                return p0 + (0.5 - r0) / (r1 - r0) * (p1 - p0)
-        return None
-
     bfs_thr = _interp_threshold(probabilities, bfs_rates)
     sw_thr = _interp_threshold(probabilities, sw_fpga_rates)
     print(f"BFS critical threshold (spanning≈0.5): ~{bfs_thr:.4f}" if bfs_thr else "BFS threshold: out of range")
@@ -259,36 +189,25 @@ def main():
         hw_thr = _interp_threshold(probabilities, hw_rates)
         print(f"HW FPGA critical threshold:            ~{hw_thr:.4f}" if hw_thr else "HW FPGA threshold: out of range")
         if hw_thr and hw_thr < 0.5:
-            print("  WARNING: HW critical threshold << 0.5 indicates broken bitstream (log2 shift-OR bug)")
+            print("  WARNING: HW critical threshold << 0.5 indicates broken bitstream")
 
-    # Physical validation of HW metrics
+    # Physical validation
     if hw_metrics:
         print("\n=== Physical Validation ===")
         max_occ_error = max(abs(m['avg_occ'] - m['p']) for m in hw_metrics)
         print(f"Max occupancy bias: {max_occ_error:.4f} (should be < 0.02)")
-        if max_occ_error > 0.02:
-            print("  ⚠️ FAIL: Occupancy bias too large — check RNG or accumulation logic")
-        else:
-            print("  ✓ PASS: Occupancy matches p correctly")
+        print("  ✓ PASS" if max_occ_error <= 0.02 else "  ⚠️ FAIL")
 
-        # Check reach_frac monotonicity (should increase with p)
         reach_fracs = [m['reachable_fraction'] for m in hw_metrics]
         non_mono = sum(1 for i in range(len(reach_fracs)-1) if reach_fracs[i+1] < reach_fracs[i] - 0.05)
         print(f"Reachable fraction monotonicity: {non_mono} violations")
-        if non_mono > 3:
-            print("  ⚠️ FAIL: reachable_fraction not monotonic — possible accumulation bug")
-        else:
-            print("  ✓ PASS: reachable_fraction increases with p as expected")
+        print("  ✓ PASS" if non_mono <= 3 else "  ⚠️ FAIL")
 
-        # Check critical region behavior
         if hw_thr:
             crit_idx = min(range(len(probabilities)), key=lambda i: abs(probabilities[i] - hw_thr))
             crit_reach = hw_metrics[crit_idx]['reachable_fraction']
             print(f"Reachable fraction at p_c={hw_thr:.3f}: {crit_reach:.3f}")
-            if 0.2 < crit_reach < 0.5:
-                print("  ✓ PASS: Critical region shows fractal front (20-50% reachable)")
-            else:
-                print("  ⚠️ UNEXPECTED: Critical reachable_fraction outside expected 0.2-0.5 range")
+            print("  ✓ PASS" if 0.2 < crit_reach < 0.5 else "  ⚠️ UNEXPECTED")
 
 
 if __name__ == '__main__':

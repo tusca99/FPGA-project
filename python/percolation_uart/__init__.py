@@ -1,5 +1,12 @@
 """Percolation UART client and benchmark helpers."""
 
+from .algorithms import (
+    bfs_spanning,
+    fpga_directed_spanning,
+    fpga_reach_row,
+    generate_grid,
+    run_sweep_software,
+)
 from .client import PercolationClient
 from .protocol import (
     MAX_CFG_RUNS,
@@ -26,9 +33,14 @@ __all__ = [
     "RESPONSE_BYTES",
     "RunResult",
     "UartTransport",
+    "bfs_spanning",
     "decode_response",
     "encode_request",
+    "fpga_directed_spanning",
+    "fpga_reach_row",
+    "generate_grid",
     "probability_to_uq32",
+    "run_sweep_software",
     "simulate_request",
     "simulate_run",
     "uq32_to_probability",

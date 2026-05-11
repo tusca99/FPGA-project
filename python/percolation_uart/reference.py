@@ -93,8 +93,5 @@ def simulate_request(request: PercolationRequest, rng: Random | None = None) -> 
         step_count=request.cfg_runs,
         spanning_count=spanning_count,
         total_occupied=total_occupied,
-        status=0,
-        rng_init_cycles=0,
-        core_run_cycles=0,
-        batch_cycles=0,
+        spanning_occupied=0,
     )

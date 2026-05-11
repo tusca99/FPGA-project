@@ -125,7 +125,7 @@ def encode_response(response: PercolationResponse) -> bytes:
         response.step_count & 0xFFFFFFFF,
         response.spanning_count & 0xFFFFFFFF,
         response.total_occupied & 0xFFFFFFFF,
-        response.status & 0xFFFFFFFF,
+        response.spanning_occupied & 0xFFFFFFFF,
     )
 
 
