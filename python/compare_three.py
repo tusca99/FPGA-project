@@ -59,13 +59,16 @@ def hw_sweep(probabilities, runs, width, steps, seed, port, baudrate, timeout):
                 'avg_reachable': avg_reach,
                 'reachable_fraction': reach_frac,
                 'spanning_mass': mass,
+                'spanning_count': resp.spanning_count,
             })
 
             occ_error = abs(avg_occ - p)
+            low_stats = 0 < resp.spanning_count < 10
+            
             if occ_error > 0.02:
-                print(f"    ⚠️ OCCUPANCY BIAS: expected ~{p:.4f}, got {avg_occ:.4f}")
-            if 0 < resp.spanning_count < 10:
-                print(f"    ⚠️ LOW STATISTICS: only {resp.spanning_count} spanning runs")
+                print(f"    [WARNING] OCCUPANCY BIAS: expected ~{p:.4f}, got {avg_occ:.4f}")
+            if low_stats:
+                print(f"    [WARNING] LOW STATISTICS: only {resp.spanning_count} spanning runs")
 
             print(f"  HW p={p:.4f}: span={resp.spanning_count}/{runs} ({rate:.4f}), "
                   f"occ={avg_occ:.4f}, reach={avg_reach:.1f}, "
@@ -73,10 +76,13 @@ def hw_sweep(probabilities, runs, width, steps, seed, port, baudrate, timeout):
             time.sleep(0.2)
     finally:
         client.close()
-    return hw_rates, hw_metrics
+    
+    # Compute low_stats flags for visualization
+    low_stats_flags = [0 < m['spanning_count'] < 10 for m in hw_metrics]
+    return hw_rates, hw_metrics, low_stats_flags
 
 
-def plot_three_way(probabilities, bfs_rates, sw_fpga_rates, hw_rates, hw_metrics, output, runs, width, steps):
+def plot_three_way(probabilities, bfs_rates, sw_fpga_rates, hw_rates, hw_metrics, low_stats_flags, output, runs, width, steps):
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
 
     # Plot 1: Spanning probability
@@ -121,9 +127,21 @@ def plot_three_way(probabilities, bfs_rates, sw_fpga_rates, hw_rates, hw_metrics
 
     # Plot 4: Spanning cluster mass
     ax4 = axes[1, 1]
-    if hw_metrics:
-        masses = [m['spanning_mass'] for m in hw_metrics]
-        ax4.plot(probabilities, masses, 'v-', color='purple', linewidth=2, markersize=6, label='Mass per spanning run')
+    if hw_metrics and low_stats_flags:
+        # Separate normal and low-stats points
+        normal_probs = [hw_metrics[i]['p'] for i in range(len(hw_metrics)) if not low_stats_flags[i]]
+        normal_masses = [hw_metrics[i]['spanning_mass'] for i in range(len(hw_metrics)) if not low_stats_flags[i]]
+        low_stat_probs = [hw_metrics[i]['p'] for i in range(len(hw_metrics)) if low_stats_flags[i]]
+        low_stat_masses = [hw_metrics[i]['spanning_mass'] for i in range(len(hw_metrics)) if low_stats_flags[i]]
+        
+        # Plot normal stats as green circles (no line)
+        if normal_probs:
+            ax4.scatter(normal_probs, normal_masses, marker='o', color='green', s=80, linewidth=0, label='Mass per spanning run', zorder=4)
+        
+        # Plot low stats with red upper triangles (no line)
+        if low_stat_probs:
+            ax4.scatter(low_stat_probs, low_stat_masses, marker='^', color='red', s=100, linewidth=0, label='Mass (low statistics)', zorder=5)
+        
         ax4.set_xlabel('Occupation Probability p')
         ax4.set_ylabel('Average Reachable Sites')
         ax4.set_title('Spanning Cluster Mass')
@@ -187,15 +205,16 @@ def main():
     # Hardware sweep
     hw_rates = None
     hw_metrics = None
+    low_stats_flags = None
     if not args.software_only:
         print(f"Running hardware sweep on {args.port}...")
         try:
-            hw_rates, hw_metrics = hw_sweep(probabilities, args.runs, args.width, args.steps, args.seed, args.port, args.baudrate, args.timeout)
+            hw_rates, hw_metrics, low_stats_flags = hw_sweep(probabilities, args.runs, args.width, args.steps, args.seed, args.port, args.baudrate, args.timeout)
             print()
         except Exception as e:
             print(f"Hardware error: {e}\n")
 
-    plot_three_way(probabilities, bfs_rates, sw_fpga_rates, hw_rates, hw_metrics, output, args.runs, args.width, args.steps)
+    plot_three_way(probabilities, bfs_rates, sw_fpga_rates, hw_rates, hw_metrics, low_stats_flags, output, args.runs, args.width, args.steps)
 
     # Summary
     print("\n=== Summary ===")
@@ -214,18 +233,18 @@ def main():
         print("\n=== Physical Validation ===")
         max_occ_error = max(abs(m['avg_occ'] - m['p']) for m in hw_metrics)
         print(f"Max occupancy bias: {max_occ_error:.4f} (should be < 0.02)")
-        print("  ✓ PASS" if max_occ_error <= 0.02 else "  ⚠️ FAIL")
+        print("  [PASS]" if max_occ_error <= 0.02 else "  [FAIL]")
 
         reach_fracs = [m['reachable_fraction'] for m in hw_metrics]
         non_mono = sum(1 for i in range(len(reach_fracs)-1) if reach_fracs[i+1] < reach_fracs[i] - 0.05)
         print(f"Reachable fraction monotonicity: {non_mono} violations")
-        print("  ✓ PASS" if non_mono <= 3 else "  ⚠️ FAIL")
+        print("  [PASS]" if non_mono <= 3 else "  [FAIL]")
 
         if hw_thr:
             crit_idx = min(range(len(probabilities)), key=lambda i: abs(probabilities[i] - hw_thr))
             crit_reach = hw_metrics[crit_idx]['reachable_fraction']
             print(f"Reachable fraction at p_c={hw_thr:.3f}: {crit_reach:.3f}")
-            print("  ✓ PASS" if 0.2 < crit_reach < 0.5 else "  ⚠️ UNEXPECTED")
+            print("  [PASS]" if 0.2 < crit_reach < 0.5 else "  [UNEXPECTED]")
 
 
 if __name__ == '__main__':

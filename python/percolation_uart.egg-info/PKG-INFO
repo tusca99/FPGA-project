@@ -12,29 +12,23 @@ Requires-Dist: numba>=0.59; extra == "analysis"
 
 # Python Tools
 
-This folder contains the host-side tools for the percolation FPGA project.
-It is the Python entry point for request/response handling, reference simulation, and benchmark sweeps.
+Host-side tools for the percolation FPGA project.
 
-## Where to start
+## Package Layout
 
-- [README radice](../README.md) for the overall repository entry point.
-- [Percolation core](../project/percolation_core/README.md) for the data-plane MVP and the BFS roadmap.
-- [UART binary scaffold](../project/uart_message_bin/README.md) for the fixed-length control-plane wrappers.
-- [UART protocol v2](../project/percolation_core/UART_PROTOCOL_V2.md) for the exact frame layout.
-
-## Package layout
-
-- `percolation_uart.protocol` packs and unpacks UART messages.
-- `percolation_uart.transport` wraps the serial link to the FPGA.
-- `percolation_uart.client` exposes a small high-level API.
-- `percolation_uart.reference` provides a pure-Python Monte Carlo reference.
-- `percolation_uart.benchmark` runs timing and sweep experiments.
+| Module | Purpose |
+|--------|---------|
+| `percolation_uart.protocol` | Pack/unpack UART messages (16-byte frames) |
+| `percolation_uart.transport` | Serial link wrapper |
+| `percolation_uart.client` | High-level API (`PercolationClient`) |
+| `percolation_uart.reference` | Pure-Python Monte Carlo reference (BFS) |
+| `percolation_uart.benchmark` | Timing and sweep experiments |
+| `percolation_uart.fpga_algorithm` | Software model of FPGA algorithm |
 
 ## Install
 
-From this directory, using a local virtual environment:
-
 ```bash
+cd python
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
@@ -43,25 +37,55 @@ uv pip install -r requirements.txt
 ```
 
 Optional analysis extras:
-
 ```bash
 uv pip install -r requirements-analysis.txt
 ```
 
-## Example
+## Quick Start
 
 ```python
 from percolation_uart.client import PercolationClient
 
 with PercolationClient(port="/dev/ttyUSB0") as client:
-    response = client.run_from_probability(0.6, seed=0x12345678, grid_size=8, cfg_runs=1)
+    response = client.run_from_probability(0.6, seed=0x12345678, grid_size=64, cfg_runs=16)
     print(response)
+    # PercolationResponse(step_count=16, spanning_count=8, total_occupied=39314, spanning_occupied=57344)
 ```
 
-## Notes
+## Validation
 
-- The FPGA response is 32 bytes: `StepCount`, `SpanningCount`, `TotalOccupied`, `Status`, `RngInitCycles`, `CoreRunCycles`, `BatchCycles`, `Reserved`.
-- `StepCount` is the number of completed runs in the batch; `BatchCycles` covers request-to-done timing on the FPGA side.
-- For per-run statistics, keep `cfg_runs = 1` and repeat requests.
-- The `requirements.txt` file keeps the editable install minimal; `requirements-analysis.txt` adds the plotting and numerical stack.
-- `bootstrap.sh` creates the venv, installs `uv` inside it, and installs the base requirements.
+### Three-Way Comparison
+
+Compare BFS reference, software FPGA model, and hardware FPGA:
+
+```bash
+python python/compare_three.py --runs 1000 --points 20 --output three_way.png --pmin 0.50 --pmax 0.70
+```
+
+Outputs:
+- Critical threshold estimates for all three methods
+- Occupancy bias check
+- Reachable fraction monotonicity check
+- Mass (avg reachable sites in spanning runs) at criticality
+
+### Hardware Sweep
+
+```bash
+python python/hw_sweep.py --port /dev/ttyUSB1 --runs 100 --points 10
+```
+
+## Response Format
+
+The FPGA returns 16 bytes:
+- `StepCount` (4B): completed runs
+- `SpanningCount` (4B): spanning runs
+- `TotalOccupied` (4B): total occupied sites
+- `SpanningOccupied` (4B): reachable sites in spanning runs
+
+For per-run statistics, keep `cfg_runs = 1` and repeat requests.
+
+## Doc Links
+
+- [Root README](../README.md) — Project overview
+- [Core README](../project/percolation_core/README.md) — FPGA core
+- [UART Protocol](../project/percolation_core/UART_PROTOCOL_V2.md) — Binary frame layout
