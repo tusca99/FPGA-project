@@ -349,7 +349,7 @@ def plot_dashboard(summary_rows: list[dict[str, object]], raw_rows: list[dict[st
 
     span_p, span_mean, span_std, _ = _group_by_p(raw_rows, "spanning_rate")
     if span_p:
-        _plot_with_error_bars(
+        _plot_with_sigmoid_fit(
             axes[1, 1],
             span_p,
             span_mean,
