@@ -3,9 +3,9 @@ from percolation_uart.transport import UartTransport
 import time
 
 # Test with manual serial to see raw bytes
-test_runs = [1, 10, 100, 255, 1500]
+test_runs = [1]
 
-with UartTransport(port="/dev/ttyUSB1", baudrate=115200, timeout=2.0) as ser:
+with UartTransport(port="/dev/ttyUSB1", baudrate=115200, timeout=20.0) as ser:
     for cfg_runs in test_runs:
         # Flush any pending data
         ser.reset_input_buffer()
@@ -16,7 +16,7 @@ with UartTransport(port="/dev/ttyUSB1", baudrate=115200, timeout=2.0) as ser:
         req = PercolationRequest.from_probability(
             probability=0.5927,  # near critical threshold for 2D site percolation
             cfg_seed=0x12345678,
-            steps_per_run=32,  # N_ROWS_G = 32
+            steps_per_run=6700000,  # N_ROWS_G = 32
             cfg_runs=cfg_runs,
         )
         req_bytes = encode_request(req)

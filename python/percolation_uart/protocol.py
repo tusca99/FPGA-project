@@ -10,8 +10,20 @@ REQUEST_BYTES = 16
 RESPONSE_BYTES = 16
 WORD_BYTES = 4
 UQ32_SCALE = 1 << 32
-MAX_GRID_SIZE = 128
-MAX_CFG_RUNS = 0xFFFFFF
+MAX_GRID_SIZE = 1023
+CORE_WIDTH = 64
+MAX_TOTAL_OCCUPIED = 0xFFFFFFFF
+MAX_CFG_RUNS = 0xFFFFFFFF
+
+
+def max_cfg_runs_for_steps(steps_per_run: int, width: int = CORE_WIDTH, total_limit: int = MAX_TOTAL_OCCUPIED) -> int:
+    """Return the largest cfg_runs that keeps the total occupied count in 32 bits."""
+
+    if steps_per_run < 1:
+        raise ValueError("steps_per_run must be positive")
+    if width < 1:
+        raise ValueError("width must be positive")
+    return total_limit // (width * steps_per_run)
 
 
 class ProtocolError(ValueError):
@@ -56,8 +68,12 @@ class PercolationRequest:
         _ensure_u32(self.cfg_seed, "cfg_seed")
         if not 1 <= self.steps_per_run <= MAX_GRID_SIZE:
             raise ValueError(f"steps_per_run must be in the range 1..{MAX_GRID_SIZE}")
-        if not 1 <= self.cfg_runs <= MAX_CFG_RUNS:
-            raise ValueError(f"cfg_runs must be in the range 1..{MAX_CFG_RUNS}")
+        max_safe_runs = min(MAX_CFG_RUNS, max_cfg_runs_for_steps(self.steps_per_run))
+        if not 1 <= self.cfg_runs <= max_safe_runs:
+            raise ValueError(
+                f"cfg_runs must be in the range 1..{max_safe_runs} for steps_per_run={self.steps_per_run} "
+                f"at width {CORE_WIDTH}"
+            )
 
     @classmethod
     def from_probability(

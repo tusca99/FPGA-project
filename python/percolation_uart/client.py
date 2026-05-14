@@ -25,8 +25,8 @@ class PercolationClient:
         self,
         port: str,
         baudrate: int = 115200,
-        timeout: float = 1.0,
-        write_timeout: float = 1.0,
+        timeout: float = 120.0,
+        write_timeout: float = 120.0,
     ) -> None:
         self.transport = UartTransport(
             port=port,

@@ -38,8 +38,8 @@ class UartTransport:
         self,
         port: str,
         baudrate: int = 115200,
-        timeout: float = 1.0,
-        write_timeout: float = 1.0,
+        timeout: float = 120.0,
+        write_timeout: float = 120.0,
     ) -> None:
         self._timeout = timeout
         self._write_timeout = write_timeout
@@ -52,8 +52,8 @@ class UartTransport:
     def from_serial(cls, serial_port: Any) -> "UartTransport":
         transport = cls.__new__(cls)
         transport._fd = serial_port
-        transport._timeout = 1.0
-        transport._write_timeout = 1.0
+        transport._timeout = 120.0
+        transport._write_timeout = 120.0
         transport._previous_attrs = None
         transport._closed = False
         return transport

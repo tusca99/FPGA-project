@@ -15,6 +15,8 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
+from .protocol import REQUEST_BYTES, RESPONSE_BYTES
+
 
 DEFAULT_DB = Path(__file__).resolve().parents[1] / "output" / "benchmark.sqlite3"
 
@@ -554,6 +556,62 @@ def plot_spanning_probability(rows: list[dict[str, object]], output: Path) -> No
     fig.savefig(output, dpi=150)
 
 
+def plot_latency_decomposition(summary_rows: list[dict[str, object]], raw_rows: list[dict[str, object]], output: Path) -> None:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    if not summary_rows or not raw_rows:
+        fig, ax = plt.subplots(1, 1, figsize=(10, 5))
+        ax.set_axis_off()
+        ax.text(0.5, 0.5, "No rows available for latency decomposition", ha="center", va="center")
+        output.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(output, dpi=150)
+        return
+
+    first_raw = raw_rows[0]
+    first_summary = summary_rows[0]
+    runs = float(first_raw.get("runs", 1.0))
+    steps = float(first_raw.get("steps", 0.0))
+    baudrate = 115200.0
+    uart_wire_s = float(first_raw.get("uart_wire_s", (REQUEST_BYTES + RESPONSE_BYTES) * 10.0 / baudrate))
+    ideal_core_cycles_per_run = steps * 3.0 + 3.0
+    uart_wire_cycles_per_run = uart_wire_s * 100_000_000.0 / runs if runs > 0 else 0.0
+
+    p_values = [float(row["p"]) for row in summary_rows]
+    measured_cycles = [float(row.get("hw_latency_per_run_cycles", 0.0)) for row in summary_rows]
+    core_est_cycles = [float(row.get("hw_core_latency_per_run_cycles_est", 0.0)) for row in summary_rows]
+    measured_minus_ideal = [value - ideal_core_cycles_per_run for value in measured_cycles]
+    residual_after_wire = [value - uart_wire_cycles_per_run for value in measured_minus_ideal]
+    ideal_core_line = [ideal_core_cycles_per_run for _ in p_values]
+    wire_line = [uart_wire_cycles_per_run for _ in p_values]
+
+    fig, axes = plt.subplots(2, 1, figsize=(12, 9), sharex=True)
+
+    axes[0].plot(p_values, measured_cycles, "o-", label="Measured latency per run")
+    axes[0].plot(p_values, core_est_cycles, "s-", label="Benchmark core estimate")
+    axes[0].plot(p_values, ideal_core_line, "--", color="black", label=f"Ideal core budget ~{ideal_core_cycles_per_run:.0f} cycles/run")
+    axes[0].set_ylabel("Cycles per run")
+    axes[0].set_title("Latency decomposition")
+    axes[0].grid(True, alpha=0.3)
+    axes[0].legend()
+
+    axes[1].plot(p_values, measured_minus_ideal, "o-", label="Measured overhead beyond ideal core")
+    axes[1].plot(p_values, wire_line, "s-", label="Theoretical UART wire time per run")
+    axes[1].plot(p_values, residual_after_wire, "^-", label="Residual after subtracting wire time")
+    axes[1].set_xlabel("Occupation probability p")
+    axes[1].set_ylabel("Cycles per run")
+    axes[1].grid(True, alpha=0.3)
+    axes[1].legend()
+
+    fig.suptitle("Latency decomposition")
+    fig.tight_layout()
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output, dpi=150)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Inspect percolation benchmark SQLite history")
     parser.add_argument("--db", type=str, default=str(DEFAULT_DB))
@@ -592,6 +650,7 @@ def main() -> int:
         if args.plot_dir:
             plot_dir = Path(args.plot_dir)
             plot_dashboard(rows, raw_rows, plot_dir / "dashboard.png")
+            plot_latency_decomposition(rows, raw_rows, plot_dir / "latency_decomposition.png")
             plot_front_density(raw_rows, plot_dir / "front_density.png")
             plot_cluster_mass(raw_rows, plot_dir / "cluster_mass.png")
             plot_occupancy_bias(raw_rows, plot_dir / "occupancy_bias.png")

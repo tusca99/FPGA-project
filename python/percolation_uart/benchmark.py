@@ -427,7 +427,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Benchmark software and hardware percolation paths")
     parser.add_argument("--port", default="/dev/ttyUSB1")
     parser.add_argument("--baudrate", type=int, default=115200)
-    parser.add_argument("--timeout", type=float, default=2.0)
+    parser.add_argument("--timeout", type=float, default=120.0, help="UART response timeout [s]")
     parser.add_argument("--runs", type=int, default=1000, help="cfg_runs per point")
     parser.add_argument("--steps", type=int, default=64, help="Grid height (runtime configurable)")
     parser.add_argument("--width", type=int, default=64, help="Software grid width")
