@@ -65,16 +65,17 @@ end entity;
 | Phase | Cycles | Description |
 |-------|--------|-------------|
 | Start overhead | 1 | Core asserts `frontier_start_s` |
-| Row streaming | 64 × 1 | One row per cycle (prefix scan = 1 cycle/row) |
+| Row streaming | 64 × 3 | Pipelined prefix frontier = 3 cycles/row |
 | Done detection | 1 | Frontier asserts `Done` |
 | Accumulation | 1 | Core adds `run_occupied` to `occupied_sum` |
-| **Total** | **~67** | Per run |
+| **Total** | **~195** | Per run at 64 rows |
 
 ## Validation
 
 - Threshold ~0.6047 for directed percolation on 64×64 (expected ~0.605)
 - Occupancy bias < 0.001 vs probability p
 - Prefix scan validated against BFS reference (1000 random grids)
+- Frontier latency is pipelined: 3 cycles per row, so 64 rows cost about 193-195 cycles depending on start/done bookkeeping
 
 ## Doc Links
 

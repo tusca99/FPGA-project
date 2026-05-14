@@ -11,6 +11,7 @@ Host-side tools for the FPGA percolation core.
 | `client` | High-level API (`PercolationClient`) |
 | `algorithms` | BFS reference + FPGA-directed algorithm |
 | `reference` | Pure-Python Monte Carlo reference (BFS) |
+| `analysis` | SQLite history inspection and lightweight plotting |
 
 ## Quick Start
 
@@ -35,6 +36,12 @@ python compare_three.py --runs 1000 --points 20 --output three_way.png --pmin 0.
 
 ```bash
 python try.py
+```
+
+### SQLite Analysis
+
+```bash
+python -m percolation_uart.analysis --db python/output/benchmark.sqlite3 --latest --plot-dir python/output/analysis
 ```
 
 ## Response Format

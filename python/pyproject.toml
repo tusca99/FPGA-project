@@ -21,6 +21,7 @@ analysis = [
 
 [project.scripts]
 percolation-benchmark = "percolation_uart.benchmark:main"
+percolation-analyze = "percolation_uart.analysis:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

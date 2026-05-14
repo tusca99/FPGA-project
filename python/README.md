@@ -68,50 +68,33 @@ python python/compare_three.py --port /dev/ttyUSB1 --runs 100 --points 10
 
 Hardware width is compile-time fixed in bitstream (`N_ROWS_G`, default 64). UART can change `steps` (height) at runtime, not width.
 
+The benchmark measures end-to-end request/response wall time. At low `cfg_runs`, UART framing and Python/serial overhead dominate the plot, so the raw `runs/s` curve is not the FPGA core-only latency.
+
+To estimate real bitstream latency, use larger `cfg_runs` values and compare `hw_latency_s / cfg_runs`. The benchmark also reports an adjusted estimate after subtracting fixed UART wire time for the 16-byte request and 16-byte response.
+
+`--hw-width` is only a normalization override if your bitstream width differs from `--width`. If you are benchmarking the default 64-wide bitstream, you usually do not need it.
+
 Run benchmark from repository root:
 
 ```bash
-# Software + hardware benchmark, export CSV/JSON and throughput plot
-python -m percolation_uart.benchmark \
-    --port /dev/ttyUSB1 \
-    --runs 1000 \
-    --repeats 5 \
-    --points 15 \
-    --pmin 0.54 --pmax 0.65 \
-    --steps 64 \
-    --width 64 \
-    --hw-width 64 \
-    --csv python/output/benchmark.csv \
-    --json python/output/benchmark.json \
-    --plot python/output/benchmark_throughput.png
-```
-
-```bash
-# Software-only benchmark
-python -m percolation_uart.benchmark \
-    --software-only \
-    --runs 2000 \
-    --repeats 3 \
-    --points 21 \
-    --pmin 0.50 --pmax 0.70 \
-    --steps 64 \
-    --width 64
-```
-
-```bash
-# Hardware-only benchmark (width fixed by bitstream)
 python -m percolation_uart.benchmark \
     --hardware-only \
     --port /dev/ttyUSB1 \
-    --runs 1000 \
-    --repeats 5 \
-    --points 21 \
-    --pmin 0.54 --pmax 0.65 \
+    --runs 100000 \
+    --repeats 100 \
+    --points 40 \
+    --pmin 0.5 --pmax 0.7 \
     --steps 64 \
-    --hw-width 64
+    --progress \
+    --sqlite python/output/benchmark.sqlite3 \
+    --settle 0.02
 ```
 
-`--repeats` repeats measurement at each probability point and reports mean throughput with error (`*_runs_per_s_err`, `*_cells_per_s_err`).
+`--repeats` repeats measurement at each probability point and reports mean throughput with error (`*_runs_per_s_err`, `*_cells_per_s_err`). SQLite is the default persistence target. A normal run writes to `python/output/benchmark.sqlite3` unless you override `--sqlite`. Add `--progress` to show coarse progress bars if `tqdm` is installed. The 40-point / 100-repeat hardware sweep above takes about half an hour on the current setup.
+
+For plots, use `python -m percolation_uart.analysis --db python/output/benchmark.sqlite3 --latest --plot-dir python/output/analysis`.
+
+The analysis output includes a dashboard plus separate plots for occupancy bias, core latency, spanning probability, front density, and spanning cluster mass. The spanning-probability and front-density curves are now fitted with sigmoid-style transitions rather than linear trends.
 
 ## Response Format
 

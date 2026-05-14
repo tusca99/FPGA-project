@@ -73,11 +73,11 @@ The frontier processes the grid row-by-row without storing the full grid:
 | :--- | :--- | :--- | :--- | :--- |
 | Naive ±1 loop | ✅ | ❌ (too deep) | 1 row/clk | 1 clk |
 | Combinatorial mask (log2 stages) | ✅ | ⚠️ (marginal) | 1 row/clk | 1 clk |
-| **Associative prefix scan** | ✅ | ✅ | **1 row/clk** | **1 clk** |
+| **Associative prefix scan** | ✅ | ✅ | **1 row/3 clks** | **3 clks** |
 | Pipelined prefix (3 cycles) | ✅ | ✅ | 1 row/3 clks | 3 clks |
 
-**Current choice**: Associative prefix scan (bidirectional Kogge-Stone style).
-Mathematically equivalent to iterative ±1 propagation but computed in one cycle.
+**Current choice**: Pipelined associative prefix scan (bidirectional Kogge-Stone style).
+Mathematically equivalent to iterative ±1 propagation, but the RTL uses three registered stages per row.
 
 ## Operational Flow
 

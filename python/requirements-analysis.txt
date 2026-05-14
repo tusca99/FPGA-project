@@ -4,3 +4,4 @@
 numpy>=1.26
 matplotlib>=3.8
 numba>=0.59
+tqdm>=4.0

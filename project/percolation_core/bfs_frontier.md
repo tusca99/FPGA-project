@@ -100,8 +100,8 @@ IDLE ──Start──▶ RUN_READY ──ChunkValid──▶ RUN_PROCESS ──
 
 | Phase | Cycles | Description |
 |-------|--------|-------------|
-| Per row | 1 | Prefix scan combinatorial (registered inputs/outputs) |
-| Total run | GridSteps + 2 | Start overhead + rows + done |
+| Per row | 3 | Pipelined prefix scan (registered stages) |
+| Total run | ~3 * GridSteps + 1 | Start overhead + rows + done |
 
 ## Comparison of Methods
 
@@ -109,7 +109,7 @@ IDLE ──Start──▶ RUN_READY ──ChunkValid──▶ RUN_PROCESS ──
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | Naive ±1 loop | ✅ | ❌ (O(N) depth) | 1 row/clk | 1 clk | Too deep for N=64 |
 | Combinatorial mask (shift-OR) | ✅ | ⚠️ (marginal) | 1 row/clk | 1 clk | ~9.9ns at N=64 |
-| **Associative prefix scan** | ✅ | ✅ (~7 LUT levels) | **1 row/clk** | **1 clk** | **Current** |
+| **Associative prefix scan** | ✅ | ✅ (~7 LUT levels) | **1 row/3 clks** | **3 clks** | **Current** |
 | Pipelined prefix (3 cycles) | ✅ | ✅ | 1 row/3 clks | 3 clks | For N≥128 |
 
 ## Validation
