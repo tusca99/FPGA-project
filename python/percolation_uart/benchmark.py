@@ -387,6 +387,7 @@ def _write_sqlite(path: Path, session: dict[str, object], summary_rows: list[dic
             """
             CREATE TABLE IF NOT EXISTS benchmark_raw (
                 session_id TEXT NOT NULL,
+                mode TEXT NOT NULL,
                 p REAL NOT NULL,
                 repeat_index INTEGER NOT NULL,
                 row_json TEXT NOT NULL
@@ -405,10 +406,11 @@ def _write_sqlite(path: Path, session: dict[str, object], summary_rows: list[dic
             ],
         )
         conn.executemany(
-            "INSERT INTO benchmark_raw(session_id, p, repeat_index, row_json) VALUES (?, ?, ?, ?)",
+            "INSERT INTO benchmark_raw(session_id, mode, p, repeat_index, row_json) VALUES (?, ?, ?, ?, ?)",
             [
                 (
                     str(session["session_id"]),
+                    str(row.get("mode", "")),
                     float(row["p"]),
                     int(row.get("repeat_index", 0)),
                     json.dumps(row, sort_keys=True, default=str),
@@ -524,7 +526,7 @@ def main() -> int:
             "args": vars(args),
             "effective_hw_width": effective_hw_width,
             "config_hash": config_hash,
-            "config_json": config_json,
+            "payload_json": config_json,
         }
         raw_rows: list[dict[str, float]] = []
         if sw_rows is not None:
