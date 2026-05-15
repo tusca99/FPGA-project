@@ -25,7 +25,7 @@ end entity trivium_array;
 
 architecture rtl of trivium_array is
     constant GROUP_SIZE_C : integer := GROUP_SIZE_G;
-    constant NUM_GROUPS_C : integer := N_ROWS_G / GROUP_SIZE_C;
+    constant NUM_GROUPS_C : integer := (N_ROWS_G + GROUP_SIZE_C - 1) / GROUP_SIZE_C;
 
     signal row_words_s : word_array_t(0 to N_ROWS_G - 1) := (others => (others => '0'));
     signal row_valid_s : flag_array_t(0 to N_ROWS_G - 1) := (others => '0');
@@ -35,15 +35,6 @@ architecture rtl of trivium_array is
     signal load_group : std_logic_vector(NUM_GROUPS_C - 1 downto 0) := (others => '0');
     signal threshold_dup : std_logic_vector(31 downto 0) := (others => '0');
 
-    attribute KEEP : string;
-    attribute KEEP of rst_group     : signal is "true";
-    attribute KEEP of load_group    : signal is "true";
-    attribute KEEP of threshold_dup : signal is "true";
-
-    attribute MAX_FANOUT : integer;
-    attribute MAX_FANOUT of rst_group     : signal is 32;
-    attribute MAX_FANOUT of load_group    : signal is 32;
-    attribute MAX_FANOUT of threshold_dup : signal is 16;
 begin
     rst_group   <= (others => rst);
     load_group  <= (others => load);

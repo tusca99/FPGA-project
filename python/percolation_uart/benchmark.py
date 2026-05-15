@@ -175,6 +175,7 @@ def _run_hardware_benchmark(
                     cfg_seed=seed,
                     steps_per_run=steps,
                     cfg_runs=runs,
+                    width=hw_width,
                 )
                 client.transport.reset_input_buffer()
                 client.transport.reset_output_buffer()

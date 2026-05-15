@@ -6,7 +6,7 @@ entity percolation_uart_top is
     generic (
         CLK_FREQ  : integer := 100_000_000;
         BAUD_RATE : integer := 115200;
-        N_ROWS_G  : positive := 64;
+        N_ROWS_G  : positive := 170;
         REQ_BYTES : positive := 16;
         RSP_BYTES : positive := 16
     );
@@ -107,12 +107,9 @@ begin
             CfgRuns        => core_cfg_runs_s,
             CfgInit        => core_cfg_init_s,
             StepCount      => core_step_count_s,
-            PendingSteps   => open,
             SpanningCount  => core_spanning_s,
             TotalOccupied  => core_total_s,
             SpanningOccupied => core_spanning_occ_s,
-            RngBusy        => open,
-            RngAllValid    => open,
             Done           => core_done_s
         );
 

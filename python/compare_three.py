@@ -39,6 +39,7 @@ def hw_sweep(probabilities, runs, width, steps, seed, port, baudrate, timeout):
                 cfg_seed=seed,
                 steps_per_run=steps,
                 cfg_runs=runs,
+                width=width,
             )
             client.transport.reset_input_buffer()
             client.transport.reset_output_buffer()

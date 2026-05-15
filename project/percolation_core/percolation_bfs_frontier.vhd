@@ -24,7 +24,7 @@ entity percolation_bfs_frontier is
         Busy          : out std_logic;
         Done          : out std_logic;
         Spanning      : out std_logic;
-        ReachPopcount : out unsigned(15 downto 0)
+        ReachPopcount : out unsigned(31 downto 0)
     );
 end entity percolation_bfs_frontier;
 
@@ -40,21 +40,10 @@ architecture pipelined_prefix of percolation_bfs_frontier is
     signal current_open       : std_logic_vector(N_ROWS_G - 1 downto 0) := (others => '0');
     signal current_seed       : std_logic_vector(N_ROWS_G - 1 downto 0) := (others => '0');
     signal previous_reach_row     : std_logic_vector(N_ROWS_G - 1 downto 0) := (others => '0');
-    signal previous_reach_row_dup : std_logic_vector(N_ROWS_G - 1 downto 0) := (others => '0');
 
     -- Pipelined reachability result
     signal reach_result_reg   : std_logic_vector(N_ROWS_G - 1 downto 0) := (others => '0');
-    signal reach_popcount_reg : unsigned(15 downto 0) := (others => '0');
-
-    attribute KEEP : string;
-    attribute KEEP of previous_reach_row     : signal is "true";
-    attribute KEEP of previous_reach_row_dup : signal is "true";
-    attribute KEEP of reach_result_reg       : signal is "true";
-    attribute KEEP of reach_popcount_reg     : signal is "true";
-
-    attribute MAX_FANOUT : integer;
-    attribute MAX_FANOUT of previous_reach_row     : signal is 16;
-    attribute MAX_FANOUT of previous_reach_row_dup : signal is 16;
+    signal reach_popcount_reg : unsigned(31 downto 0) := (others => '0');
 
     function any_set(row : std_logic_vector(N_ROWS_G - 1 downto 0)) return std_logic is
     begin
@@ -137,7 +126,7 @@ architecture pipelined_prefix of percolation_bfs_frontier is
     end function;
 
     function count_ones(bits : std_logic_vector) return unsigned is
-        variable result : unsigned(15 downto 0) := (others => '0');
+        variable result : unsigned(31 downto 0) := (others => '0');
     begin
         for index in bits'range loop
             if bits(index) = '1' then
@@ -172,7 +161,6 @@ begin
                 current_open       <= (others => '0');
                 current_seed       <= (others => '0');
                 previous_reach_row <= (others => '0');
-                previous_reach_row_dup <= (others => '0');
                 reach_result_reg   <= (others => '0');
                 reach_popcount_reg <= (others => '0');
             else
@@ -194,7 +182,6 @@ begin
                     current_open       <= (others => '0');
                     current_seed       <= (others => '0');
                     previous_reach_row <= (others => '0');
-                    previous_reach_row_dup <= (others => '0');
                     reach_result_reg   <= (others => '0');
                     reach_popcount_reg <= (others => '0');
                 else
@@ -215,7 +202,6 @@ begin
                                 end if;
                                 p_spanning         <= '0';
                                 previous_reach_row <= (others => '0');
-                                previous_reach_row_dup <= (others => '0');
                                 reach_result_reg   <= (others => '0');
                                 reach_popcount_reg <= (others => '0');
                                 state              <= RUN_READY;
@@ -227,7 +213,7 @@ begin
                                 if rows_seen = 0 then
                                     current_seed <= ChunkOpen;
                                 else
-                                    current_seed <= ChunkOpen and previous_reach_row_dup;
+                                    current_seed <= ChunkOpen and previous_reach_row;
                                 end if;
                                 state          <= RUN_COMPUTE;
                             end if;
@@ -240,7 +226,6 @@ begin
                         when RUN_SAVE =>
                             -- Cycle 3: save reachability and compute popcount
                             previous_reach_row     <= reach_result_reg;
-                            previous_reach_row_dup <= reach_result_reg;
                             reach_popcount_reg     <= count_ones(reach_result_reg);
                             rows_seen_v := rows_seen + 1;
                             rows_seen   <= rows_seen_v;

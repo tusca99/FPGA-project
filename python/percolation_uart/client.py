@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .protocol import (
+    CORE_WIDTH,
     RESPONSE_BYTES,
     PercolationRequest,
     PercolationResponse,
@@ -52,12 +53,14 @@ class PercolationClient:
         seed: int,
         steps_per_run: int,
         cfg_runs: int,
+        width: int = CORE_WIDTH,
     ) -> PercolationResponse:
         request = PercolationRequest.from_probability(
             probability=probability,
             cfg_seed=seed,
             steps_per_run=steps_per_run,
             cfg_runs=cfg_runs,
+            width=width,
         )
         return self.run(request)
 
