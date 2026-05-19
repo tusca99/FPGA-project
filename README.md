@@ -26,7 +26,7 @@ Validates directed percolation threshold (~0.605 for 64×64) via UART-controlled
 |------|------|
 | `project/percolation_core/percolation_core.vhd` | Orchestrates RNG + frontier, accumulates statistics |
 | `project/percolation_core/percolation_bfs_frontier.vhd` | Row-wise reachability via bidirectional associative prefix scan |
-| `project/rng/zz_rng_hybrid_64.vhd` | 64× Trivium RNG bank, AES-CTR seeded |
+| `project/rng/rng_hybrid_64.vhd` | 64× Trivium RNG bank, AES-CTR seeded |
 | `project/percolation_core/percolation_uart_top.vhd` | UART wrapper: 16-byte request/response |
 
 ## Protocol
