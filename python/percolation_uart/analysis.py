@@ -200,6 +200,70 @@ def _sigmoid_regression_3sigma(x: list[float], y: list[float], n_points: int = 3
     return fit_x, fit, upper, lower
 
 
+def _sigmoid_regression_nonlinear(x: list[float], y: list[float], n_points: int = 300):
+    """Try a true nonlinear logistic fit y = 1/(1+exp(-(a*x + b))).
+
+    Falls back to `_sigmoid_regression_3sigma` if required libraries or
+    fitting fails.
+    Returns (xs, fit, upper, lower).
+    """
+    if not x or not y or len(x) != len(y):
+        return [], [], [], []
+    if len(x) < 2:
+        return x[:], y[:], y[:], y[:]
+
+    try:
+        import numpy as _np
+        from math import exp
+        try:
+            from scipy.optimize import curve_fit
+
+            def _model(xv, a, b):
+                return 1.0 / (1.0 + _np.exp(-(a * _np.asarray(xv) + b)))
+
+            # initial guess: use linear logit regression if possible
+            eps = 1e-6
+            clipped = [_np.clip(v, eps, 1.0 - eps) for v in y]
+            logits = [_np.log(v / (1.0 - v)) for v in clipped]
+            # linear fit in logit space
+            a0 = 0.0
+            b0 = 0.0
+            try:
+                A = _np.vstack([x, _np.ones_like(x)]).T
+                sol, *_ = _np.linalg.lstsq(A, _np.asarray(logits), rcond=None)
+                a0, b0 = sol[0], sol[1]
+            except Exception:
+                a0, b0 = 10.0, -6.0
+
+            popt, pcov = curve_fit(_model, _np.asarray(x), _np.asarray(y), p0=[a0, b0], maxfev=10000)
+            a, b = popt[0], popt[1]
+
+            xs = [min(x) + i * (max(x) - min(x)) / (n_points - 1) for i in range(n_points)]
+            fit = [1.0 / (1.0 + _np.exp(-(a * _np.asarray(xs) + b)))[i] for i in range(len(xs))]
+
+            # approximate uncertainty via parameter covariance (delta method)
+            upper = fit[:]  # conservative fallback
+            lower = fit[:]
+            try:
+                vars = _np.diag(pcov)
+                # simple +/- 3 sigma on parameters to make envelopes (conservative)
+                a_hi, a_lo = a + 3.0 * _np.sqrt(max(vars[0], 0.0)), a - 3.0 * _np.sqrt(max(vars[0], 0.0))
+                b_hi, b_lo = b + 3.0 * _np.sqrt(max(vars[1], 0.0)), b - 3.0 * _np.sqrt(max(vars[1], 0.0))
+                fit_hi = [1.0 / (1.0 + _np.exp(-(a_hi * xi + b_hi))) for xi in xs]
+                fit_lo = [1.0 / (1.0 + _np.exp(-(a_lo * xi + b_lo))) for xi in xs]
+                upper = fit_hi
+                lower = fit_lo
+            except Exception:
+                pass
+
+            return xs, fit, upper, lower
+        except Exception:
+            # scipy not available or fit failed: fall back
+            return _sigmoid_regression_3sigma(x, y, n_points=n_points)
+    except Exception:
+        return _sigmoid_regression_3sigma(x, y, n_points=n_points)
+
+
 def _plot_with_error_bars(
     ax,
     x: list[float],
@@ -255,6 +319,41 @@ def _plot_with_sigmoid_fit(
         alpha=0.95,
     )
     fit_x, fit_y, fit_hi, fit_lo = _sigmoid_regression_3sigma(x, y)
+    if fit_x:
+        ax.plot(fit_x, fit_y, "-", linewidth=2, alpha=0.9, color=color, label=fit_label)
+        ax.fill_between(fit_x, fit_lo, fit_hi, color=color, alpha=0.15, label=shade_label)
+
+
+def _plot_with_sigmoid_fit_nonlinear(
+    ax,
+    x: list[float],
+    y: list[float],
+    yerr: list[float],
+    *,
+    marker: str,
+    color: str,
+    label: str,
+    fit_label: str,
+    shade_label: str,
+) -> None:
+    """Plot points with error bars and a nonlinear logistic fit when available.
+
+    Falls back to the existing linear-logit fit implementation if nonlinear
+    fitting is not possible.
+    """
+    ax.errorbar(
+        x,
+        y,
+        yerr=yerr,
+        fmt=marker,
+        linestyle="none",
+        capsize=3,
+        markersize=5,
+        label=label,
+        color=color,
+        alpha=0.95,
+    )
+    fit_x, fit_y, fit_hi, fit_lo = _sigmoid_regression_nonlinear(x, y)
     if fit_x:
         ax.plot(fit_x, fit_y, "-", linewidth=2, alpha=0.9, color=color, label=fit_label)
         ax.fill_between(fit_x, fit_lo, fit_hi, color=color, alpha=0.15, label=shade_label)
@@ -386,7 +485,8 @@ def plot_front_density(rows: list[dict[str, object]], output: Path) -> None:
 
     fig, ax = plt.subplots(1, 1, figsize=(10, 5))
     if p_values:
-        _plot_with_sigmoid_fit(
+        # Use linear regression fit for front density (sigmoid is heuristic here)
+        _plot_with_error_bars(
             ax,
             p_values,
             density_values,
@@ -394,8 +494,8 @@ def plot_front_density(rows: list[dict[str, object]], output: Path) -> None:
             marker="D",
             color="green",
             label="Reachable density (mean ± std)",
-            fit_label="Density sigmoid fit",
-            shade_label="Density sigmoid fit ± 3σ",
+            fit_label="Density linear fit",
+            shade_label="Density fit ± 3σ",
         )
 
     ax.set_xlabel("Occupation probability p")
@@ -532,7 +632,7 @@ def plot_spanning_probability(rows: list[dict[str, object]], output: Path) -> No
 
     fig, ax = plt.subplots(1, 1, figsize=(10, 5))
     if p_values:
-        _plot_with_sigmoid_fit(
+        _plot_with_sigmoid_fit_nonlinear(
             ax,
             p_values,
             span_values,

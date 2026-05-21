@@ -3,5 +3,6 @@
 # Optional analysis and plotting stack.
 numpy>=1.26
 matplotlib>=3.8
+scipy>=1.16
 numba>=0.59
 tqdm>=4.0

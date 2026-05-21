@@ -74,6 +74,13 @@ To estimate real bitstream latency, use larger `cfg_runs` values and compare `hw
 
 `--hw-width` is only a normalization override if your bitstream width differs from `--width`. If you are benchmarking the default 64-wide bitstream, you usually do not need it.
 
+Note about analysis and hardware width:
+
+- The analysis scripts read the recorded `width` and `steps` fields from each benchmark row in the SQLite database and use those values to compute area-normalized statistics (e.g. front density) and latency normalizations. For hardware runs, make sure `--hw-width` matches the compile-time width of the loaded bitstream so area-based numbers are computed correctly.
+
+- If you change the FPGA bitstream width, recompile/program the board with the new `N_ROWS_G` and re-run the benchmark with `--hw-width` set accordingly. The analysis uses the values written into the database; adjusting `--hw-width` on the benchmark command records the correct value for later inspection.
+
+
 Run benchmark from repository root:
 
 ```bash
