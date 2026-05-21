@@ -103,6 +103,10 @@ For plots, use `python -m percolation_uart.analysis --db python/output/benchmark
 
 The analysis output includes a dashboard plus separate plots for occupancy bias, core latency, spanning probability, front density, and spanning cluster mass. The spanning-probability and front-density curves are now fitted with sigmoid-style transitions rather than linear trends.
 
+Spanning-probability fit details:
+- The spanning-probability plot is produced by aggregating raw repeats into (successes, trials) per `p` and fitting a binomial logistic regression (maximum likelihood) to those buckets.
+- The shaded band around the fit is an approximate 95% confidence interval derived from the asymptotic normal approximation of the parameter estimates (z ≈ 1.96). This is intended to convey statistical uncertainty in the MLE fit; for more rigorous intervals consider parametric bootstrap or profile likelihood.
+
 ## Response Format
 
 The FPGA returns 16 bytes:
@@ -111,6 +115,9 @@ The FPGA returns 16 bytes:
 - `SpanningCount` (4B): spanning runs
 - `TotalOccupied` (4B): total occupied sites
 - `SpanningOccupied` (4B): reachable sites in spanning runs
+Note: In May 2026 the firmware was updated to clarify semantics of the response fields.
+- `SpanningOccupied` now represents the sum of reachable sites only across runs that actually spanned (i.e. conditional sum). Previously this word was a batch total aggregated across all runs which could lead to misleading "mass" values when divided by the spanning count.
+- Analysis and benchmark code expect `reachable_sites_per_run` to be the average reachable sites per run (computed from `TotalOccupied / cfg_runs`) and `mass` to be the average reachable sites per spanning run (computed from `SpanningOccupied / SpanningCount`). If you use older firmware images, either use compatibility mode in the analysis scripts or re-run benchmarks with the updated bitstream.
 
 For per-run statistics, keep `cfg_runs = 1` and repeat requests.
 

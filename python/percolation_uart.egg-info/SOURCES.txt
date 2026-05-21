@@ -2,6 +2,8 @@ README.md
 pyproject.toml
 percolation_uart/__init__.py
 percolation_uart/algorithms.py
+percolation_uart/analysis.py
+percolation_uart/benchmark.py
 percolation_uart/client.py
 percolation_uart/protocol.py
 percolation_uart/reference.py

@@ -128,6 +128,29 @@ def _group_by_p(rows: list[dict[str, object]], value_key: str) -> tuple[list[flo
     return probabilities, means, stds, errs
 
 
+def _aggregate_mass_by_p(rows: list[dict[str, object]], min_spanning_count: int = 10) -> tuple[list[float], list[float], list[float], list[float]]:
+    buckets: dict[float, dict[str, float]] = defaultdict(lambda: {"spanning_occupied": 0.0, "spanning_count": 0.0})
+    for row in rows:
+        if "p" not in row:
+            continue
+        p_value = float(row["p"])
+        buckets[p_value]["spanning_occupied"] += float(row.get("spanning_occupied", 0.0))
+        buckets[p_value]["spanning_count"] += float(row.get("spanning_count", 0.0))
+
+    probabilities = sorted(buckets)
+    pooled_mass: list[float] = []
+    pooled_spanning_count: list[float] = []
+    low_stat_flags: list[float] = []
+    for probability in probabilities:
+        total_spanning_occupied = buckets[probability]["spanning_occupied"]
+        total_spanning_count = buckets[probability]["spanning_count"]
+        mass = total_spanning_occupied / total_spanning_count if total_spanning_count > 0 else 0.0
+        pooled_mass.append(mass)
+        pooled_spanning_count.append(total_spanning_count)
+        low_stat_flags.append(1.0 if total_spanning_count < min_spanning_count else 0.0)
+    return probabilities, pooled_mass, pooled_spanning_count, low_stat_flags
+
+
 def _linear_regression_3sigma(x: list[float], y: list[float], n_points: int = 300) -> tuple[list[float], list[float], list[float], list[float]]:
     if not x or not y or len(x) != len(y):
         return [], [], [], []
@@ -200,7 +223,7 @@ def _sigmoid_regression_3sigma(x: list[float], y: list[float], n_points: int = 3
     return fit_x, fit, upper, lower
 
 
-def _sigmoid_regression_nonlinear(x: list[float], y: list[float], n_points: int = 300):
+def _sigmoid_regression_nonlinear(x: list[float], y: list[float], n_points: int = 300, yerr: list[float] | None = None):
     """Try a true nonlinear logistic fit y = 1/(1+exp(-(a*x + b))).
 
     Falls back to `_sigmoid_regression_3sigma` if required libraries or
@@ -235,11 +258,20 @@ def _sigmoid_regression_nonlinear(x: list[float], y: list[float], n_points: int 
             except Exception:
                 a0, b0 = 10.0, -6.0
 
-            popt, pcov = curve_fit(_model, _np.asarray(x), _np.asarray(y), p0=[a0, b0], maxfev=10000)
+            sigma = None
+            if yerr is not None:
+                try:
+                    sigma = _np.asarray(yerr, dtype=float)
+                    sigma = _np.maximum(sigma, 1e-8)
+                except Exception:
+                    sigma = None
+
+            popt, pcov = curve_fit(_model, _np.asarray(x), _np.asarray(y), p0=[a0, b0], sigma=sigma, maxfev=10000)
             a, b = popt[0], popt[1]
 
             xs = [min(x) + i * (max(x) - min(x)) / (n_points - 1) for i in range(n_points)]
-            fit = [1.0 / (1.0 + _np.exp(-(a * _np.asarray(xs) + b)))[i] for i in range(len(xs))]
+            vals = 1.0 / (1.0 + _np.exp(-(a * _np.asarray(xs) + b)))
+            fit = [float(vals[i]) for i in range(len(xs))]
 
             # approximate uncertainty via parameter covariance (delta method)
             upper = fit[:]  # conservative fallback
@@ -289,6 +321,132 @@ def _plot_with_error_bars(
         alpha=0.95,
     )
     fit_x, fit_y, fit_hi, fit_lo = _linear_regression_3sigma(x, y)
+    if fit_x:
+        ax.plot(fit_x, fit_y, "-", linewidth=2, alpha=0.9, color=color, label=fit_label)
+        ax.fill_between(fit_x, fit_lo, fit_hi, color=color, alpha=0.15, label=shade_label)
+
+
+def _binomial_logit_regression_from_buckets(buckets: dict[float, tuple[float, float]], n_points: int = 300):
+    """Fit a binomial logistic regression to aggregated (successes, trials) buckets.
+
+    buckets: mapping p_value -> (successes, trials)
+    Returns (xs, fit, upper, lower) where xs is a grid of p values.
+    """
+    try:
+        import numpy as _np
+        from scipy.optimize import minimize
+    except Exception:
+        return [], [], [], []
+
+    probs = sorted(buckets)
+    successes = _np.asarray([buckets[p][0] for p in probs], dtype=float)
+    trials = _np.asarray([buckets[p][1] for p in probs], dtype=float)
+    # avoid zero-trial buckets
+    mask = trials > 0
+    if not _np.any(mask):
+        return [], [], [], []
+
+    xs_data = _np.asarray([float(p) for p in probs])[mask]
+    ks = successes[mask]
+    ns = trials[mask]
+
+    # observed proportions
+    ys = ks / ns
+
+    # initial linear logit guess
+    eps = 1e-9
+    ys_clipped = _np.clip(ys, eps, 1.0 - eps)
+    logits = _np.log(ys_clipped / (1.0 - ys_clipped))
+    try:
+        A = _np.vstack([xs_data, _np.ones_like(xs_data)]).T
+        sol, *_ = _np.linalg.lstsq(A, logits, rcond=None)
+        a0, b0 = float(sol[0]), float(sol[1])
+    except Exception:
+        a0, b0 = 50.0, -30.0
+
+    def neg_loglik(params):
+        a, b = params[0], params[1]
+        lin = a * xs_data + b
+        p = 1.0 / (1.0 + _np.exp(-lin))
+        p = _np.clip(p, 1e-12, 1.0 - 1e-12)
+        ll = ks * _np.log(p) + (ns - ks) * _np.log(1.0 - p)
+        return -_np.sum(ll)
+
+    res = None
+    try:
+        res = minimize(neg_loglik, x0=_np.asarray([a0, b0], dtype=float), method="BFGS")
+    except Exception:
+        return [], [], [], []
+
+    if not res.success:
+        # fallback
+        return [], [], [], []
+
+    a_hat, b_hat = float(res.x[0]), float(res.x[1])
+
+    # Grid
+    xs = [float(min(probs) + i * (max(probs) - min(probs)) / (n_points - 1)) for i in range(n_points)]
+    xs_arr = _np.asarray(xs)
+    fit_vals = 1.0 / (1.0 + _np.exp(-(a_hat * xs_arr + b_hat)))
+    fit = [float(v) for v in fit_vals]
+
+    # covariance approximation from inverse Hessian (BFGS provides hess_inv)
+    upper = fit[:]
+    lower = fit[:]
+    try:
+        hess_inv = _np.asarray(res.hess_inv)
+        if hess_inv.shape == (2, 2):
+            param_vars = _np.diag(hess_inv)
+            se_a = _np.sqrt(max(param_vars[0], 0.0))
+            se_b = _np.sqrt(max(param_vars[1], 0.0))
+            # 95% approximate CI using normal approximation (z=1.96)
+            z = 1.96
+            a_hi, a_lo = a_hat + z * se_a, a_hat - z * se_a
+            b_hi, b_lo = b_hat + z * se_b, b_hat - z * se_b
+            fit_hi = 1.0 / (1.0 + _np.exp(-(a_hi * xs_arr + b_hi)))
+            fit_lo = 1.0 / (1.0 + _np.exp(-(a_lo * xs_arr + b_lo)))
+            upper = [float(v) for v in fit_hi]
+            lower = [float(v) for v in fit_lo]
+    except Exception:
+        pass
+
+    return xs, fit, upper, lower
+
+
+def _plot_with_binomial_logit(ax, rows: list[dict[str, object]], *, marker: str, color: str, label: str, fit_label: str, shade_label: str):
+    """Aggregate raw rows by `p` and plot binomial logistic regression fit with binomial error bars."""
+    try:
+        import numpy as _np
+    except Exception:
+        _np = None
+    buckets: dict[float, tuple[float, float]] = defaultdict(lambda: (0.0, 0.0))
+    for row in rows:
+        if "p" not in row or "spanning_count" not in row or "runs" not in row:
+            continue
+        p = float(row["p"])
+        k, n = float(row.get("spanning_count", 0.0)), float(row.get("runs", 1.0))
+        s, t = buckets[p]
+        buckets[p] = (s + k, t + n)
+
+    probs = sorted(buckets)
+    if not probs:
+        return
+
+    means = []
+    stderr = []
+    for p in probs:
+        s, t = buckets[p]
+        prop = (s / t) if t > 0 else 0.0
+        means.append(prop)
+        if _np is not None:
+            stderr.append((_np.sqrt(prop * (1.0 - prop) / t) if t > 0 else 0.0))
+        else:
+            stderr.append(0.0)
+
+    # plot error bars
+    ax.errorbar(probs, means, yerr=stderr, fmt=marker, linestyle="none", capsize=3, markersize=5, label=label, color=color, alpha=0.95)
+
+    fit_x, fit_y, fit_hi, fit_lo = _binomial_logit_regression_from_buckets({p: buckets[p] for p in probs})
     if fit_x:
         ax.plot(fit_x, fit_y, "-", linewidth=2, alpha=0.9, color=color, label=fit_label)
         ax.fill_between(fit_x, fit_lo, fit_hi, color=color, alpha=0.15, label=shade_label)
@@ -353,7 +511,7 @@ def _plot_with_sigmoid_fit_nonlinear(
         color=color,
         alpha=0.95,
     )
-    fit_x, fit_y, fit_hi, fit_lo = _sigmoid_regression_nonlinear(x, y)
+    fit_x, fit_y, fit_hi, fit_lo = _sigmoid_regression_nonlinear(x, y, yerr=yerr)
     if fit_x:
         ax.plot(fit_x, fit_y, "-", linewidth=2, alpha=0.9, color=color, label=fit_label)
         ax.fill_between(fit_x, fit_lo, fit_hi, color=color, alpha=0.15, label=shade_label)
@@ -448,19 +606,16 @@ def plot_dashboard(summary_rows: list[dict[str, object]], raw_rows: list[dict[st
     axes[1, 0].grid(True, alpha=0.3)
     axes[1, 0].legend()
 
-    span_p, span_mean, span_std, _ = _group_by_p(raw_rows, "spanning_rate")
-    if span_p:
-        _plot_with_sigmoid_fit(
-            axes[1, 1],
-            span_p,
-            span_mean,
-            span_std,
-            marker="^",
-            color="tab:red",
-            label="Spanning probability (mean ± std)",
-            fit_label="Sigmoid fit",
-            shade_label="Sigmoid fit ± 3σ",
-        )
+    # Use binomial logistic regression over raw repeats for spanning probability
+    _plot_with_binomial_logit(
+        axes[1, 1],
+        raw_rows,
+        marker="^",
+        color="tab:red",
+        label="Spanning probability (mean ± std)",
+        fit_label="Binomial logistic fit",
+        shade_label="Fit 95% CI (α=0.05)",
+    )
     axes[1, 1].set_xlabel("Occupation probability p")
     axes[1, 1].set_ylabel("Spanning probability")
     axes[1, 1].set_title("Percolation Spanning Probability (phase transition)")
@@ -485,8 +640,8 @@ def plot_front_density(rows: list[dict[str, object]], output: Path) -> None:
 
     fig, ax = plt.subplots(1, 1, figsize=(10, 5))
     if p_values:
-        # Use linear regression fit for front density (sigmoid is heuristic here)
-        _plot_with_error_bars(
+        # Show sigmoid-style approximation for front density (approximate)
+        _plot_with_sigmoid_fit_nonlinear(
             ax,
             p_values,
             density_values,
@@ -494,8 +649,8 @@ def plot_front_density(rows: list[dict[str, object]], output: Path) -> None:
             marker="D",
             color="green",
             label="Reachable density (mean ± std)",
-            fit_label="Density linear fit",
-            shade_label="Density fit ± 3σ",
+            fit_label="Sigmoid (approx.)",
+            shade_label="Sigmoid approx ± 3σ",
         )
 
     ax.set_xlabel("Occupation probability p")
@@ -516,29 +671,43 @@ def plot_cluster_mass(rows: list[dict[str, object]], output: Path) -> None:
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    p_values, mass_values, mass_std, mass_err = _group_by_p(rows, "mass")
+    p_values, mass_values, spanning_count_totals, low_stat_flags = _aggregate_mass_by_p(rows)
 
     fig, ax = plt.subplots(1, 1, figsize=(10, 5))
     if p_values:
-        ax.errorbar(
-            p_values,
-            mass_values,
-            yerr=mass_std,
-            fmt="v",
-            linestyle="none",
-            capsize=3,
-            markersize=5,
-            color="purple",
-            label="Mass per spanning run (mean ± std)",
-        )
-        fit_x, fit_y, fit_hi, fit_lo = _linear_regression_3sigma(p_values, mass_values)
-        if fit_x:
-            ax.plot(fit_x, fit_y, "-", linewidth=2, alpha=0.9, color="purple", label="Mass linear fit")
-            ax.fill_between(fit_x, fit_lo, fit_hi, color="purple", alpha=0.15, label="Mass fit ± 3σ")
+        positive_points = [i for i, mass in enumerate(mass_values) if mass > 0]
+        if positive_points:
+            positive_p = [p_values[i] for i in positive_points]
+            positive_mass = [mass_values[i] for i in positive_points]
+            ax.scatter(
+                positive_p,
+                positive_mass,
+                marker="v",
+                s=32,
+                color="purple",
+                label="Pooled mass per spanning run",
+            )
+
+        low_points = [i for i, low_stat in enumerate(low_stat_flags) if low_stat != 0.0 and mass_values[i] > 0]
+        if low_points:
+            low_p = [p_values[i] for i in low_points]
+            low_mass = [mass_values[i] for i in low_points]
+            ax.scatter(
+                low_p,
+                low_mass,
+                marker="o",
+                s=26,
+                facecolors="none",
+                edgecolors="tab:gray",
+                alpha=0.6,
+                label="Low-stat pooled points",
+            )
+
+        ax.set_yscale("log")
 
     ax.set_xlabel("Occupation probability p")
     ax.set_ylabel("Average reachable sites")
-    ax.set_title("Spanning Cluster Mass")
+    ax.set_title("Spanning Cluster Mass (pooled per p, log y)")
     ax.grid(True, alpha=0.3)
     ax.legend()
     fig.tight_layout()
@@ -628,21 +797,17 @@ def plot_spanning_probability(rows: list[dict[str, object]], output: Path) -> No
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    p_values, span_values, span_std, span_err = _group_by_p(rows, "spanning_rate")
-
     fig, ax = plt.subplots(1, 1, figsize=(10, 5))
-    if p_values:
-        _plot_with_sigmoid_fit_nonlinear(
-            ax,
-            p_values,
-            span_values,
-            span_std,
-            marker="^",
-            color="tab:red",
-            label="Spanning probability (mean ± std)",
-            fit_label="Sigmoid fit",
-            shade_label="Sigmoid fit ± 3σ",
-        )
+    # Plot binomial logistic regression using raw rows (successes/trials)
+    _plot_with_binomial_logit(
+        ax,
+        rows,
+        marker="^",
+        color="tab:red",
+        label="Spanning probability (mean ± std)",
+        fit_label="Binomial logistic fit",
+        shade_label="Fit 95% CI (α=0.05)",
+    )
 
     ax.set_xlabel("Occupation probability p")
     ax.set_ylabel("Spanning probability")

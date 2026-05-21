@@ -235,10 +235,12 @@ begin
 
                             if frontier_spanning_s = '1' then
                                 spanning_cnt <= spanning_cnt + 1;
+                                -- Only accumulate spanning-occupied for runs that actually spanned.
+                                spanning_occupied_sum <= spanning_occupied_sum + run_spanning_occupied;
                             end if;
 
+                            -- Total occupied is accumulated for every run.
                             occupied_sum <= occupied_sum + run_occupied;
-                            spanning_occupied_sum <= spanning_occupied_sum + run_spanning_occupied;
 
                                           report "percolation_core run complete: grid_width=" & integer'image(N_ROWS_G) &
                                               " grid_steps=" & integer'image(to_integer(CfgStepsPerRun)) &

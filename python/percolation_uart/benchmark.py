@@ -190,8 +190,17 @@ def _run_hardware_benchmark(
                 avg_occ = resp.total_occupied / (runs * steps * hw_width)
                 occ_bias = avg_occ - p
                 low_stats = 0 < resp.spanning_count < 10
+                # `spanning_occupied` now contains the sum of reachable sites
+                # only for runs that actually spanned. Compute a few derived
+                # quantities with that in mind.
                 reachable_fraction = resp.spanning_occupied / resp.total_occupied if resp.total_occupied > 0 else 0.0
-                reachable_sites_per_run = resp.spanning_occupied / runs if runs > 0 else 0.0
+                # Preserve the meaning of `reachable_sites_per_run` as "average
+                # reachable sites per run across all runs" by using the total
+                # occupied sites across all runs. The FPGA now reports
+                # `spanning_occupied` only for spanning runs, so derive the
+                # per-run value from `total_occupied` which is collected for
+                # every run.
+                reachable_sites_per_run = resp.total_occupied / runs if runs > 0 else 0.0
                 mass = resp.spanning_occupied / resp.spanning_count if resp.spanning_count > 0 else 0.0
 
                 rate_samples.append(rate)

@@ -1,2 +1,3 @@
 [console_scripts]
+percolation-analyze = percolation_uart.analysis:main
 percolation-benchmark = percolation_uart.benchmark:main
