@@ -32,6 +32,10 @@ entity percolation_core is
 end percolation_core;
 
 architecture Behavioral of percolation_core is
+
+    -- -------------------------------------------------------------------------
+    -- Run Controls & Metrics Accumulators
+    -- -------------------------------------------------------------------------
     signal runs_target  : unsigned(31 downto 0) := (others => '0');
 
     signal run_enable   : std_logic := '0';
@@ -40,10 +44,15 @@ architecture Behavioral of percolation_core is
     signal spanning_cnt : unsigned(31 downto 0) := (others => '0');
     signal occupied_sum : unsigned(31 downto 0) := (others => '0');
     signal spanning_occupied_sum : unsigned(31 downto 0) := (others => '0');
+    
+    -- Popcount precision for accumulator
     subtype occupied_count_t is unsigned(31 downto 0);
     signal run_occupied : occupied_count_t := (others => '0');
     signal run_spanning_occupied : occupied_count_t := (others => '0');
 
+    -- -------------------------------------------------------------------------
+    -- Core State Machine & Pipeline Registers
+    -- -------------------------------------------------------------------------
     signal state        : integer range 0 to 2 := 0;
     signal row_pending  : std_logic := '0';
     signal row_popcount_pipe : occupied_count_t := (others => '0');
@@ -119,6 +128,10 @@ begin
     rng_master_key_s <= seed_to_master_key(CfgSeed);
     rng_run_tag_s <= CfgSeed;
 
+    -- -------------------------------------------------------------------------
+    -- Sub-module: Hybrid RNG (AES Seeder + Trivium Arrays)
+    -- Provides an independent fresh row of stochastic bits every single clock cycle.
+    -- -------------------------------------------------------------------------
     rng_inst : entity work.rng_hybrid_64
         generic map (
             N_ROWS_G => N_ROWS_G
@@ -136,6 +149,11 @@ begin
             busy       => rng_busy_s
         );
 
+    -- -------------------------------------------------------------------------
+    -- Sub-module: BFS Frontier 
+    -- Pipelined reachability graph analyzer. Consumes rows from the RNG 
+    -- and assesses end-to-end traversal mathematically via bidirectional prefix scan.
+    -- -------------------------------------------------------------------------
     frontier_inst : entity work.percolation_bfs_frontier
         generic map (
             N_ROWS_G => N_ROWS_G
@@ -160,6 +178,11 @@ begin
     SpanningOccupied <= std_logic_vector(spanning_occupied_sum);
     Done          <= '1' when (runs_target /= 0) and (runs_done >= runs_target) else '0';
 
+    -- -------------------------------------------------------------------------
+    -- Main Core State Machine
+    -- Orchestrates row generation from RNG, feeds the BFS frontier at line-rate,
+    -- and aggregates final percolation statistics across multiple continuous runs.
+    -- -------------------------------------------------------------------------
     process(Clk)
         variable new_runs_done   : unsigned(31 downto 0);
         variable row_bits_v      : std_logic_vector(N_ROWS_G - 1 downto 0);
@@ -215,7 +238,11 @@ begin
                     hk_chunk_valid_s <= '0';
 
                     case state is
-                    when 0 =>
+                    when 0 => -- IDLE / READY STATE
+                        -- A new test grid run starts only if:
+                        -- 1. The RNG bank has completed initial AES warming and is streaming valid stochastic bits
+                        -- 2. Master requests execution (RunEn or stepped limits)
+                        -- 3. We haven't successfully hit the limit threshold runs_target
                         if (rng_busy_s = '0') and (rng_all_valid_s = '1') and
                            ((run_enable = '1') or (pending /= 0)) and
                            ((runs_target = 0) or (runs_done < runs_target)) then
@@ -227,8 +254,10 @@ begin
                             state        <= 1;
                         end if;
 
-                    when 1 =>
+                    when 1 => -- RUNNING STATE: evaluate grid line-by-line
                         if frontier_done_s = '1' then
+                            -- The BFS frontier has successfully digested GridSteps rows.
+                            -- Finalize metrics and snapshot the statistics for UART, then transition to IDLE.
                             new_runs_done := runs_done + 1;
 
                             runs_done <= new_runs_done;

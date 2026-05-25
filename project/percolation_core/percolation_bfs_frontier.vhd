@@ -103,6 +103,9 @@ architecture pipelined_prefix of percolation_bfs_frontier is
         seed  : std_logic_vector(N_ROWS_G - 1 downto 0);
         openv : std_logic_vector(N_ROWS_G - 1 downto 0)
     ) return std_logic_vector is
+        -- Mathematically computes site-to-site connectivity in a horizontal line O(1) latency. 
+        -- Represents connectivity pairs conceptually traversing both Left-To-Right (LTR) 
+        -- and Right-To-Left (RTL) resolving the associative parallel prefix scan spanning graph completely.
         variable pairs      : pair_array_t;
         variable ltr_prefix : pair_array_t;
         variable rtl_prefix : pair_array_t;
@@ -207,24 +210,26 @@ begin
                                 state              <= RUN_READY;
                             end if;
 
-                        when RUN_READY =>
+                        when RUN_READY => -- Cycle 1: Seed Propagation check
                             if ChunkValid = '1' then
                                 current_open <= ChunkOpen;
                                 if rows_seen = 0 then
+                                    -- First line inherits spanning seed explicitly equal to its randomly open sites
                                     current_seed <= ChunkOpen;
                                 else
+                                    -- All subsequent horizontal lines act as filters masking the prior horizontal reach
                                     current_seed <= ChunkOpen and previous_reach_row;
                                 end if;
                                 state          <= RUN_COMPUTE;
                             end if;
 
-                        when RUN_COMPUTE =>
-                            -- Cycle 2: register reachability result from latched inputs
+                        when RUN_COMPUTE => -- Cycle 2: Resolves horizontal bidirectional prefix scan functionally
+                            -- Register reachability combinational tree output (LUT-heavy)
                             reach_result_reg <= reach_comb;
                             state            <= RUN_SAVE;
 
-                        when RUN_SAVE =>
-                            -- Cycle 3: save reachability and compute popcount
+                        when RUN_SAVE => -- Cycle 3: Latch state
+                            -- Save horizontal reachability map and count valid connected density concurrently 
                             previous_reach_row     <= reach_result_reg;
                             reach_popcount_reg     <= count_ones(reach_result_reg);
                             rows_seen_v := rows_seen + 1;
