@@ -264,9 +264,10 @@ begin
 
                             if frontier_spanning_s = '1' then
                                 spanning_cnt <= spanning_cnt + 1;
-                                -- Only accumulate spanning-occupied for runs that actually spanned.
-                                spanning_occupied_sum <= spanning_occupied_sum + run_spanning_occupied;
                             end if;
+
+                            -- Accumulate spanning-occupied for ALL runs, including the last row's popcount
+                            spanning_occupied_sum <= spanning_occupied_sum + run_spanning_occupied + frontier_reach_pop_s;
 
                             -- Total occupied is accumulated for every run.
                             occupied_sum <= occupied_sum + run_occupied;

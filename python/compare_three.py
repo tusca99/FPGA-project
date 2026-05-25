@@ -49,8 +49,12 @@ def hw_sweep(probabilities, runs, width, steps, seed, port, baudrate, timeout):
             rate = resp.spanning_count / runs
             avg_occ = resp.total_occupied / (runs * steps * width)
             avg_reach = resp.spanning_occupied / runs
-            reach_frac = resp.spanning_occupied / resp.total_occupied if resp.total_occupied > 0 else 0.0
             mass = resp.spanning_occupied / resp.spanning_count if resp.spanning_count > 0 else 0.0
+            
+            # Since spanning_occupied is only accumulated during spanning runs, 
+            # we compute reach_frac over the spanning runs only for consistency
+            expected_occ_per_run = avg_occ * steps * width
+            reach_frac = mass / expected_occ_per_run if expected_occ_per_run > 0 else 0.0
 
             hw_rates.append(rate)
             hw_metrics.append({
