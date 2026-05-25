@@ -12,6 +12,7 @@ architecture behavioral of tb_rng_hybrid is
     constant MASTER_KEY_C : std_logic_vector(127 downto 0) := x"deadbeefcafebabe0123456789abcdef";
     constant RUN_TAG_C    : std_logic_vector(31 downto 0) := x"00000001";
     constant THRESHOLD_C  : std_logic_vector(31 downto 0) := x"97BB2FEC";
+    constant N_ROWS : integer := 64;
 
     signal clk        : std_logic := '0';
     signal rst        : std_logic := '0';
@@ -20,13 +21,16 @@ architecture behavioral of tb_rng_hybrid is
     signal master_key_s : std_logic_vector(127 downto 0) := MASTER_KEY_C;
     signal run_tag_s    : std_logic_vector(31 downto 0) := RUN_TAG_C;
     signal threshold_s  : std_logic_vector(31 downto 0) := THRESHOLD_C;
-    signal words_out  : word_array_t;
-    signal valid_mask : flag_array_t;
-    signal site_open  : flag_array_t;
+    signal words_out  : word_array_t(0 to N_ROWS - 1);
+    signal valid_mask : flag_array_t(0 to N_ROWS - 1);
+    signal site_open  : flag_array_t(0 to N_ROWS - 1);
 begin
     clk <= not clk after CLK_PERIOD / 2;
 
     dut : entity work.rng_hybrid_64
+        generic map (
+            N_ROWS_G => N_ROWS
+        )
         port map (
             clk        => clk,
             rst        => rst,

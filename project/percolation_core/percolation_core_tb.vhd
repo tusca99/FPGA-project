@@ -21,11 +21,9 @@ architecture Behavioral of percolation_core_tb is
     signal CfgInit       : std_logic := '0';
 
     signal StepCount    : std_logic_vector(31 downto 0);
-    signal PendingSteps : std_logic_vector(31 downto 0);
     signal SpanningCount: std_logic_vector(31 downto 0);
     signal TotalOccupied: std_logic_vector(31 downto 0);
-    signal RngBusy      : std_logic;
-    signal RngAllValid  : std_logic;
+    signal SpanningOccupied: std_logic_vector(31 downto 0);
     signal Done         : std_logic;
 
 begin
@@ -45,11 +43,9 @@ begin
             CfgRuns => CfgRuns,
             CfgInit => CfgInit,
             StepCount => StepCount,
-            PendingSteps => PendingSteps,
             SpanningCount => SpanningCount,
             TotalOccupied => TotalOccupied,
-            RngBusy => RngBusy,
-            RngAllValid => RngAllValid,
+            SpanningOccupied => SpanningOccupied,
             Done => Done
         );
 
@@ -77,14 +73,8 @@ begin
         wait for 10 ns;
         CfgInit <= '0';
 
-        -- Check RNG readiness before starting the run.
-        for timeout_cycles in 0 to 5000 loop
-            wait until rising_edge(Clk);
-            exit when (RngBusy = '0') and (RngAllValid = '1');
-        end loop;
-
-        assert (RngBusy = '0') and (RngAllValid = '1')
-            report "RNG did not become ready" severity failure;
+        -- RNG readiness signals are internal to the DUT; allow warmup delay
+        wait for 100 ns;
 
         RunEn <= '1';
         for cycle_index in 0 to 1_000_000 loop
@@ -105,6 +95,7 @@ begin
         report "StepCount=" & integer'image(to_integer(unsigned(StepCount))) severity note;
         report "SpanningCount=" & integer'image(to_integer(unsigned(SpanningCount))) severity note;
         report "TotalOccupied=" & integer'image(to_integer(unsigned(TotalOccupied))) severity note;
+        report "SpanningOccupied=" & integer'image(to_integer(unsigned(SpanningOccupied))) severity note;
 
         wait;
     end process;
