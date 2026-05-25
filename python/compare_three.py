@@ -129,11 +129,11 @@ def plot_three_way(probabilities, bfs_rates, sw_fpga_rates, hw_rates, hw_metrics
     # Plot 4: Spanning cluster mass
     ax4 = axes[1, 1]
     if hw_metrics and low_stats_flags:
-        # Separate normal and low-stats points
-        normal_probs = [hw_metrics[i]['p'] for i in range(len(hw_metrics)) if not low_stats_flags[i]]
-        normal_masses = [hw_metrics[i]['spanning_mass'] for i in range(len(hw_metrics)) if not low_stats_flags[i]]
-        low_stat_probs = [hw_metrics[i]['p'] for i in range(len(hw_metrics)) if low_stats_flags[i]]
-        low_stat_masses = [hw_metrics[i]['spanning_mass'] for i in range(len(hw_metrics)) if low_stats_flags[i]]
+        # Separate normal and low-stats points (ignoring zero mass points completely)
+        normal_probs = [hw_metrics[i]['p'] for i in range(len(hw_metrics)) if not low_stats_flags[i] and hw_metrics[i]['spanning_mass'] > 0]
+        normal_masses = [hw_metrics[i]['spanning_mass'] for i in range(len(hw_metrics)) if not low_stats_flags[i] and hw_metrics[i]['spanning_mass'] > 0]
+        low_stat_probs = [hw_metrics[i]['p'] for i in range(len(hw_metrics)) if low_stats_flags[i] and hw_metrics[i]['spanning_mass'] > 0]
+        low_stat_masses = [hw_metrics[i]['spanning_mass'] for i in range(len(hw_metrics)) if low_stats_flags[i] and hw_metrics[i]['spanning_mass'] > 0]
         
         # Plot normal stats as green circles (no line)
         if normal_probs:
