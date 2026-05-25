@@ -20,6 +20,6 @@ for steps in "${steps_list[@]}"; do
       --steps "$steps" \
       --sqlite "$DB" \
       --settle 0.01 \
-      --width 170
+      --width 128
   done
 done
