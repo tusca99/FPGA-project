@@ -18,7 +18,15 @@ from pathlib import Path
 from .protocol import REQUEST_BYTES, RESPONSE_BYTES
 
 
+# FPGA timing constants (from VHDL analysis)
+RNG_WARMUP_CYCLES = 1573        # AES seeding (1536) + Trivium warmup (37) @ 100 MHz
+RNG_WARMUP_S = RNG_WARMUP_CYCLES / 100e6
+FRONTIER_CYCLES_PER_STEP = 3    # 3-stage pipelined prefix scan
+PER_RUN_SM_OVERHEAD_CYCLES = 115  # per-run state machine cost (asymptotic fit)
+UART_WIRE_S_CALC = (REQUEST_BYTES + RESPONSE_BYTES) * 10.0 / 115200.0  # ≈ 2.78 ms
+
 DEFAULT_DB = Path(__file__).resolve().parents[1] / "output" / "benchmark.sqlite3"
+DEFAULT_DB2 = Path(__file__).resolve().parents[1] / "output" / "benchmark-2.sqlite3"
 
 
 @dataclass(frozen=True)
@@ -877,12 +885,559 @@ def plot_latency_decomposition(summary_rows: list[dict[str, object]], raw_rows: 
     fig.savefig(output, dpi=150)
 
 
+# ---------------------------------------------------------------------------
+# FPGA-engineering analysis plots (non-physics)
+# ---------------------------------------------------------------------------
+
+
+def _find_sessions_by_params(conn: sqlite3.Connection, *, hw_width: int) -> list[dict]:
+    """Return all session metadata matching the given effective HW width."""
+    cur = conn.execute(
+        "SELECT session_id, created_at, payload_json FROM benchmark_sessions ORDER BY created_at"
+    )
+    matches: list[dict] = []
+    for row in cur.fetchall():
+        payload = json.loads(row["payload_json"])
+        if payload.get("effective_hw_width") == hw_width:
+            matches.append(
+                {
+                    "session_id": str(row["session_id"]),
+                    "created_at": str(row["created_at"]),
+                    "runs": payload.get("runs", 0),
+                    "steps": payload.get("steps", 0),
+                    "points": payload.get("points", 0),
+                    "repeats": payload.get("repeats", 1),
+                }
+            )
+    return matches
+
+
+def _session_data(conn: sqlite3.Connection, session_id: str) -> list[dict[str, object]]:
+    return load_raw_rows(conn, session_id=session_id)
+
+
+def _closest_row(rows: list[dict[str, object]], target_p: float) -> dict[str, object]:
+    return min(rows, key=lambda r: abs(float(r.get("p", 0.0)) - target_p))
+
+
+def plot_amdahl_speedup(conn: sqlite3.Connection, output: Path, *, hw_width: int = 128, target_p: float = 0.60) -> None:
+    """Amdahl speedup vs batch size (Fig 3a/3b in the FPGA analysis guide)."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    sessions = _find_sessions_by_params(conn, hw_width=hw_width)
+    if not sessions:
+        print(f"  [amdahl] no sessions found for hw_width={hw_width}")
+        return
+
+    # Group by steps, then sort by runs
+    from collections import defaultdict
+
+    by_steps: dict[int, list[dict]] = defaultdict(list)
+    for s in sessions:
+        by_steps[s["steps"]].append(s)
+    for steps in by_steps:
+        by_steps[steps].sort(key=lambda x: x["runs"])
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+
+    colors = ["tab:blue", "tab:orange", "tab:green", "tab:red", "tab:purple", "tab:brown"]
+
+    for idx, steps in enumerate(sorted(by_steps)):
+        color = colors[idx % len(colors)]
+        runs_list: list[float] = []
+        lat_list: list[float] = []
+        for s in by_steps[steps]:
+            rows = _session_data(conn, s["session_id"])
+            if not rows:
+                continue
+            row = _closest_row(rows, target_p)
+            runs_list.append(float(row["runs"]))
+            lat_list.append(float(row["latency_s"]))
+
+        if not runs_list:
+            continue
+
+        lat1 = lat_list[0]
+        speedup = [lat1 / lat for lat in lat_list]
+        label = f"steps={steps}"
+
+        ax1.plot(runs_list, lat_list, "o-", color=color, label=label)
+        ax2.plot(runs_list, speedup, "o-", color=color, label=label)
+
+    ax1.set_xscale("log", base=2)
+    ax1.set_yscale("log")
+    ax1.set_xlabel("cfg_runs (batch size)")
+    ax1.set_ylabel("Total latency [s]")
+    ax1.set_title(f"Latency vs Batch Size (N={hw_width}, p≈{target_p})")
+    ax1.grid(True, alpha=0.3)
+    ax1.legend(fontsize=8)
+
+    ax2.set_xscale("log", base=2)
+    ax2.set_xlabel("cfg_runs (batch size)")
+    ax2.set_ylabel("Speedup vs R=1")
+    ax2.set_title(f"Amdahl Speedup (N={hw_width}, p≈{target_p})")
+    ax2.grid(True, alpha=0.3)
+    ax2.legend(fontsize=8)
+
+    fig.tight_layout()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output, dpi=150)
+    plt.close(fig)
+
+
+def plot_breakdown_fit(conn: sqlite3.Connection, output: Path, *, hw_width: int = 128, target_p: float = 0.60) -> None:
+    """Asymptotic cycles-per-run fit separating fixed overhead from marginal cost (Fig 4)."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    sessions = _find_sessions_by_params(conn, hw_width=hw_width)
+    if not sessions:
+        return
+
+    by_steps: dict[int, list[dict]] = defaultdict(list)
+    for s in sessions:
+        by_steps[s["steps"]].append(s)
+    for steps in by_steps:
+        by_steps[steps].sort(key=lambda x: x["runs"])
+
+    fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+
+    results: list[dict] = []
+
+    for steps in sorted(by_steps):
+        runs_list: list[float] = []
+        core_cyc_list: list[float] = []
+        tot_cyc_list: list[float] = []
+
+        for s in by_steps[steps]:
+            rows = _session_data(conn, s["session_id"])
+            if not rows:
+                continue
+            row = _closest_row(rows, target_p)
+            r_val = float(row["runs"])
+            runs_list.append(r_val)
+            core_cyc_list.append(float(row.get("core_latency_per_run_cycles_est", 0)))
+            tot_cyc_list.append(float(row.get("latency_per_run_cycles", 0)))
+
+        if len(runs_list) < 3:
+            continue
+
+        # Fit: C_total × R = C_fixed + C_marginal × R
+        n = len(runs_list)
+        y = [tot_cyc_list[i] * runs_list[i] for i in range(n)]
+        x = runs_list[:]
+        x_mean = sum(x) / n
+        y_mean = sum(y) / n
+        sxx = sum((xi - x_mean) ** 2 for xi in x)
+        sxy = sum((xi - x_mean) * (yi - y_mean) for xi, yi in zip(x, y))
+        if sxx <= 0:
+            continue
+        slope = sxy / sxx
+        intercept = y_mean - slope * x_mean
+
+        C_marginal = slope
+        C_fixed = intercept
+        results.append({"steps": steps, "C_marginal": C_marginal, "C_fixed": C_fixed})
+
+        # Plot raw data
+        ax.plot(
+            runs_list,
+            core_cyc_list,
+            "o-",
+            label=f"S={steps} measured",
+            alpha=0.7,
+        )
+        # Plot fit
+        fit_y = [C_fixed / r + C_marginal for r in runs_list]
+        ax.plot(runs_list, fit_y, "--", alpha=0.5, label=f"S={steps} fit: {C_marginal:.0f} cyc/run")
+
+    ax.set_xscale("log", base=2)
+    ax.set_yscale("log")
+    ax.set_xlabel("cfg_runs")
+    ax.set_ylabel("Core cycles per run (est)")
+    ax.set_title(f"Asymptotic Cycles/Run Fit (N={hw_width}, p≈{target_p})\nC_total×R = C_fixed + C_marginal×R")
+    ax.grid(True, alpha=0.3)
+    ax.legend(fontsize=8)
+
+    # Print results table
+    print(f"\n=== Asymptotic Fit Results (N={hw_width}, p≈{target_p}) ===")
+    print(f"{'steps':>6}  {'C_marginal':>10}  {'C_fixed':>10}  {'frontier_ideal':>14}  {'overhead':>8}")
+    print("-" * 58)
+    for r in sorted(results, key=lambda x: x["steps"]):
+        s = r["steps"]
+        frontier_ideal = s * FRONTIER_CYCLES_PER_STEP
+        overhead = r["C_marginal"] - frontier_ideal
+        print(
+            f"{s:6d}  {r['C_marginal']:10.1f}  {r['C_fixed']:10.0f}  {frontier_ideal:14.1f}  {overhead:8.1f}"
+        )
+
+    fig.tight_layout()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output, dpi=150)
+    plt.close(fig)
+
+    return results
+
+
+def plot_pipeline_efficiency(conn: sqlite3.Connection, output: Path, *, hw_width: int = 128, target_p: float = 0.60) -> None:
+    """Frontier cost breakdown: marginal cycles/run vs steps (Fig 5/6)."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    sessions = _find_sessions_by_params(conn, hw_width=hw_width)
+    if not sessions:
+        return
+
+    # Use only largest runs (host overhead amortized)
+    max_runs = max(s["runs"] for s in sessions)
+    best_sessions = [s for s in sessions if s["runs"] == max_runs and s["steps"] >= 1]
+
+    if not best_sessions:
+        return
+
+    steps_vals: list[int] = []
+    cyc_vals: list[float] = []
+    for s in sorted(best_sessions, key=lambda x: x["steps"]):
+        rows = _session_data(conn, s["session_id"])
+        if not rows:
+            continue
+        row = _closest_row(rows, target_p)
+        steps_vals.append(s["steps"])
+        cyc_vals.append(float(row.get("core_latency_per_run_cycles_est", 0)))
+
+    if len(steps_vals) < 2:
+        return
+
+    # Linear fit: C_marginal = C_per_step × S + C_fixed_per_run
+    n = len(steps_vals)
+    x = [float(s) for s in steps_vals]
+    y = cyc_vals[:]
+    x_mean = sum(x) / n
+    y_mean = sum(y) / n
+    sxx = sum((xi - x_mean) ** 2 for xi in x)
+    sxy = sum((xi - x_mean) * (yi - y_mean) for xi, yi in zip(x, y))
+    if sxx > 0:
+        slope = sxy / sxx
+        intercept = y_mean - slope * x_mean
+    else:
+        slope = 0
+        intercept = 0
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+
+    # Left: C_marginal vs S with fit
+    ax1.plot(steps_vals, cyc_vals, "o-", label=f"Measured (runs={max_runs})")
+    fit_x = [min(x), max(x)]
+    fit_y = [intercept + slope * xi for xi in fit_x]
+    ax1.plot(fit_x, fit_y, "--", label=f"Fit: {slope:.2f}×S + {intercept:.1f}")
+    ax1.axhline(FRONTIER_CYCLES_PER_STEP, color="gray", linestyle=":", alpha=0.5, label=f"Ideal frontier={FRONTIER_CYCLES_PER_STEP}/step")
+    ax1.set_xlabel("Grid height (steps)")
+    ax1.set_ylabel("Core cycles per run")
+    ax1.set_title(f"Frontier Cost (N={hw_width}, runs={max_runs})")
+    ax1.grid(True, alpha=0.3)
+    ax1.legend()
+
+    # Right: efficiency vs S
+    ideal_cyc = [s * FRONTIER_CYCLES_PER_STEP + PER_RUN_SM_OVERHEAD_CYCLES for s in steps_vals]
+    efficiency = [cyc_vals[i] / ideal_cyc[i] * 100 if ideal_cyc[i] > 0 else 0 for i in range(len(steps_vals))]
+    excess = [cyc_vals[i] - ideal_cyc[i] for i in range(len(steps_vals))]
+
+    ax2.plot(steps_vals, efficiency, "s-", color="tab:green", label="Efficiency [%]")
+    ax2_twin = ax2.twinx()
+    ax2_twin.plot(steps_vals, excess, "o--", color="tab:red", alpha=0.7, label="Excess cycles")
+    ax2.set_xlabel("Grid height (steps)")
+    ax2.set_ylabel("Pipeline efficiency [%]")
+    ax2_twin.set_ylabel("Excess cycles")
+    ax2.set_title(f"Pipeline Utilization (N={hw_width})")
+    ax2.grid(True, alpha=0.3)
+    ax2.legend(loc="upper left")
+    ax2_twin.legend(loc="upper right")
+
+    print(
+        f"\n=== Pipeline Efficiency (N={hw_width}, runs={max_runs}, p≈{target_p}) ===\n"
+        f"  Fit: C_core/run = {slope:.2f} × steps + {intercept:.1f}\n"
+        f"  Ideal frontier: {FRONTIER_CYCLES_PER_STEP} cyc/step, SM overhead: {PER_RUN_SM_OVERHEAD_CYCLES} cyc/run\n"
+        f"  Per-step cost:  {slope:.2f} cyc/step (vs ideal {FRONTIER_CYCLES_PER_STEP})\n"
+        f"  Fixed overhead: {intercept:.1f} cyc/run (vs ideal {PER_RUN_SM_OVERHEAD_CYCLES})"
+    )
+
+    fig.tight_layout()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output, dpi=150)
+    plt.close(fig)
+
+
+def plot_throughput_invariance(conn: sqlite3.Connection, output: Path, *, hw_width: int = 128, target_p: float = 0.60) -> None:
+    """Grid-height invariance: cells/s vs steps for multiple batch sizes (Fig 7)."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    sessions = _find_sessions_by_params(conn, hw_width=hw_width)
+    if not sessions:
+        return
+
+    # Group by runs
+    by_runs: dict[int, list[dict]] = defaultdict(list)
+    for s in sessions:
+        by_runs[s["runs"]].append(s)
+    for runs in by_runs:
+        by_runs[runs].sort(key=lambda x: x["steps"])
+
+    fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+
+    colors = ["tab:blue", "tab:orange", "tab:green", "tab:red", "tab:purple", "tab:brown", "tab:pink", "tab:gray"]
+
+    for idx, runs in enumerate(sorted(by_runs)):
+        color = colors[idx % len(colors)]
+        steps_list: list[int] = []
+        cells_list: list[float] = []
+        for s in by_runs[runs]:
+            rows = _session_data(conn, s["session_id"])
+            if not rows:
+                continue
+            row = _closest_row(rows, target_p)
+            steps_list.append(s["steps"])
+            cells_list.append(float(row.get("cells_per_s", 0)))
+
+        if not steps_list:
+            continue
+
+        ax.plot(steps_list, cells_list, "o-", color=color, label=f"runs={runs}")
+
+    ax.set_xscale("log", base=2)
+    ax.set_yscale("log")
+    ax.set_xlabel("Grid height (steps)")
+    ax.set_ylabel("Throughput [cells/s]")
+    ax.set_title(f"Grid-Height Invariance (N={hw_width}, p≈{target_p})")
+    ax.grid(True, alpha=0.3)
+    ax.legend(fontsize=8)
+
+    fig.tight_layout()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output, dpi=150)
+    plt.close(fig)
+
+
+def plot_determinism_cv(conn: sqlite3.Connection, output: Path, *, hw_width: int = 128, target_p: float = 0.60) -> None:
+    """Coefficient of variation across repeats to quantify determinism (Fig 8)."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    sessions = _find_sessions_by_params(conn, hw_width=hw_width)
+    if not sessions:
+        return
+
+    # Only sessions with repeats > 1
+    multi_repeat = [s for s in sessions if s["repeats"] > 1]
+
+    if not multi_repeat:
+        fig, ax = plt.subplots(1, 1, figsize=(10, 5))
+        ax.text(0.5, 0.5, "No multi-repeat data available for hw_width={hw_width}", ha="center", va="center", transform=ax.transAxes)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(output, dpi=150)
+        plt.close(fig)
+        return
+
+    fig, ax = plt.subplots(1, 1, figsize=(10, 5))
+
+    from collections import defaultdict
+
+    # Group repeat data by (steps, runs)
+    config_cv: dict[tuple[int, int], list[float]] = defaultdict(list)
+
+    for s in multi_repeat:
+        rows = _session_data(conn, s["session_id"])
+        if not rows:
+            continue
+        # Group repeats by p
+        by_p: dict[float, list[float]] = defaultdict(list)
+        for r in rows:
+            by_p[float(r["p"])].append(float(r["latency_s"]))
+        for p_val, lats in by_p.items():
+            if abs(p_val - target_p) > 0.01 and target_p != 0.60:
+                continue
+            if len(lats) < 2:
+                continue
+            mean = sum(lats) / len(lats)
+            var = sum((v - mean) ** 2 for v in lats) / (len(lats) - 1)
+            cv = math.sqrt(var) / mean if mean > 0 else 0
+            config_cv[(s["steps"], s["runs"])].append(cv)
+
+    # Average CV per config
+    configs = sorted(config_cv)
+    steps_display = [c[0] for c in configs]
+    runs_display = [c[1] for c in configs]
+    cv_means = [sum(config_cv[c]) / len(config_cv[c]) * 100 for c in configs]
+
+    scatter = ax.scatter(
+        runs_display,
+        steps_display,
+        c=cv_means,
+        s=80,
+        cmap="RdYlGn_r",
+        vmin=0,
+        vmax=max(cv_means) if cv_means else 5,
+        edgecolors="black",
+        linewidths=0.5,
+    )
+    cbar = fig.colorbar(scatter, ax=ax, label="CV [%]")
+    ax.set_xscale("log", base=2)
+    ax.set_xlabel("cfg_runs")
+    ax.set_ylabel("Grid height (steps)")
+    ax.set_title(f"Latency Coefficient of Variation (N={hw_width})\n(lower = more deterministic)")
+    ax.grid(True, alpha=0.3)
+
+    fig.tight_layout()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output, dpi=150)
+    plt.close(fig)
+
+    print(f"\n=== Determinism CV (N={hw_width}) ===")
+    for i, c in enumerate(configs):
+        print(f"  steps={c[0]:4d} runs={c[1]:6d}  CV={cv_means[i]:.2f}%")
+
+
+def plot_throughput_contour(conn: sqlite3.Connection, output: Path, *, hw_width: int = 128) -> None:
+    """2D heatmap of throughput across p × steps for large batch size (Fig 9)."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    sessions = _find_sessions_by_params(conn, hw_width=hw_width)
+    if not sessions:
+        return
+
+    # Find largest runs
+    max_runs = max(s["runs"] for s in sessions)
+    best_sessions = [s for s in sessions if s["runs"] == max_runs]
+
+    # Build 2D grid
+    all_steps = sorted({s["steps"] for s in best_sessions})
+    all_p: set[float] = set()
+
+    # First pass: collect all p values
+    for s in best_sessions:
+        rows = _session_data(conn, s["session_id"])
+        for r in rows:
+            all_p.add(float(r["p"]))
+
+    sorted_p = sorted(all_p)
+    if not all_steps or not sorted_p:
+        return
+
+    Z = np.full((len(all_steps), len(sorted_p)), np.nan)
+    for si, steps in enumerate(all_steps):
+        matches = [s for s in best_sessions if s["steps"] == steps]
+        if not matches:
+            continue
+        rows = _session_data(conn, matches[0]["session_id"])
+        p_to_cells: dict[float, float] = {}
+        for r in rows:
+            p_val = float(r["p"])
+            p_to_cells[p_val] = float(r.get("cells_per_s", 0))
+        for pi, p_val in enumerate(sorted_p):
+            if p_val in p_to_cells:
+                Z[si, pi] = p_to_cells[p_val]
+
+    fig, ax = plt.subplots(1, 1, figsize=(12, 6))
+
+    # Mask NaN for contour
+    mask = np.isnan(Z)
+    Z_masked = np.ma.masked_where(mask, Z)
+
+    if np.any(~mask):
+        levels = 20
+        contour = ax.contourf(
+            sorted_p,
+            all_steps,
+            np.log10(Z_masked),
+            levels=levels,
+            cmap="viridis",
+        )
+        cbar = fig.colorbar(contour, ax=ax, label="log₁₀(cells/s)")
+    else:
+        ax.text(0.5, 0.5, "No valid data for contour", ha="center", va="center", transform=ax.transAxes)
+
+    ax.set_xlabel("Occupation probability p")
+    ax.set_ylabel("Grid height (steps)")
+    ax.set_title(f"Throughput Contour (N={hw_width}, runs={max_runs})")
+    ax.grid(True, alpha=0.2)
+
+    fig.tight_layout()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output, dpi=150)
+    plt.close(fig)
+
+
+def plot_fpga_all(output_dir: Path, *,
+                  db2_path: Path = DEFAULT_DB2,
+                  hw_width: int = 128,
+                  target_p: float = 0.60) -> None:
+    """Convenience: run all FPGA engineering plots and save to output_dir."""
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Use benchmark-2 for runs-sweep data (includes N=128, N=180 runs sweeps)
+    conn2 = _connect(db2_path)
+    try:
+        print(f"\n{'='*60}")
+        print(f"FPGA Engineering Analysis (N={hw_width}, p≈{target_p})")
+        print(f"{'='*60}")
+
+        print("\n[1/5] Amdahl Speedup...")
+        plot_amdahl_speedup(conn2, output_dir / "amdahl_speedup.png", hw_width=hw_width, target_p=target_p)
+
+        print("\n[2/5] Asymptotic Breakdown Fit...")
+        plot_breakdown_fit(conn2, output_dir / "breakdown_fit.png", hw_width=hw_width, target_p=target_p)
+
+        print("\n[3/5] Pipeline Efficiency...")
+        plot_pipeline_efficiency(conn2, output_dir / "pipeline_efficiency.png", hw_width=hw_width, target_p=target_p)
+
+        print("\n[4/5] Throughput Invariance...")
+        plot_throughput_invariance(conn2, output_dir / "throughput_invariance.png", hw_width=hw_width, target_p=target_p)
+
+        print("\n[5/5] Throughput Contour...")
+        plot_throughput_contour(conn2, output_dir / "throughput_contour.png", hw_width=hw_width)
+
+        print("\n[extra] Determinism CV (N=128)...")
+        plot_determinism_cv(conn2, output_dir / "determinism_cv.png", hw_width=128, target_p=target_p)
+
+        print("\n[extra] Determinism CV (N=180)...")
+        plot_determinism_cv(conn2, output_dir / "determinism_cv_180.png", hw_width=180, target_p=target_p)
+    finally:
+        conn2.close()
+
+    # Software comparison data is in benchmark.sqlite3
+    print(f"\nAll FPGA engineering plots saved to {output_dir}")
+
+    print(f"\nAll FPGA engineering plots saved to {output_dir}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Inspect percolation benchmark SQLite history")
     parser.add_argument("--db", type=str, default=str(DEFAULT_DB))
     parser.add_argument("--latest", action="store_true", help="Only inspect latest session")
     parser.add_argument("--plot", type=str, default="", help="Optional throughput plot output path")
     parser.add_argument("--plot-dir", type=str, default="", help="Optional output directory for starter plots")
+    parser.add_argument(
+        "--fpga-plot",
+        type=str,
+        default="",
+        help="Output directory for FPGA engineering analysis plots (uses benchmark-2)",
+    )
     args = parser.parse_args()
 
     db_path = Path(args.db)
@@ -924,6 +1479,13 @@ def main() -> int:
             print(f"plot_dir_saved={plot_dir}")
     finally:
         conn.close()
+
+    if args.fpga_plot:
+        plot_fpga_all(
+            Path(args.fpga_plot),
+            db2_path=DEFAULT_DB2,
+        )
+        print(f"fpga_analysis_saved={args.fpga_plot}")
 
     return 0
 

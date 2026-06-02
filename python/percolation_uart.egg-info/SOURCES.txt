@@ -1,4 +1,3 @@
-README.md
 pyproject.toml
 percolation_uart/__init__.py
 percolation_uart/algorithms.py
