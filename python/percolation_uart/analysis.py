@@ -22,11 +22,26 @@ from .protocol import REQUEST_BYTES, RESPONSE_BYTES
 RNG_WARMUP_CYCLES = 1573        # AES seeding (1536) + Trivium warmup (37) @ 100 MHz
 RNG_WARMUP_S = RNG_WARMUP_CYCLES / 100e6
 FRONTIER_CYCLES_PER_STEP = 3    # 3-stage pipelined prefix scan
-PER_RUN_SM_OVERHEAD_CYCLES = 115  # per-run state machine cost (asymptotic fit)
 UART_WIRE_S_CALC = (REQUEST_BYTES + RESPONSE_BYTES) * 10.0 / 115200.0  # ≈ 2.78 ms
 
 DEFAULT_DB = Path(__file__).resolve().parents[1] / "output" / "benchmark.sqlite3"
 DEFAULT_DB2 = Path(__file__).resolve().parents[1] / "output" / "benchmark-2.sqlite3"
+
+# --- Plot style ---
+_PLOT_STYLE = {
+    "figure.facecolor": "white",
+    "axes.facecolor": "#f8f9fa",
+    "axes.grid": True,
+    "grid.alpha": 0.25,
+    "grid.linestyle": "--",
+    "axes.spines.top": False,
+    "axes.spines.right": False,
+    "font.size": 11,
+    "axes.titlesize": 13,
+    "axes.labelsize": 12,
+    "legend.fontsize": 10,
+    "figure.dpi": 150,
+}
 
 
 @dataclass(frozen=True)
@@ -920,72 +935,125 @@ def _closest_row(rows: list[dict[str, object]], target_p: float) -> dict[str, ob
     return min(rows, key=lambda r: abs(float(r.get("p", 0.0)) - target_p))
 
 
-def plot_amdahl_speedup(conn: sqlite3.Connection, output: Path, *, hw_width: int = 128, target_p: float = 0.60) -> None:
-    """Amdahl speedup vs batch size (Fig 3a/3b in the FPGA analysis guide)."""
+def _find_square_sessions(
+    conn: sqlite3.Connection, *, hw_width: int
+) -> list[dict]:
+    """Return sessions where steps == hw_width (square grids) for physics plots.
+
+    DP finite-size scaling requires square L×L grids.  Falls back to the
+    session with the largest total runs if none are perfectly square.
+    """
+    cur = conn.execute(
+        "SELECT session_id, created_at, payload_json FROM benchmark_sessions ORDER BY created_at"
+    )
+    matches: list[dict] = []
+    for row in cur.fetchall():
+        payload = json.loads(row["payload_json"])
+        if payload.get("effective_hw_width") != hw_width:
+            continue
+        steps = payload.get("steps", 0)
+        if steps != hw_width:
+            continue
+        matches.append(
+            {
+                "session_id": str(row["session_id"]),
+                "created_at": str(row["created_at"]),
+                "runs": payload.get("runs", 0),
+                "steps": steps,
+                "points": payload.get("points", 0),
+                "repeats": payload.get("repeats", 1),
+                "total_runs": payload.get("runs", 0) * payload.get("repeats", 1),
+            }
+        )
+    return matches
+
+
+def plot_latency_vs_batch(conn: sqlite3.Connection, output: Path, *, hw_width: int = 128, target_p: float = 0.60) -> None:
+    """Latency vs batch size, showing fixed UART overhead amortization.
+
+    Left: total latency vs cfg_runs (log-log) — flat at small R (UART-dominated),
+    then linear once core time dominates.
+
+    Right: speedup relative to R=1. The curve follows Amdahl's law:
+    speedup(R) = T(1) / T(R) = 1 / (f_serial + (1-f_serial)/R)
+    where f_serial = fixed_UART_fraction.
+    The flattening at large R reveals the serial bottleneck.
+    """
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    import numpy as np
 
-    sessions = _find_sessions_by_params(conn, hw_width=hw_width)
-    if not sessions:
-        print(f"  [amdahl] no sessions found for hw_width={hw_width}")
-        return
+    with plt.style.context(_PLOT_STYLE):
+        sessions = _find_sessions_by_params(conn, hw_width=hw_width)
+        if not sessions:
+            print(f"  [latency_vs_batch] no sessions for hw_width={hw_width}")
+            return
 
-    # Group by steps, then sort by runs
-    from collections import defaultdict
+        by_steps: dict[int, list[dict]] = defaultdict(list)
+        for s in sessions:
+            by_steps[s["steps"]].append(s)
+        for steps in by_steps:
+            by_steps[steps].sort(key=lambda x: x["runs"])
 
-    by_steps: dict[int, list[dict]] = defaultdict(list)
-    for s in sessions:
-        by_steps[s["steps"]].append(s)
-    for steps in by_steps:
-        by_steps[steps].sort(key=lambda x: x["runs"])
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+        colors = plt.cm.Set1(np.linspace(0, 1, len(by_steps)))
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+        for idx, steps in enumerate(sorted(by_steps)):
+            runs_list: list[float] = []
+            lat_list: list[float] = []
+            for s in by_steps[steps]:
+                rows = _session_data(conn, s["session_id"])
+                if not rows:
+                    continue
+                row = _closest_row(rows, target_p)
+                runs_list.append(float(row["runs"]))
+                lat_list.append(float(row["latency_s"]))
 
-    colors = ["tab:blue", "tab:orange", "tab:green", "tab:red", "tab:purple", "tab:brown"]
-
-    for idx, steps in enumerate(sorted(by_steps)):
-        color = colors[idx % len(colors)]
-        runs_list: list[float] = []
-        lat_list: list[float] = []
-        for s in by_steps[steps]:
-            rows = _session_data(conn, s["session_id"])
-            if not rows:
+            if not runs_list:
                 continue
-            row = _closest_row(rows, target_p)
-            runs_list.append(float(row["runs"]))
-            lat_list.append(float(row["latency_s"]))
 
-        if not runs_list:
-            continue
+            lat1 = lat_list[0]
+            speedup = [lat1 / lat for lat in lat_list]
+            label = f"S={steps}"
 
-        lat1 = lat_list[0]
-        speedup = [lat1 / lat for lat in lat_list]
-        label = f"steps={steps}"
+            ax1.plot(runs_list, lat_list, "o-", color=colors[idx], label=label)
+            ax2.plot(runs_list, speedup, "o-", color=colors[idx], label=label)
 
-        ax1.plot(runs_list, lat_list, "o-", color=color, label=label)
-        ax2.plot(runs_list, speedup, "o-", color=color, label=label)
+            # Annotate Amdahl serial fraction estimate at largest R
+            if len(runs_list) >= 2:
+                r_big = runs_list[-1]
+                s_big = speedup[-1]
+                f_serial = (1 / s_big - 1 / r_big) / (1 - 1 / r_big) if r_big > 1 else 1.0
+                ax2.annotate(
+                    f"f_serial≈{f_serial:.2f}",
+                    xy=(r_big, s_big),
+                    xytext=(5, 5),
+                    textcoords="offset points",
+                    fontsize=8,
+                    color=colors[idx],
+                )
 
-    ax1.set_xscale("log", base=2)
-    ax1.set_yscale("log")
-    ax1.set_xlabel("cfg_runs (batch size)")
-    ax1.set_ylabel("Total latency [s]")
-    ax1.set_title(f"Latency vs Batch Size (N={hw_width}, p≈{target_p})")
-    ax1.grid(True, alpha=0.3)
-    ax1.legend(fontsize=8)
+        ax1.set_xscale("log", base=2)
+        ax1.set_yscale("log")
+        ax1.set_xlabel("Batch size (cfg_runs)")
+        ax1.set_ylabel("Total latency [s]")
+        ax1.set_title("Latency vs Batch Size")
+        ax1.legend(fontsize=8)
 
-    ax2.set_xscale("log", base=2)
-    ax2.set_xlabel("cfg_runs (batch size)")
-    ax2.set_ylabel("Speedup vs R=1")
-    ax2.set_title(f"Amdahl Speedup (N={hw_width}, p≈{target_p})")
-    ax2.grid(True, alpha=0.3)
-    ax2.legend(fontsize=8)
+        ax2.set_xscale("log", base=2)
+        ax2.set_xlabel("Batch size (cfg_runs)")
+        ax2.set_ylabel("Speedup vs R=1")
+        ax2.set_title("Amdahl Speedup — Fixed Overhead Amortization")
+        ax2.axhline(1.0, color="gray", linewidth=0.5)
+        ax2.legend(fontsize=8)
 
-    fig.tight_layout()
-    output.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output, dpi=150)
-    plt.close(fig)
+        fig.suptitle(f"N={hw_width}, p≈{target_p}", fontsize=12, y=1.02)
+        fig.tight_layout()
+        output.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(output, bbox_inches="tight")
+        plt.close(fig)
 
 
 def plot_breakdown_fit(conn: sqlite3.Connection, output: Path, *, hw_width: int = 128, target_p: float = 0.60) -> None:
@@ -994,184 +1062,800 @@ def plot_breakdown_fit(conn: sqlite3.Connection, output: Path, *, hw_width: int 
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    import numpy as np
 
-    sessions = _find_sessions_by_params(conn, hw_width=hw_width)
-    if not sessions:
-        return
+    with plt.style.context(_PLOT_STYLE):
+        sessions = _find_sessions_by_params(conn, hw_width=hw_width)
+        if not sessions:
+            return
 
-    by_steps: dict[int, list[dict]] = defaultdict(list)
-    for s in sessions:
-        by_steps[s["steps"]].append(s)
-    for steps in by_steps:
-        by_steps[steps].sort(key=lambda x: x["runs"])
+        by_steps: dict[int, list[dict]] = defaultdict(list)
+        for s in sessions:
+            by_steps[s["steps"]].append(s)
+        for steps in by_steps:
+            by_steps[steps].sort(key=lambda x: x["runs"])
 
-    fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+        fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+        colors = plt.cm.Set1(np.linspace(0, 1, len(by_steps)))
 
-    results: list[dict] = []
+        results: list[dict] = []
 
-    for steps in sorted(by_steps):
-        runs_list: list[float] = []
-        core_cyc_list: list[float] = []
-        tot_cyc_list: list[float] = []
+        for idx, steps in enumerate(sorted(by_steps)):
+            runs_list: list[float] = []
+            core_cyc_list: list[float] = []
+            tot_cyc_list: list[float] = []
 
-        for s in by_steps[steps]:
-            rows = _session_data(conn, s["session_id"])
-            if not rows:
+            for s in by_steps[steps]:
+                rows = _session_data(conn, s["session_id"])
+                if not rows:
+                    continue
+                row = _closest_row(rows, target_p)
+                r_val = float(row["runs"])
+                runs_list.append(r_val)
+                core_cyc_list.append(float(row.get("core_latency_per_run_cycles_est", 0)))
+                tot_cyc_list.append(float(row.get("latency_per_run_cycles", 0)))
+
+            if len(runs_list) < 3:
                 continue
-            row = _closest_row(rows, target_p)
-            r_val = float(row["runs"])
-            runs_list.append(r_val)
-            core_cyc_list.append(float(row.get("core_latency_per_run_cycles_est", 0)))
-            tot_cyc_list.append(float(row.get("latency_per_run_cycles", 0)))
 
-        if len(runs_list) < 3:
-            continue
+            # Fit: T_total × R = C_fixed + C_marginal × R
+            n = len(runs_list)
+            y = [tot_cyc_list[i] * runs_list[i] for i in range(n)]
+            x = runs_list[:]
+            x_mean = sum(x) / n
+            y_mean = sum(y) / n
+            sxx = sum((xi - x_mean) ** 2 for xi in x)
+            sxy = sum((xi - x_mean) * (yi - y_mean) for xi, yi in zip(x, y))
+            if sxx <= 0:
+                continue
+            slope = sxy / sxx
+            intercept = y_mean - slope * x_mean
 
-        # Fit: C_total × R = C_fixed + C_marginal × R
-        n = len(runs_list)
-        y = [tot_cyc_list[i] * runs_list[i] for i in range(n)]
-        x = runs_list[:]
-        x_mean = sum(x) / n
-        y_mean = sum(y) / n
-        sxx = sum((xi - x_mean) ** 2 for xi in x)
-        sxy = sum((xi - x_mean) * (yi - y_mean) for xi, yi in zip(x, y))
-        if sxx <= 0:
-            continue
-        slope = sxy / sxx
-        intercept = y_mean - slope * x_mean
+            C_marginal = slope
+            C_fixed = intercept
+            results.append({"steps": steps, "C_marginal": C_marginal, "C_fixed": C_fixed})
 
-        C_marginal = slope
-        C_fixed = intercept
-        results.append({"steps": steps, "C_marginal": C_marginal, "C_fixed": C_fixed})
+            ax.plot(
+                runs_list, core_cyc_list, "o-",
+                color=colors[idx], label=f"S={steps} measured", alpha=0.7,
+            )
+            fit_y = [C_fixed / r + C_marginal for r in runs_list]
+            ax.plot(
+                runs_list, fit_y, "--",
+                color=colors[idx], alpha=0.5,
+                label=f"S={steps} fit: asymptote={C_marginal:.0f} cyc/run",
+            )
 
-        # Plot raw data
-        ax.plot(
-            runs_list,
-            core_cyc_list,
-            "o-",
-            label=f"S={steps} measured",
-            alpha=0.7,
-        )
-        # Plot fit
-        fit_y = [C_fixed / r + C_marginal for r in runs_list]
-        ax.plot(runs_list, fit_y, "--", alpha=0.5, label=f"S={steps} fit: {C_marginal:.0f} cyc/run")
+            # Annotate the asymptote
+            ax.axhline(C_marginal, color=colors[idx], linestyle=":", alpha=0.3)
 
-    ax.set_xscale("log", base=2)
-    ax.set_yscale("log")
-    ax.set_xlabel("cfg_runs")
-    ax.set_ylabel("Core cycles per run (est)")
-    ax.set_title(f"Asymptotic Cycles/Run Fit (N={hw_width}, p≈{target_p})\nC_total×R = C_fixed + C_marginal×R")
-    ax.grid(True, alpha=0.3)
-    ax.legend(fontsize=8)
+        ax.set_xscale("log", base=2)
+        ax.set_yscale("log")
+        ax.set_xlabel("Batch size (cfg_runs)")
+        ax.set_ylabel("Core cycles per run (estimated)")
+        ax.set_title("Asymptotic Cycles-per-Run Decomposition\n"
+                     "T_total×R = C_fixed + C_marginal×R")
+        ax.legend(fontsize=8, ncol=2)
 
-    # Print results table
-    print(f"\n=== Asymptotic Fit Results (N={hw_width}, p≈{target_p}) ===")
-    print(f"{'steps':>6}  {'C_marginal':>10}  {'C_fixed':>10}  {'frontier_ideal':>14}  {'overhead':>8}")
-    print("-" * 58)
-    for r in sorted(results, key=lambda x: x["steps"]):
-        s = r["steps"]
-        frontier_ideal = s * FRONTIER_CYCLES_PER_STEP
-        overhead = r["C_marginal"] - frontier_ideal
-        print(
-            f"{s:6d}  {r['C_marginal']:10.1f}  {r['C_fixed']:10.0f}  {frontier_ideal:14.1f}  {overhead:8.1f}"
-        )
+        print(f"\n=== Asymptotic Fit Results (N={hw_width}, p≈{target_p}) ===")
+        print(f"{'steps':>6}  {'C_marginal':>10}  {'C_fixed':>10}  {'ideal(S×3)':>12}  {'overhead':>9}  {'util':>6}")
+        print("-" * 53)
+        for r in sorted(results, key=lambda x: x["steps"]):
+            s = r["steps"]
+            frontier_ideal = s * FRONTIER_CYCLES_PER_STEP
+            overhead = r["C_marginal"] - frontier_ideal
+            util = frontier_ideal / r["C_marginal"] * 100 if r["C_marginal"] > 0 else 0
+            print(
+                f"{s:6d}  {r['C_marginal']:10.1f}  {r['C_fixed']:10.0f}  "
+                f"{frontier_ideal:12.1f}  {overhead:9.1f}  {util:5.1f}%"
+            )
 
-    fig.tight_layout()
-    output.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output, dpi=150)
-    plt.close(fig)
+        fig.tight_layout()
+        output.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(output, bbox_inches="tight")
+        plt.close(fig)
 
     return results
 
 
 def plot_pipeline_efficiency(conn: sqlite3.Connection, output: Path, *, hw_width: int = 128, target_p: float = 0.60) -> None:
-    """Frontier cost breakdown: marginal cycles/run vs steps (Fig 5/6)."""
+    """Frontier cost breakdown and pipeline utilization efficiency.
+
+    Left panel: measured core cycles/run vs grid height (steps), with linear
+    fit and ideal frontier line (3×steps + ~71 from asymptotic fit).
+
+    Right panel:
+    - Efficiency = ideal / measured × 100%  (fraction of theoretical achieved)
+    - Excess = measured − ideal (grows with steps = overhead per step)
+    """
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    import numpy as np
 
-    sessions = _find_sessions_by_params(conn, hw_width=hw_width)
-    if not sessions:
+    with plt.style.context(_PLOT_STYLE):
+        sessions = _find_sessions_by_params(conn, hw_width=hw_width)
+        if not sessions:
+            return
+
+        max_runs = max(s["runs"] for s in sessions)
+        best_sessions = [s for s in sessions if s["runs"] == max_runs and s["steps"] >= 1]
+        if not best_sessions:
+            return
+
+        steps_vals: list[int] = []
+        cyc_vals: list[float] = []
+        for s in sorted(best_sessions, key=lambda x: x["steps"]):
+            rows = _session_data(conn, s["session_id"])
+            if not rows:
+                continue
+            row = _closest_row(rows, target_p)
+            steps_vals.append(s["steps"])
+            cyc_vals.append(float(row.get("core_latency_per_run_cycles_est", 0)))
+
+        if len(steps_vals) < 2:
+            return
+
+        # Linear fit: C_core/run = C_per_step × S + C_fixed
+        n = len(steps_vals)
+        x = [float(s) for s in steps_vals]
+        y = cyc_vals[:]
+        coeffs = np.polyfit(x, y, 1)
+        slope, intercept = coeffs[0], coeffs[1]
+
+        # Ideal line: just the 3-cycle frontier (no host overhead)
+        ideal_per_step = FRONTIER_CYCLES_PER_STEP
+        # The fixed part should also be just what the VHDL does.
+        # From the VHDL: per-run SM transitions ~ a few dozen cycles.
+        # We don't know this exactly, so fit it as: 3*steps + fitted_intercept
+        # That way ideal_line uses the same intercept as the fit, but with ideal slope.
+        ideal_line = [ideal_per_step * s + intercept for s in steps_vals]
+
+        fig = plt.figure(figsize=(12, 5))
+        gs = fig.add_gridspec(1, 2, width_ratios=[1, 1.1])
+
+        # ---- Left: C_core/run vs steps ----
+        ax1 = fig.add_subplot(gs[0])
+        ax1.plot(steps_vals, cyc_vals, "o-", color="tab:blue", linewidth=2,
+                 label=f"Measured (R={max_runs})")
+        fit_x = np.linspace(min(x), max(x), 100)
+        fit_y = coeffs[1] + coeffs[0] * fit_x
+        ax1.plot(fit_x, fit_y, "--", color="tab:blue", alpha=0.6,
+                 label=f"Fit: {slope:.2f}×S + {intercept:.0f}")
+        ideal_y = ideal_per_step * fit_x + intercept
+        ax1.plot(fit_x, ideal_y, ":", color="tab:green", linewidth=2,
+                 label=f"Ideal: {ideal_per_step}×S + {intercept:.0f}")
+
+        ax1.fill_between(fit_x, ideal_y, fit_y, alpha=0.1, color="tab:red",
+                         label=f"Excess (slope={slope-ideal_per_step:.2f}/step)")
+        ax1.set_xlabel("Grid height (steps)")
+        ax1.set_ylabel("Core cycles per run")
+        ax1.set_title(f"Frontier Cost (N={hw_width})")
+        ax1.legend(fontsize=9)
+
+        # ---- Right: Efficiency + Excess ----
+        ax2 = fig.add_subplot(gs[1])
+        efficiency = [ideal_line[i] / cyc_vals[i] * 100 for i in range(len(steps_vals))]
+        excess = [cyc_vals[i] - ideal_line[i] for i in range(len(steps_vals))]
+
+        ax2.plot(steps_vals, efficiency, "s-", color="tab:green", linewidth=2,
+                 label="Efficiency = ideal/measured")
+        ax2.axhline(100, color="gray", linestyle=":", alpha=0.5)
+
+        ax2_twin = ax2.twinx()
+        ax2_twin.bar([str(s) for s in steps_vals], excess, color="tab:red",
+                     alpha=0.4, width=0.6, label="Excess cycles")
+        ax2_twin.set_ylabel("Excess cycles (measured − ideal)")
+
+        ax2.set_xlabel("Grid height (steps)")
+        ax2.set_ylabel("Pipeline efficiency [%]")
+        ax2.set_title(f"Pipeline Utilization (N={hw_width}, R={max_runs})")
+        ax2.set_ylim(0, 110)
+        ax2.legend(loc="upper left", fontsize=9)
+        ax2_twin.legend(loc="upper right", fontsize=9)
+
+        print(
+            f"\n=== Pipeline Efficiency (N={hw_width}, R={max_runs}, p≈{target_p}) ===\n"
+            f"  Fit: C_core/run = {slope:.3f} × steps + {intercept:.1f}\n"
+            f"  Ideal frontier: {FRONTIER_CYCLES_PER_STEP} cyc/step\n"
+            f"  Per-step cost:  {slope:.3f} cyc/step (vs ideal {FRONTIER_CYCLES_PER_STEP}, "
+            f"excess {slope-FRONTIER_CYCLES_PER_STEP:.3f}/step)\n"
+            f"  Fixed overhead: {intercept:.1f} cyc/run\n"
+        )
+        for i, s in enumerate(steps_vals):
+            print(f"    S={s:4d}: measured={cyc_vals[i]:.0f}  ideal={ideal_line[i]:.0f}  "
+                  f"excess={excess[i]:.0f}  efficiency={efficiency[i]:.1f}%")
+
+        fig.tight_layout()
+        output.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(output, bbox_inches="tight")
+        plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
+# Physics / DP analysis plots
+# ---------------------------------------------------------------------------
+
+
+def plot_spanning_curves_multi_size(
+        conn: sqlite3.Connection,
+        output: Path,
+        *,
+        hw_widths: tuple[int, ...] = (64, 128, 180),
+) -> None:
+    """Spanning probability curves for multiple square-grid sizes, with
+    finite-size scaling collapse.
+
+    Left panel: raw P_span(p, N) for N=64,128,180 — the phase transition
+    sharpens as system size grows.
+
+    Right panel: data collapse P_span vs (p−p_c) · N^{1/ν}.  With the
+    correct DP exponent ν=1.096 all curves should overlay onto a single
+    master scaling function.
+
+    Only *square* sessions (steps == N) are used — rectangular grids would
+    give a different effective transition.
+    """
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    with plt.style.context(_PLOT_STYLE):
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5.5))
+        colors = plt.cm.Set1(np.linspace(0, 1, len(hw_widths)))
+        markers = ["o", "s", "^", "D", "v"]
+
+        NU_DP = 1.096  # DP correlation-length exponent
+
+        # ---- collect (p, P_span) for each N ----
+        data_by_n: dict[int, tuple[np.ndarray, np.ndarray]] = {}
+        p_candidates: list[float] = []
+
+        for idx, hw in enumerate(sorted(hw_widths)):
+            sessions = _find_square_sessions(conn, hw_width=hw)
+            if not sessions:
+                print(f"  [multi-size] no square sessions for N={hw}")
+                continue
+
+            best = max(sessions, key=lambda s: s["total_runs"])
+            rows = _session_data(conn, best["session_id"])
+            if not rows:
+                continue
+
+            # Aggregate spanning-count / runs per p
+            buckets: dict[float, dict[str, float]] = defaultdict(
+                lambda: {"k": 0.0, "n": 0.0}
+            )
+            for r in rows:
+                pv = float(r["p"])
+                buckets[pv]["k"] += float(r.get("spanning_count", 0))
+                buckets[pv]["n"] += float(r.get("runs", 1.0))
+
+            probs = sorted(buckets)
+            p_arr = np.array([float(p) for p in probs])
+            span_arr = np.array(
+                [
+                    buckets[p]["k"] / buckets[p]["n"] if buckets[p]["n"] > 0 else 0.0
+                    for p in probs
+                ]
+            )
+            data_by_n[hw] = (p_arr, span_arr)
+
+            # Estimate the effective p_c from the 50%-crossing
+            p_half = None
+            for i in range(len(probs) - 1):
+                if (span_arr[i] - 0.5) * (span_arr[i + 1] - 0.5) <= 0:
+                    dy = span_arr[i + 1] - span_arr[i]
+                    if abs(dy) > 1e-12:
+                        p_half = p_arr[i] + (0.5 - span_arr[i]) * (
+                            p_arr[i + 1] - p_arr[i]
+                        ) / dy
+                    else:
+                        p_half = p_arr[i]
+                    break
+
+            label = f"N={hw}×{hw}"
+            if p_half is not None:
+                p_candidates.append(p_half)
+                label += f"  (p_c≈{p_half:.4f})"
+
+            ax1.plot(
+                p_arr,
+                span_arr,
+                marker=markers[idx % len(markers)],
+                color=colors[idx],
+                linewidth=2,
+                label=label,
+                markersize=5,
+                alpha=0.85,
+            )
+
+        ax1.set_xlabel("Occupation probability p")
+        ax1.set_ylabel("Spanning probability")
+        ax1.set_title("Phase Transition Sharpening with System Size")
+        ax1.set_ylim(-0.02, 1.02)
+        ax1.legend(fontsize=9)
+
+        # ---- Right: scaling collapse ----
+        p_c_est = (
+            sorted(p_candidates)[-1] if len(p_candidates) > 1 else 0.6046
+        )
+
+        for idx, hw in enumerate(sorted(hw_widths)):
+            if hw not in data_by_n:
+                continue
+            p_arr, span_arr = data_by_n[hw]
+            scaled_x = (p_arr - p_c_est) * (hw ** (1.0 / NU_DP))
+            ax2.plot(
+                scaled_x,
+                span_arr,
+                marker=markers[idx % len(markers)],
+                color=colors[idx],
+                linewidth=2,
+                label=f"N={hw}×{hw}",
+                markersize=5,
+                alpha=0.85,
+            )
+
+        ax2.axvline(0, color="gray", linestyle=":", alpha=0.4)
+        ax2.set_xlabel(f"(p − p_c) × N^(1/{NU_DP:.3f})")
+        ax2.set_ylabel("Spanning probability")
+        ax2.set_title(f"Scaling Collapse  (p_c ≈ {p_c_est:.4f})")
+        ax2.set_ylim(-0.02, 1.02)
+        ax2.legend(fontsize=9)
+
+        fig.suptitle(
+            "Directed Percolation — Finite-Size Scaling  (square grids)",
+            fontsize=13,
+            y=1.02,
+        )
+        fig.tight_layout()
+        output.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(output, bbox_inches="tight")
+        plt.close(fig)
+
+        print(f"\n=== Finite-Size Scaling (square grids) ===")
+        for hw in sorted(hw_widths):
+            best = max(
+                _find_square_sessions(conn, hw_width=hw) or [{"total_runs": 0}],
+                key=lambda s: s["total_runs"],
+            )
+            pc_str = next(
+                (f"{pc:.4f}" for i, pc in enumerate(p_candidates) if i < len(hw_widths)),
+                "?",
+            )
+            print(
+                f"  N={hw}×{hw}:  session={best.get('session_id', '?')[:8]}  "
+                f"total_runs={best.get('total_runs', 0)}"
+            )
+        if p_candidates:
+            print(f"  p_c estimates: {[f'{pc:.4f}' for pc in p_candidates]}")
+            print(f"  Using p_c={p_c_est:.4f} for collapse")
+
+
+def plot_threshold_bootstrap(
+        conn: sqlite3.Connection,
+        output: Path,
+        *,
+        session_id: str = "ba1fe7e8-e636-4fd5-af9e-78363786a637",
+        n_bootstrap: int = 2000,
+) -> None:
+    """Precise threshold estimation via binomial logistic regression with
+    binomial bootstrap confidence intervals.
+
+    Uses the finest sweep (N=180, 200 points × 131k runs) to fit
+    P_span(p) = 1/(1+exp(-a·(p-p_c))) in the transition region only
+    (0.001 < spanning < 0.999).
+
+    Bootstrap resamples k_bs ~ Binomial(n, p̂) at each p to capture
+    the natural counting noise without assuming repeat-level variation
+    (the FPGA is deterministic — same seed → same spanning count).
+    """
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    try:
+        from scipy.optimize import minimize
+    except ImportError:
+        print("  [bootstrap] scipy required, skipping")
         return
 
-    # Use only largest runs (host overhead amortized)
-    max_runs = max(s["runs"] for s in sessions)
-    best_sessions = [s for s in sessions if s["runs"] == max_runs and s["steps"] >= 1]
-
-    if not best_sessions:
-        return
-
-    steps_vals: list[int] = []
-    cyc_vals: list[float] = []
-    for s in sorted(best_sessions, key=lambda x: x["steps"]):
-        rows = _session_data(conn, s["session_id"])
+    with plt.style.context(_PLOT_STYLE):
+        rows = _session_data(conn, session_id)
         if not rows:
-            continue
-        row = _closest_row(rows, target_p)
-        steps_vals.append(s["steps"])
-        cyc_vals.append(float(row.get("core_latency_per_run_cycles_est", 0)))
+            print(f"  [bootstrap] no rows for session {session_id[:8]}...")
+            return
 
-    if len(steps_vals) < 2:
-        return
+        # Aggregate spanning counts per p
+        buckets: dict[float, dict[str, float]] = defaultdict(
+            lambda: {"k": 0.0, "n": 0.0}
+        )
+        for r in rows:
+            pv = float(r["p"])
+            buckets[pv]["k"] += float(r.get("spanning_count", 0))
+            buckets[pv]["n"] += float(r.get("runs", 1.0))
 
-    # Linear fit: C_marginal = C_per_step × S + C_fixed_per_run
-    n = len(steps_vals)
-    x = [float(s) for s in steps_vals]
-    y = cyc_vals[:]
-    x_mean = sum(x) / n
-    y_mean = sum(y) / n
-    sxx = sum((xi - x_mean) ** 2 for xi in x)
-    sxy = sum((xi - x_mean) * (yi - y_mean) for xi, yi in zip(x, y))
-    if sxx > 0:
-        slope = sxy / sxx
-        intercept = y_mean - slope * x_mean
-    else:
-        slope = 0
-        intercept = 0
+        probs = sorted(buckets)
+        p_all = np.array([float(p) for p in probs])
+        k_all = np.array([buckets[p]["k"] for p in probs], dtype=float)
+        n_all = np.array([buckets[p]["n"] for p in probs], dtype=float)
+        y_all = k_all / n_all
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+        # Restrict to transition region: 0.001 < spanning < 0.999
+        mask = (y_all > 0.001) & (y_all < 0.999)
+        p_arr = p_all[mask]
+        k_arr = k_all[mask]
+        n_arr = n_all[mask]
+        y_arr = y_all[mask]
 
-    # Left: C_marginal vs S with fit
-    ax1.plot(steps_vals, cyc_vals, "o-", label=f"Measured (runs={max_runs})")
-    fit_x = [min(x), max(x)]
-    fit_y = [intercept + slope * xi for xi in fit_x]
-    ax1.plot(fit_x, fit_y, "--", label=f"Fit: {slope:.2f}×S + {intercept:.1f}")
-    ax1.axhline(FRONTIER_CYCLES_PER_STEP, color="gray", linestyle=":", alpha=0.5, label=f"Ideal frontier={FRONTIER_CYCLES_PER_STEP}/step")
-    ax1.set_xlabel("Grid height (steps)")
-    ax1.set_ylabel("Core cycles per run")
-    ax1.set_title(f"Frontier Cost (N={hw_width}, runs={max_runs})")
-    ax1.grid(True, alpha=0.3)
-    ax1.legend()
+        if len(p_arr) < 5:
+            print(f"  [bootstrap] too few transition points ({len(p_arr)}), skipping")
+            return
 
-    # Right: efficiency vs S
-    ideal_cyc = [s * FRONTIER_CYCLES_PER_STEP + PER_RUN_SM_OVERHEAD_CYCLES for s in steps_vals]
-    efficiency = [cyc_vals[i] / ideal_cyc[i] * 100 if ideal_cyc[i] > 0 else 0 for i in range(len(steps_vals))]
-    excess = [cyc_vals[i] - ideal_cyc[i] for i in range(len(steps_vals))]
+        # Observed binomial probabilities for bootstrap
+        p_hat = k_arr / n_arr
 
-    ax2.plot(steps_vals, efficiency, "s-", color="tab:green", label="Efficiency [%]")
-    ax2_twin = ax2.twinx()
-    ax2_twin.plot(steps_vals, excess, "o--", color="tab:red", alpha=0.7, label="Excess cycles")
-    ax2.set_xlabel("Grid height (steps)")
-    ax2.set_ylabel("Pipeline efficiency [%]")
-    ax2_twin.set_ylabel("Excess cycles")
-    ax2.set_title(f"Pipeline Utilization (N={hw_width})")
-    ax2.grid(True, alpha=0.3)
-    ax2.legend(loc="upper left")
-    ax2_twin.legend(loc="upper right")
+        def _logistic_fit(
+            xs: np.ndarray, ks: np.ndarray, ns: np.ndarray
+        ) -> tuple[float, float]:
+            """Fit P = 1/(1+exp(-(a·x+b))), return (a, b)."""
+            eps = 1e-12
+            y_clipped = np.clip(ks / ns, eps, 1.0 - eps)
+            logits = np.log(y_clipped / (1.0 - y_clipped))
+            A = np.vstack([xs, np.ones_like(xs)]).T
+            try:
+                sol, *_ = np.linalg.lstsq(A, logits, rcond=None)
+                a0, b0 = float(sol[0]), float(sol[1])
+            except Exception:
+                a0, b0 = 50.0, -30.0
 
-    print(
-        f"\n=== Pipeline Efficiency (N={hw_width}, runs={max_runs}, p≈{target_p}) ===\n"
-        f"  Fit: C_core/run = {slope:.2f} × steps + {intercept:.1f}\n"
-        f"  Ideal frontier: {FRONTIER_CYCLES_PER_STEP} cyc/step, SM overhead: {PER_RUN_SM_OVERHEAD_CYCLES} cyc/run\n"
-        f"  Per-step cost:  {slope:.2f} cyc/step (vs ideal {FRONTIER_CYCLES_PER_STEP})\n"
-        f"  Fixed overhead: {intercept:.1f} cyc/run (vs ideal {PER_RUN_SM_OVERHEAD_CYCLES})"
-    )
+            def nll(params):
+                a, b = params[0], params[1]
+                lin = a * xs + b
+                phat = 1.0 / (1.0 + np.exp(-lin))
+                phat = np.clip(phat, 1e-12, 1.0 - 1e-12)
+                return -np.sum(ks * np.log(phat) + (ns - ks) * np.log(1.0 - phat))
 
-    fig.tight_layout()
-    output.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output, dpi=150)
-    plt.close(fig)
+            res = minimize(
+                nll,
+                x0=np.array([a0, b0], dtype=float),
+                method="BFGS",
+                options={"maxiter": 5000},
+            )
+            if res.success:
+                return float(res.x[0]), float(res.x[1])
+            return a0, b0
+
+        a_fit, b_fit = _logistic_fit(p_arr, k_arr, n_arr)
+        p_c_fit = -b_fit / a_fit
+        # Slope at p_c = a/4
+        slope_at_pc = a_fit / 4.0
+
+        # ------------------------------------------------------------------
+        # Binomial bootstrap
+        # ------------------------------------------------------------------
+        rng = np.random.default_rng(42)
+        p_c_samples: list[float] = []
+        a_samples: list[float] = []
+
+        for _ in range(n_bootstrap):
+            bs_k = rng.binomial(n_arr.astype(np.int64), p_hat).astype(float)
+            try:
+                a_bs, b_bs = _logistic_fit(p_arr, bs_k, n_arr)
+                p_c_bs = -b_bs / a_bs
+                if 0.55 < p_c_bs < 0.65:
+                    p_c_samples.append(p_c_bs)
+                    a_samples.append(a_bs)
+            except Exception:
+                continue
+
+        pc_arr = np.array(p_c_samples)
+        a_arr = np.array(a_samples)
+        pc_mean = float(np.mean(pc_arr))
+        pc_median = float(np.median(pc_arr))
+        pc_lo, pc_hi = float(np.percentile(pc_arr, 2.5)), float(
+            np.percentile(pc_arr, 97.5)
+        )
+
+        # ---- Plot ----
+        fig = plt.figure(figsize=(12, 5.5))
+        gs = fig.add_gridspec(1, 2, width_ratios=[1.2, 1])
+
+        ax1 = fig.add_subplot(gs[0])
+        # Data
+        ax1.plot(
+            p_arr,
+            y_arr,
+            "o",
+            color="tab:blue",
+            markersize=3,
+            alpha=0.5,
+            label=f"N=180×180 data  (transition only, {len(p_arr)} pts)",
+        )
+        # Full fit curve (not just transition region)
+        fit_x = np.linspace(0.55, 0.65, 500)
+        fit_y = 1.0 / (1.0 + np.exp(-(a_fit * fit_x + b_fit)))
+        ax1.plot(fit_x, fit_y, "-", color="tab:red", linewidth=2, label="Logistic fit")
+
+        # 95% CI band from binomial bootstrap
+        if len(pc_arr) > 20:
+            fit_ys = []
+            for i in range(min(500, len(pc_arr))):
+                sample_a = a_arr[i]
+                sample_pc = pc_arr[i]
+                sample_b = -sample_a * sample_pc
+                fit_ys.append(1.0 / (1.0 + np.exp(-(sample_a * fit_x + sample_b))))
+            fit_ys = np.array(fit_ys)
+            ax1.fill_between(
+                fit_x,
+                np.percentile(fit_ys, 2.5, axis=0),
+                np.percentile(fit_ys, 97.5, axis=0),
+                color="tab:red",
+                alpha=0.15,
+                label="95% CI (binomial bootstrap)",
+            )
+
+        ax1.axvline(
+            pc_mean,
+            color="tab:red",
+            linestyle="--",
+            linewidth=1.5,
+            label=f"p_c = {pc_mean:.4f}\n[{pc_lo:.4f}, {pc_hi:.4f}]",
+        )
+        ax1.set_xlabel("Occupation probability p")
+        ax1.set_ylabel("Spanning probability")
+        ax1.set_title("Threshold via Binomial Logistic Regression\n"
+                       f"slope at p_c ≈ {slope_at_pc:.1f}")
+        ax1.set_ylim(-0.02, 1.02)
+        ax1.legend(fontsize=8)
+
+        # Right: bootstrap distribution
+        ax2 = fig.add_subplot(gs[1])
+        ax2.hist(
+            pc_arr,
+            bins=50,
+            color="tab:blue",
+            alpha=0.7,
+            edgecolor="white",
+            linewidth=0.5,
+        )
+        ax2.axvline(
+            pc_mean, color="tab:red", linewidth=2, label=f"mean={pc_mean:.4f}"
+        )
+        ax2.axvline(pc_lo, color="gray", linestyle="--", label=f"2.5%={pc_lo:.4f}")
+        ax2.axvline(pc_hi, color="gray", linestyle="--", label=f"97.5%={pc_hi:.4f}")
+        ax2.set_xlabel("p_c = −b/a")
+        ax2.set_ylabel("Count (bootstrap)")
+        ax2.set_title(f"Binomial Bootstrap (n={len(pc_arr)})")
+        ax2.legend(fontsize=8)
+
+        fig.suptitle(
+            "Directed Percolation Threshold Estimation  (180×180, 131k runs/pt)",
+            fontsize=13,
+            y=1.02,
+        )
+        fig.tight_layout()
+        output.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(output, bbox_inches="tight")
+        plt.close(fig)
+
+        print(f"\n=== Threshold Estimation (N=180, {n_bootstrap} binomial bootstrap) ===")
+        print(f"  Fit range: {p_arr[0]:.4f} – {p_arr[-1]:.4f}  ({len(p_arr)} points)")
+        print(f"  Logistic: a={a_fit:.1f}, b={b_fit:.1f}")
+        print(f"  p_c = −b/a = {p_c_fit:.6f}")
+        print(f"  Slope at p_c = a/4 = {slope_at_pc:.1f}")
+        print(f"  Bootstrap: median={pc_median:.6f}, mean={pc_mean:.6f}")
+        print(f"  95% CI: [{pc_lo:.6f}, {pc_hi:.6f}]")
+        print(f"  CI width: {pc_hi - pc_lo:.6f}")
+
+    return p_c_fit, (pc_lo, pc_hi)
+
+
+def plot_cluster_mass_curves(
+        conn: sqlite3.Connection,
+        output: Path,
+        *,
+        hw_widths: tuple[int, ...] = (64, 128, 180),
+) -> None:
+    """Average spanning-cluster mass vs p for multiple square-grid sizes.
+
+    The mass (average reachable sites per spanning run) diverges near p_c
+    and is a *continuous* observable — unlike the binary spanning indicator.
+    This makes it useful for order-parameter analysis.
+
+    Only square sessions (steps == N) are used.
+    """
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    with plt.style.context(_PLOT_STYLE):
+        fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+        colors = plt.cm.Set1(np.linspace(0, 1, len(hw_widths)))
+        markers = ["o", "s", "^", "D", "v"]
+
+        for idx, hw in enumerate(sorted(hw_widths)):
+            sessions = _find_square_sessions(conn, hw_width=hw)
+            if not sessions:
+                continue
+            best = max(sessions, key=lambda s: s["total_runs"])
+            rows = _session_data(conn, best["session_id"])
+            if not rows:
+                continue
+
+            buckets: dict[float, list[float]] = defaultdict(list)
+            for r in rows:
+                pv = float(r["p"])
+                k = float(r.get("spanning_count", 0))
+                mass_val = float(r.get("mass", 0.0))
+                if k > 0 and mass_val > 0:
+                    buckets[pv].append(mass_val)
+
+            probs = sorted(buckets)
+            p_vals = []
+            m_vals = []
+            for pv in probs:
+                masses = buckets[pv]
+                m_mean = np.mean(masses)
+                p_vals.append(pv)
+                m_vals.append(m_mean)
+
+            if not p_vals:
+                continue
+
+            ax.semilogy(
+                p_vals,
+                m_vals,
+                marker=markers[idx % len(markers)],
+                color=colors[idx],
+                linewidth=2,
+                label=f"N={hw}×{hw}",
+                markersize=5,
+                alpha=0.85,
+            )
+
+        ax.set_xlabel("Occupation probability p")
+        ax.set_ylabel("Mean spanning-cluster mass [sites]")
+        ax.set_title("Spanning Cluster Mass vs Occupation Probability")
+        ax.legend(fontsize=9)
+        fig.tight_layout()
+        output.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(output, bbox_inches="tight")
+        plt.close(fig)
+
+
+def plot_binder_cumulant(
+        conn: sqlite3.Connection,
+        output: Path,
+        *,
+        hw_widths: tuple[int, ...] = (64, 128, 180),
+) -> None:
+    """Binder cumulant U(p, N) = 1 − ⟨k²⟩/(3⟨k⟩²) for multiple square-grid sizes.
+
+    The crossing point of U(p, N) for different N is an independent estimator
+    of p_c that is insensitive to the precise form of the scaling function.
+
+    Note: the FPGA uses the same seed across repeats, so per-repeat spanning
+    counts are perfectly deterministic.  We therefore compute the expected
+    binomial variance ⟨k²⟩ = k² + k·(1 − k/R) where k = total spanning events
+    and R = total runs, to recover the Binder cumulant from the observed
+    fraction p̂ = k/R.
+
+    Only square sessions (steps == N) are used.
+    """
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    with plt.style.context(_PLOT_STYLE):
+        fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+        colors = plt.cm.Set1(np.linspace(0, 1, len(hw_widths)))
+        markers = ["o", "s", "^", "D", "v"]
+
+        crossings: list[tuple[int, float]] = []
+
+        for idx, hw in enumerate(sorted(hw_widths)):
+            sessions = _find_square_sessions(conn, hw_width=hw)
+            if not sessions:
+                continue
+            best = max(sessions, key=lambda s: s["total_runs"])
+            rows = _session_data(conn, best["session_id"])
+            if not rows:
+                continue
+
+            # Aggregate spanning counts per p (summing all repeats)
+            buckets: dict[float, dict[str, float]] = defaultdict(
+                lambda: {"k": 0.0, "n": 0.0}
+            )
+            for r in rows:
+                pv = float(r["p"])
+                buckets[pv]["k"] += float(r.get("spanning_count", 0))
+                buckets[pv]["n"] += float(r.get("runs", 1.0))
+
+            probs = sorted(buckets)
+            p_vals = []
+            u_vals = []
+            for pv in probs:
+                k = buckets[pv]["k"]
+                n_total = buckets[pv]["n"]
+                if k <= 0 or n_total <= 0:
+                    continue
+                # Expected binomial ⟨k²⟩ = k² + k·(1 − k/n)
+                p_hat = k / n_total
+                k2_exp = k * k + k * (1.0 - p_hat)
+                U = 1.0 - (k2_exp / (3.0 * k * k))
+                p_vals.append(pv)
+                u_vals.append(U)
+
+            if not p_vals:
+                continue
+
+            ax.plot(
+                p_vals,
+                u_vals,
+                marker=markers[idx % len(markers)],
+                color=colors[idx],
+                linewidth=2,
+                label=f"N={hw}×{hw}",
+                markersize=5,
+                alpha=0.85,
+            )
+
+            # Crossing with U = 2/3
+            for i in range(len(u_vals) - 1):
+                if (u_vals[i] - 2.0 / 3.0) * (u_vals[i + 1] - 2.0 / 3.0) <= 0:
+                    dy = u_vals[i + 1] - u_vals[i]
+                    p_cross = (
+                        p_vals[i]
+                        + (2.0 / 3.0 - u_vals[i]) * (p_vals[i + 1] - p_vals[i]) / dy
+                        if abs(dy) > 1e-12
+                        else p_vals[i]
+                    )
+                    crossings.append((hw, p_cross))
+                    break
+
+        ax.axhline(
+            2.0 / 3.0,
+            color="gray",
+            linestyle=":",
+            alpha=0.4,
+            label="U = 2/3 (crossing)",
+        )
+
+        if crossings:
+            crossing_x = [c[1] for c in crossings]
+            crossing_y = [2.0 / 3.0] * len(crossings)
+            ax.scatter(
+                crossing_x,
+                crossing_y,
+                marker="*",
+                s=160,
+                color="black",
+                zorder=5,
+                label="Crossings",
+            )
+            for c in crossings:
+                print(f"  N={c[0]:3d}×{c[0]:3d}:  Binder crossing at p={c[1]:.4f}")
+
+        ax.set_xlabel("Occupation probability p")
+        ax.set_ylabel("Binder cumulant U = 1 − ⟨k²⟩/(3⟨k⟩²)")
+        ax.set_title("Binder Cumulant — Crossing Point Estimate of p_c")
+        ax.legend(fontsize=9)
+
+        fig.tight_layout()
+        output.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(output, bbox_inches="tight")
+        plt.close(fig)
 
 
 def plot_throughput_invariance(conn: sqlite3.Connection, output: Path, *, hw_width: int = 128, target_p: float = 0.60) -> None:
@@ -1386,44 +2070,57 @@ def plot_fpga_all(output_dir: Path, *,
                   db2_path: Path = DEFAULT_DB2,
                   hw_width: int = 128,
                   target_p: float = 0.60) -> None:
-    """Convenience: run all FPGA engineering plots and save to output_dir."""
+    """Convenience: run all plots and save to output_dir."""
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Use benchmark-2 for runs-sweep data (includes N=128, N=180 runs sweeps)
     conn2 = _connect(db2_path)
     try:
         print(f"\n{'='*60}")
         print(f"FPGA Engineering Analysis (N={hw_width}, p≈{target_p})")
         print(f"{'='*60}")
 
-        print("\n[1/5] Amdahl Speedup...")
-        plot_amdahl_speedup(conn2, output_dir / "amdahl_speedup.png", hw_width=hw_width, target_p=target_p)
+        print("\n[1/6] Latency vs Batch (Amdahl Speedup)...")
+        plot_latency_vs_batch(conn2, output_dir / "latency_vs_batch.png",
+                              hw_width=hw_width, target_p=target_p)
 
-        print("\n[2/5] Asymptotic Breakdown Fit...")
-        plot_breakdown_fit(conn2, output_dir / "breakdown_fit.png", hw_width=hw_width, target_p=target_p)
+        print("\n[2/6] Asymptotic Breakdown Fit...")
+        plot_breakdown_fit(conn2, output_dir / "breakdown_fit.png",
+                           hw_width=hw_width, target_p=target_p)
 
-        print("\n[3/5] Pipeline Efficiency...")
-        plot_pipeline_efficiency(conn2, output_dir / "pipeline_efficiency.png", hw_width=hw_width, target_p=target_p)
+        print("\n[3/6] Pipeline Efficiency...")
+        plot_pipeline_efficiency(conn2, output_dir / "pipeline_efficiency.png",
+                                 hw_width=hw_width, target_p=target_p)
 
-        print("\n[4/5] Throughput Invariance...")
-        plot_throughput_invariance(conn2, output_dir / "throughput_invariance.png", hw_width=hw_width, target_p=target_p)
+        print("\n[4/6] Throughput Invariance...")
+        plot_throughput_invariance(conn2, output_dir / "throughput_invariance.png",
+                                   hw_width=hw_width, target_p=target_p)
 
-        print("\n[5/5] Throughput Contour...")
-        plot_throughput_contour(conn2, output_dir / "throughput_contour.png", hw_width=hw_width)
+        print("\n[5/6] Throughput Contour...")
+        plot_throughput_contour(conn2, output_dir / "throughput_contour.png",
+                                hw_width=hw_width)
 
-        print("\n[extra] Determinism CV (N=128)...")
-        plot_determinism_cv(conn2, output_dir / "determinism_cv.png", hw_width=128, target_p=target_p)
+        print("\n[6/6] Determinism CV (N=128)...")
+        plot_determinism_cv(conn2, output_dir / "determinism_cv.png",
+                            hw_width=128, target_p=target_p)
 
         print("\n[extra] Determinism CV (N=180)...")
-        plot_determinism_cv(conn2, output_dir / "determinism_cv_180.png", hw_width=180, target_p=target_p)
+        plot_determinism_cv(conn2, output_dir / "determinism_cv_180.png",
+                            hw_width=180, target_p=target_p)
+
+        # Physics plots
+        print("\n[physics 1/3] Finite-Size Scaling...")
+        plot_spanning_curves_multi_size(conn2, output_dir / "finite_size_scaling.png")
+
+        print("\n[physics 2/3] Threshold Bootstrap...")
+        plot_threshold_bootstrap(conn2, output_dir / "threshold_bootstrap.png")
+
+        print("\n[physics 3/3] Cluster Mass Curves...")
+        plot_cluster_mass_curves(conn2, output_dir / "cluster_mass_curves.png")
     finally:
         conn2.close()
 
-    # Software comparison data is in benchmark.sqlite3
-    print(f"\nAll FPGA engineering plots saved to {output_dir}")
-
-    print(f"\nAll FPGA engineering plots saved to {output_dir}")
+    print(f"\nAll plots saved to {output_dir}")
 
 
 def main() -> int:
