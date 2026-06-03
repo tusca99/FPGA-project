@@ -4,6 +4,7 @@ use ieee.numeric_std.all;
 
 use work.rng_pkg.all;
 
+-- testbench for the hybrid RNG design, which instantiates the rng_hybrid_64 entity and applies stimulus to verify that it generates valid random numbers and correctly determines site open flags based on the threshold
 entity tb_rng_hybrid is
 end entity tb_rng_hybrid;
 
@@ -45,9 +46,12 @@ begin
         );
 
     stimulus : process
+        -- variables for counting the number of valid samples observed and the number of times the site open flag was set, 
+        -- used to verify that the RNG is generating valid random numbers and correctly determining site open flags based on the threshold
         variable passed_count : integer := 0;
         variable tried_count : integer := 0;
     begin
+        -- start with a reset to initialize the generator, then wait for it to become ready by checking the busy and all_valid signals, with a timeout to prevent an infinite wait if something goes wrong
         rst <= '1';
         wait for 50 ns;
         rst <= '0';
@@ -58,9 +62,12 @@ begin
             exit when busy = '0' and all_valid = '1';
         end loop;
 
+        -- check that the generator became ready within the timeout period, indicating that it successfully seeded and warmed up the Trivium bank and is generating valid random numbers
         assert busy = '0' and all_valid = '1'
             report "Hybrid RNG did not become ready" severity failure;
 
+        -- once the generator is ready, observe the output random numbers and site open flags for a number of samples, counting how many valid samples are observed and how many times the site open flag is set, 
+        -- to verify that the RNG is generating valid random numbers and correctly determining site open flags based on the threshold
         for sample in 0 to 7 loop
             wait until rising_edge(clk);
             if all_valid = '1' then
@@ -73,12 +80,14 @@ begin
             end if;
         end loop;
 
+        -- check that at least some valid samples were observed and that the site open flag was set at least some of the time, indicating that the RNG is generating valid random numbers and correctly determining site open flags based on the threshold
         assert tried_count > 0
             report "No valid RNG samples were observed" severity failure;
 
         assert passed_count > 0
             report "Comparator output never opened a site" severity failure;
 
+        -- report the results of the test, including how many valid samples were observed and how many times the site open flag was set, to provide feedback on the performance of the RNG and its ability to generate valid random numbers and correctly determine site open flags based on the threshold
         report "Hybrid RNG smoke test passed" severity note;
         report "Passed=" & integer'image(passed_count) severity note;
         report "Tried=" & integer'image(tried_count) severity note;
