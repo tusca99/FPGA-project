@@ -89,8 +89,7 @@ begin
         port map (
             Clk       => Clk,
             Rst       => Rst,
-            baud_tick => baud_tick_s,
-            half_tick => open
+            baud_tick => baud_tick_s
         );
 
     rsp_rx_inst : entity work.uart_msg_rx

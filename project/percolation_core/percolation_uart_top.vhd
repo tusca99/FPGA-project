@@ -6,7 +6,7 @@ entity percolation_uart_top is
     generic (
         CLK_FREQ  : integer := 100_000_000;
         BAUD_RATE : integer := 115200;
-        N_ROWS_G  : positive := 128;
+        N_ROWS_G  : positive := 180;
         REQ_BYTES : positive := 16;
         RSP_BYTES : positive := 16
     );
@@ -58,8 +58,7 @@ begin
         port map (
             Clk       => Clk,
             Rst       => Rst,
-            baud_tick => baud_tick_s,
-            half_tick => open
+            baud_tick => baud_tick_s
         );
 
     rx_inst : entity work.uart_msg_rx
