@@ -1,3 +1,17 @@
+-- -------------------------------------------------------------------------------------------
+-- Students Names: Leonardo Pieripolli, Alessio Tuscano 
+-- Module Name: percolation_uart_top_tb
+-- Project Name: Percolation on FPGA
+-- Target Devices: xc7a100tcsg324-1
+-- Description: Exam project for Programmable Hardware Devices course at University of Padova.
+-- 
+-- Depenedencies:
+--   - percolation_uart_top.vhd
+--   - baud_gen.vhd
+--   - uart_msg_rx.vhd
+--
+-- -------------------------------------------------------------------------------------------
+
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 use IEEE.NUMERIC_STD.ALL;
@@ -5,10 +19,11 @@ use IEEE.NUMERIC_STD.ALL;
 entity percolation_uart_top_tb is
 end entity;
 
+-- Testbench for the percolation_uart_top module. This testbench sends a configuration message over UART to the module, waits for the response, and checks that the results are as expected.
 architecture Behavioral of percolation_uart_top_tb is
-    constant N_ROWS_G : positive := 64;  -- MUST match hardware! (not 256)
-    constant CLK_FREQ  : integer := 100_000_000;
-    constant BAUD_RATE : integer := 1_000_000;
+    constant N_ROWS_G : positive := 64;             -- MUST match hardware capabilities (not 256)
+    constant CLK_FREQ  : integer := 100_000_000;    -- 100 MHz clock frequency (used for baud generation)
+    constant BAUD_RATE : integer := 1_000_000;      -- Use a high baud rate for faster testing (must be supported by the hardware and UART modules)
     constant REQ_BYTES : positive := 16;
     constant RSP_BYTES : positive := 16;
     constant ZERO_RSP  : std_logic_vector(RSP_BYTES*8-1 downto 0) := (others => '0');
@@ -28,6 +43,7 @@ architecture Behavioral of percolation_uart_top_tb is
     signal rsp_valid_s : std_logic := '0';
     signal rsp_busy_s  : std_logic := '0';
 
+    -- Signals for percolation core configuration and results (monitored for debugging, different configuration from the test message)
     type byte_array_t is array (natural range <>) of std_logic_vector(7 downto 0);
     constant REQ_BYTES_VEC : byte_array_t(0 to REQ_BYTES-1) := (
 --        x"4C", x"CC", x"CC", x"CC", -- Word 0: CfgP = approx 0.3
@@ -39,6 +55,7 @@ architecture Behavioral of percolation_uart_top_tb is
         x"00", x"00", x"00", x"10"  -- Word 3: CfgRuns=16
     );
 
+    -- Procedure to send a byte over the UART receive line, simulating a UART transmission from the host. 
     procedure send_uart_byte(signal line : out std_logic; constant data_byte : in std_logic_vector(7 downto 0)) is
     begin
         line <= '0';
@@ -54,6 +71,7 @@ architecture Behavioral of percolation_uart_top_tb is
     end procedure;
 
 begin
+    -- Clock generator (100 MHz)
     clk_proc : process
     begin
         while true loop
@@ -64,7 +82,8 @@ begin
         end loop;
     end process;
 
-
+    -- Instantiate the percolation_uart_top module and connect the signals. 
+    -- The testbench will drive the uart_rx_i signal to send configuration messages and monitor the uart_tx_o signal for responses.
     dut : entity work.percolation_uart_top
         generic map (
             CLK_FREQ  => CLK_FREQ,
@@ -125,6 +144,9 @@ begin
             end if;
         end loop;
 
+        -- Check the response message for expected values. 
+        -- The exact expected values depend on the configuration sent and the behavior of the percolation core, but we can check for some basic sanity conditions 
+        -- (e.g., StepCount should be 16, SpanningCount should be <= StepCount, TotalOccupied should be > 0, etc.).
         assert rsp_valid_s = '1'
             report "Response message was not received" severity failure;
 

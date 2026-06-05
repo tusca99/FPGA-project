@@ -1,3 +1,17 @@
+-- -------------------------------------------------------------------------------------------
+-- Students Names: Leonardo Pieripolli, Alessio Tuscano 
+-- Module Name: uart_msg_loopback_top
+-- Project Name: Percolation on FPGA
+-- Target Devices: xc7a100tcsg324-1
+-- Description: Exam project for Programmable Hardware Devices course at University of Padova.
+-- 
+-- Depenedencies:
+--   - baud_gen.vhd
+--   - uart_msg_rx.vhd
+--   - uart_msg_tx.vhd
+--
+-- -------------------------------------------------------------------------------------------
+
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 use IEEE.NUMERIC_STD.ALL;

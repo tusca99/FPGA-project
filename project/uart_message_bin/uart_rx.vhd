@@ -1,4 +1,14 @@
--- UART Receiver (modular)
+-- -------------------------------------------------------------------------------------------
+-- Students Names: Leonardo Pieripolli, Alessio Tuscano 
+-- Module Name: uart_rx
+-- Project Name: Percolation on FPGA
+-- Target Devices: xc7a100tcsg324-1
+-- Description: Exam project for Programmable Hardware Devices course at University of Padova.
+-- 
+-- Depenedencies:
+--
+-- -------------------------------------------------------------------------------------------
+
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 use IEEE.NUMERIC_STD.ALL;

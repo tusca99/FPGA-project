@@ -1,3 +1,16 @@
+-- -------------------------------------------------------------------------------------------
+-- Students Names: Leonardo Pieripolli, Alessio Tuscano 
+-- Module Name: rng_hybrid_tb
+-- Project Name: Percolation on FPGA
+-- Target Devices: xc7a100tcsg324-1
+-- Description: Exam project for Programmable Hardware Devices course at University of Padova.
+-- 
+-- Depenedencies:
+--   - rng_pkg.vhd
+--   - rng_hybrid_64.vhd
+--
+-- -------------------------------------------------------------------------------------------
+
 library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
