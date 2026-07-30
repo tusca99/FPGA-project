@@ -36,12 +36,6 @@ class PercolationClient:
             write_timeout=write_timeout,
         )
 
-    @classmethod
-    def from_transport(cls, transport: UartTransport) -> "PercolationClient":
-        client = cls.__new__(cls)
-        client.transport = transport
-        return client
-
     def run(self, request: PercolationRequest) -> PercolationResponse:
         self.transport.write(encode_request(request))
         payload = self.transport.read_exactly(RESPONSE_BYTES)

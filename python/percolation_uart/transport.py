@@ -48,16 +48,6 @@ class UartTransport:
         self._previous_attrs = termios.tcgetattr(self._fd)
         self._configure_port(baudrate)
 
-    @classmethod
-    def from_serial(cls, serial_port: Any) -> "UartTransport":
-        transport = cls.__new__(cls)
-        transport._fd = serial_port
-        transport._timeout = 120.0
-        transport._write_timeout = 120.0
-        transport._previous_attrs = None
-        transport._closed = False
-        return transport
-
     @property
     def serial_port(self) -> Any:
         return self._fd

@@ -23,7 +23,6 @@ from .protocol import (
     max_steps_per_run_for_probability,
     uq32_to_probability,
 )
-from .reference import RunResult, simulate_request, simulate_run
 from .transport import UartTransport
 
 __all__ = [
@@ -35,7 +34,6 @@ __all__ = [
     "PercolationResponse",
     "REQUEST_BYTES",
     "RESPONSE_BYTES",
-    "RunResult",
     "UartTransport",
     "bfs_spanning",
     "decode_response",
@@ -47,7 +45,5 @@ __all__ = [
     "max_cfg_runs_for_probability",
     "max_steps_per_run_for_probability",
     "run_sweep_software",
-    "simulate_request",
-    "simulate_run",
     "uq32_to_probability",
 ]

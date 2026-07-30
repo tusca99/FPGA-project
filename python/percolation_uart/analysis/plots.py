@@ -1,563 +1,39 @@
-"""SQLite analysis helpers for percolation benchmark history.
-
-This module keeps the analysis layer intentionally small: load benchmark rows,
-summarize sessions, and provide a basic throughput plot that can be extended
-later once the desired figures are clearer.
-"""
+"""Plotting functions for percolation benchmark analysis."""
 
 from __future__ import annotations
 
-import argparse
-import json
 import math
-import sqlite3
 from collections import defaultdict
-from dataclasses import dataclass
 from pathlib import Path
 
-from .protocol import REQUEST_BYTES, RESPONSE_BYTES
-
-
-# FPGA timing constants (from VHDL analysis)
-RNG_WARMUP_CYCLES = 1573        # AES seeding (1536) + Trivium warmup (37) @ 100 MHz
-RNG_WARMUP_S = RNG_WARMUP_CYCLES / 100e6
-FRONTIER_CYCLES_PER_STEP = 3    # 3-stage pipelined prefix scan
-UART_WIRE_S_CALC = (REQUEST_BYTES + RESPONSE_BYTES) * 10.0 / 115200.0  # ≈ 2.78 ms
-
-DEFAULT_DB = Path(__file__).resolve().parents[1] / "output" / "benchmark.sqlite3"
-DEFAULT_DB2 = Path(__file__).resolve().parents[1] / "output" / "benchmark-2.sqlite3"
-
-# --- Plot style ---
-_PLOT_STYLE = {
-    "figure.facecolor": "white",
-    "axes.facecolor": "#f8f9fa",
-    "axes.grid": True,
-    "grid.alpha": 0.25,
-    "grid.linestyle": "--",
-    "axes.spines.top": False,
-    "axes.spines.right": False,
-    "font.size": 11,
-    "axes.titlesize": 13,
-    "axes.labelsize": 12,
-    "legend.fontsize": 10,
-    "figure.dpi": 150,
-}
-
-
-@dataclass(frozen=True)
-class BenchmarkSession:
-    session_id: str
-    created_at: str
-    payload: dict[str, object]
-
-
-def _connect(db_path: Path) -> sqlite3.Connection:
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
-def list_sessions(conn: sqlite3.Connection) -> list[BenchmarkSession]:
-    rows = conn.execute(
-        "SELECT session_id, created_at, payload_json FROM benchmark_sessions ORDER BY created_at"
-    ).fetchall()
-    sessions: list[BenchmarkSession] = []
-    for row in rows:
-        sessions.append(
-            BenchmarkSession(
-                session_id=str(row["session_id"]),
-                created_at=str(row["created_at"]),
-                payload=json.loads(row["payload_json"]),
-            )
-        )
-    return sessions
-
-
-def latest_session_id(conn: sqlite3.Connection) -> str | None:
-    row = conn.execute(
-        "SELECT session_id FROM benchmark_sessions ORDER BY created_at DESC LIMIT 1"
-    ).fetchone()
-    return None if row is None else str(row["session_id"])
-
-
-def load_summary_rows(conn: sqlite3.Connection, session_id: str | None = None) -> list[dict[str, object]]:
-    if session_id is None:
-        rows = conn.execute("SELECT row_json FROM benchmark_summary ORDER BY p").fetchall()
-    else:
-        rows = conn.execute(
-            "SELECT row_json FROM benchmark_summary WHERE session_id = ? ORDER BY p",
-            (session_id,),
-        ).fetchall()
-    return [json.loads(row["row_json"]) for row in rows]
-
-
-def load_raw_rows(conn: sqlite3.Connection, session_id: str | None = None) -> list[dict[str, object]]:
-    if session_id is None:
-        rows = conn.execute("SELECT row_json FROM benchmark_raw ORDER BY p, repeat_index").fetchall()
-    else:
-        rows = conn.execute(
-            "SELECT row_json FROM benchmark_raw WHERE session_id = ? ORDER BY p, repeat_index",
-            (session_id,),
-        ).fetchall()
-    return [json.loads(row["row_json"]) for row in rows]
-
-
-def summarize_db(conn: sqlite3.Connection) -> str:
-    session_count = conn.execute("SELECT COUNT(*) AS n FROM benchmark_sessions").fetchone()["n"]
-    summary_count = conn.execute("SELECT COUNT(*) AS n FROM benchmark_summary").fetchone()["n"]
-    raw_count = conn.execute("SELECT COUNT(*) AS n FROM benchmark_raw").fetchone()["n"]
-
-    if summary_count == 0:
-        return f"sessions={session_count}, summary_rows=0, raw_rows={raw_count}"
-
-    p_min, p_max = conn.execute(
-        "SELECT MIN(p) AS p_min, MAX(p) AS p_max FROM benchmark_summary"
-    ).fetchone()
-    return (
-        f"sessions={session_count}, summary_rows={summary_count}, raw_rows={raw_count}, "
-        f"p_range=[{p_min:.4f}, {p_max:.4f}]"
-    )
-
-
-def _mean_std_err(values: list[float]) -> tuple[float, float, float]:
-    if not values:
-        return 0.0, 0.0, 0.0
-    n = len(values)
-    mean = sum(values) / n
-    if n < 2:
-        return mean, 0.0, 0.0
-    variance = sum((value - mean) ** 2 for value in values) / (n - 1)
-    std = math.sqrt(variance)
-    err = std / math.sqrt(n)
-    return mean, std, err
-
-
-def _group_by_p(rows: list[dict[str, object]], value_key: str) -> tuple[list[float], list[float], list[float], list[float]]:
-    buckets: dict[float, list[float]] = defaultdict(list)
-    for row in rows:
-        if value_key not in row:
-            continue
-        buckets[float(row["p"])].append(float(row[value_key]))
-
-    probabilities = sorted(buckets)
-    means: list[float] = []
-    stds: list[float] = []
-    errs: list[float] = []
-    for probability in probabilities:
-        mean, std, err = _mean_std_err(buckets[probability])
-        means.append(mean)
-        stds.append(std)
-        errs.append(err)
-    return probabilities, means, stds, errs
-
-
-def _aggregate_mass_by_p(rows: list[dict[str, object]], min_spanning_count: int = 10) -> tuple[list[float], list[float], list[float], list[float]]:
-    buckets: dict[float, dict[str, float]] = defaultdict(lambda: {"spanning_occupied": 0.0, "spanning_count": 0.0})
-    for row in rows:
-        if "p" not in row:
-            continue
-        p_value = float(row["p"])
-        buckets[p_value]["spanning_occupied"] += float(row.get("spanning_occupied", 0.0))
-        buckets[p_value]["spanning_count"] += float(row.get("spanning_count", 0.0))
-
-    probabilities = sorted(buckets)
-    pooled_mass: list[float] = []
-    pooled_spanning_count: list[float] = []
-    low_stat_flags: list[float] = []
-    for probability in probabilities:
-        total_spanning_occupied = buckets[probability]["spanning_occupied"]
-        total_spanning_count = buckets[probability]["spanning_count"]
-        mass = total_spanning_occupied / total_spanning_count if total_spanning_count > 0 else 0.0
-        pooled_mass.append(mass)
-        pooled_spanning_count.append(total_spanning_count)
-        low_stat_flags.append(1.0 if total_spanning_count < min_spanning_count else 0.0)
-    return probabilities, pooled_mass, pooled_spanning_count, low_stat_flags
-
-
-def _linear_regression_3sigma(x: list[float], y: list[float], n_points: int = 300) -> tuple[list[float], list[float], list[float], list[float]]:
-    if not x or not y or len(x) != len(y):
-        return [], [], [], []
-    if len(x) < 2:
-        return x[:], y[:], y[:], y[:]
-
-    n = len(x)
-    x_mean = sum(x) / n
-    y_mean = sum(y) / n
-    sxx = sum((xi - x_mean) ** 2 for xi in x)
-    if sxx <= 0.0:
-        return x[:], y[:], y[:], y[:]
-
-    sxy = sum((xi - x_mean) * (yi - y_mean) for xi, yi in zip(x, y))
-    slope = sxy / sxx
-    intercept = y_mean - slope * x_mean
-
-    y_hat = [intercept + slope * xi for xi in x]
-    dof = n - 2
-    if dof > 0:
-        sse = sum((yi - yfi) ** 2 for yi, yfi in zip(y, y_hat))
-        sigma = math.sqrt(sse / dof)
-    else:
-        sigma = 0.0
-
-    x_min = min(x)
-    x_max = max(x)
-    if n_points < 2 or x_max <= x_min:
-        xs = x[:]
-    else:
-        xs = [x_min + i * (x_max - x_min) / (n_points - 1) for i in range(n_points)]
-
-    fit: list[float] = []
-    upper: list[float] = []
-    lower: list[float] = []
-    for xi in xs:
-        y_fit = intercept + slope * xi
-        se_mean = sigma * math.sqrt((1.0 / n) + ((xi - x_mean) ** 2 / sxx))
-        delta = 3.0 * se_mean
-        fit.append(y_fit)
-        upper.append(y_fit + delta)
-        lower.append(y_fit - delta)
-
-    return xs, fit, upper, lower
-
-
-def _sigmoid_regression_3sigma(x: list[float], y: list[float], n_points: int = 300) -> tuple[list[float], list[float], list[float], list[float]]:
-    if not x or not y or len(x) != len(y):
-        return [], [], [], []
-    if len(x) < 2:
-        return x[:], y[:], y[:], y[:]
-
-    eps = 1e-6
-    clipped = [min(max(value, eps), 1.0 - eps) for value in y]
-    logits = [math.log(value / (1.0 - value)) for value in clipped]
-    fit_x, fit_logit, fit_hi_logit, fit_lo_logit = _linear_regression_3sigma(x, logits, n_points=n_points)
-    if not fit_x:
-        return [], [], [], []
-
-    def sigmoid(value: float) -> float:
-        if value >= 0:
-            z = math.exp(-value)
-            return 1.0 / (1.0 + z)
-        z = math.exp(value)
-        return z / (1.0 + z)
-
-    fit = [sigmoid(value) for value in fit_logit]
-    upper = [sigmoid(value) for value in fit_hi_logit]
-    lower = [sigmoid(value) for value in fit_lo_logit]
-    return fit_x, fit, upper, lower
-
-
-def _sigmoid_regression_nonlinear(x: list[float], y: list[float], n_points: int = 300, yerr: list[float] | None = None):
-    """Try a true nonlinear logistic fit y = 1/(1+exp(-(a*x + b))).
-
-    Falls back to `_sigmoid_regression_3sigma` if required libraries or
-    fitting fails.
-    Returns (xs, fit, upper, lower).
-    """
-    if not x or not y or len(x) != len(y):
-        return [], [], [], []
-    if len(x) < 2:
-        return x[:], y[:], y[:], y[:]
-
-    try:
-        import numpy as _np
-        from math import exp
-        try:
-            from scipy.optimize import curve_fit
-
-            def _model(xv, a, b):
-                return 1.0 / (1.0 + _np.exp(-(a * _np.asarray(xv) + b)))
-
-            # initial guess: use linear logit regression if possible
-            eps = 1e-6
-            clipped = [_np.clip(v, eps, 1.0 - eps) for v in y]
-            logits = [_np.log(v / (1.0 - v)) for v in clipped]
-            # linear fit in logit space
-            a0 = 0.0
-            b0 = 0.0
-            try:
-                A = _np.vstack([x, _np.ones_like(x)]).T
-                sol, *_ = _np.linalg.lstsq(A, _np.asarray(logits), rcond=None)
-                a0, b0 = sol[0], sol[1]
-            except Exception:
-                a0, b0 = 10.0, -6.0
-
-            sigma = None
-            if yerr is not None:
-                try:
-                    sigma = _np.asarray(yerr, dtype=float)
-                    sigma = _np.maximum(sigma, 1e-8)
-                except Exception:
-                    sigma = None
-
-            popt, pcov = curve_fit(_model, _np.asarray(x), _np.asarray(y), p0=[a0, b0], sigma=sigma, maxfev=10000)
-            a, b = popt[0], popt[1]
-
-            xs = [min(x) + i * (max(x) - min(x)) / (n_points - 1) for i in range(n_points)]
-            vals = 1.0 / (1.0 + _np.exp(-(a * _np.asarray(xs) + b)))
-            fit = [float(vals[i]) for i in range(len(xs))]
-
-            # approximate uncertainty via parameter covariance (delta method)
-            upper = fit[:]  # conservative fallback
-            lower = fit[:]
-            try:
-                vars = _np.diag(pcov)
-                # simple +/- 3 sigma on parameters to make envelopes (conservative)
-                a_hi, a_lo = a + 3.0 * _np.sqrt(max(vars[0], 0.0)), a - 3.0 * _np.sqrt(max(vars[0], 0.0))
-                b_hi, b_lo = b + 3.0 * _np.sqrt(max(vars[1], 0.0)), b - 3.0 * _np.sqrt(max(vars[1], 0.0))
-                fit_hi = [1.0 / (1.0 + _np.exp(-(a_hi * xi + b_hi))) for xi in xs]
-                fit_lo = [1.0 / (1.0 + _np.exp(-(a_lo * xi + b_lo))) for xi in xs]
-                upper = fit_hi
-                lower = fit_lo
-            except Exception:
-                pass
-
-            return xs, fit, upper, lower
-        except Exception:
-            # scipy not available or fit failed: fall back
-            return _sigmoid_regression_3sigma(x, y, n_points=n_points)
-    except Exception:
-        return _sigmoid_regression_3sigma(x, y, n_points=n_points)
-
-
-def _plot_with_error_bars(
-    ax,
-    x: list[float],
-    y: list[float],
-    yerr: list[float],
-    *,
-    marker: str,
-    color: str,
-    label: str,
-    fit_label: str,
-    shade_label: str,
-) -> None:
-    ax.errorbar(
-        x,
-        y,
-        yerr=yerr,
-        fmt=marker,
-        linestyle="none",
-        capsize=3,
-        markersize=5,
-        label=label,
-        color=color,
-        alpha=0.95,
-    )
-    fit_x, fit_y, fit_hi, fit_lo = _linear_regression_3sigma(x, y)
-    if fit_x:
-        ax.plot(fit_x, fit_y, "-", linewidth=2, alpha=0.9, color=color, label=fit_label)
-        ax.fill_between(fit_x, fit_lo, fit_hi, color=color, alpha=0.15, label=shade_label)
-
-
-def _binomial_logit_regression_from_buckets(buckets: dict[float, tuple[float, float]], n_points: int = 300):
-    """Fit a binomial logistic regression to aggregated (successes, trials) buckets.
-
-    buckets: mapping p_value -> (successes, trials)
-    Returns (xs, fit, upper, lower) where xs is a grid of p values.
-    """
-    try:
-        import numpy as _np
-        from scipy.optimize import minimize
-    except Exception:
-        return [], [], [], []
-
-    probs = sorted(buckets)
-    successes = _np.asarray([buckets[p][0] for p in probs], dtype=float)
-    trials = _np.asarray([buckets[p][1] for p in probs], dtype=float)
-    # avoid zero-trial buckets
-    mask = trials > 0
-    if not _np.any(mask):
-        return [], [], [], []
-
-    xs_data = _np.asarray([float(p) for p in probs])[mask]
-    ks = successes[mask]
-    ns = trials[mask]
-
-    # observed proportions
-    ys = ks / ns
-
-    # initial linear logit guess
-    eps = 1e-9
-    ys_clipped = _np.clip(ys, eps, 1.0 - eps)
-    logits = _np.log(ys_clipped / (1.0 - ys_clipped))
-    try:
-        A = _np.vstack([xs_data, _np.ones_like(xs_data)]).T
-        sol, *_ = _np.linalg.lstsq(A, logits, rcond=None)
-        a0, b0 = float(sol[0]), float(sol[1])
-    except Exception:
-        a0, b0 = 50.0, -30.0
-
-    def neg_loglik(params):
-        a, b = params[0], params[1]
-        lin = a * xs_data + b
-        p = 1.0 / (1.0 + _np.exp(-lin))
-        p = _np.clip(p, 1e-12, 1.0 - 1e-12)
-        ll = ks * _np.log(p) + (ns - ks) * _np.log(1.0 - p)
-        return -_np.sum(ll)
-
-    res = None
-    try:
-        res = minimize(neg_loglik, x0=_np.asarray([a0, b0], dtype=float), method="BFGS")
-    except Exception:
-        return [], [], [], []
-
-    if not res.success:
-        # fallback
-        return [], [], [], []
-
-    a_hat, b_hat = float(res.x[0]), float(res.x[1])
-
-    # Grid
-    xs = [float(min(probs) + i * (max(probs) - min(probs)) / (n_points - 1)) for i in range(n_points)]
-    xs_arr = _np.asarray(xs)
-    fit_vals = 1.0 / (1.0 + _np.exp(-(a_hat * xs_arr + b_hat)))
-    fit = [float(v) for v in fit_vals]
-
-    # covariance approximation from inverse Hessian (BFGS provides hess_inv)
-    upper = fit[:]
-    lower = fit[:]
-    try:
-        hess_inv = _np.asarray(res.hess_inv)
-        if hess_inv.shape == (2, 2):
-            param_vars = _np.diag(hess_inv)
-            se_a = _np.sqrt(max(param_vars[0], 0.0))
-            se_b = _np.sqrt(max(param_vars[1], 0.0))
-            # 95% approximate CI using normal approximation (z=1.96)
-            z = 1.96
-            a_hi, a_lo = a_hat + z * se_a, a_hat - z * se_a
-            b_hi, b_lo = b_hat + z * se_b, b_hat - z * se_b
-            fit_hi = 1.0 / (1.0 + _np.exp(-(a_hi * xs_arr + b_hi)))
-            fit_lo = 1.0 / (1.0 + _np.exp(-(a_lo * xs_arr + b_lo)))
-            upper = [float(v) for v in fit_hi]
-            lower = [float(v) for v in fit_lo]
-    except Exception:
-        pass
-
-    return xs, fit, upper, lower
-
-
-def _plot_with_binomial_logit(ax, rows: list[dict[str, object]], *, marker: str, color: str, label: str, fit_label: str, shade_label: str):
-    """Aggregate raw rows by `p` and plot binomial logistic regression fit with binomial error bars."""
-    try:
-        import numpy as _np
-    except Exception:
-        _np = None
-    buckets: dict[float, tuple[float, float]] = defaultdict(lambda: (0.0, 0.0))
-    for row in rows:
-        if "p" not in row or "spanning_count" not in row or "runs" not in row:
-            continue
-        p = float(row["p"])
-        k, n = float(row.get("spanning_count", 0.0)), float(row.get("runs", 1.0))
-        s, t = buckets[p]
-        buckets[p] = (s + k, t + n)
-
-    probs = sorted(buckets)
-    if not probs:
-        return
-
-    means = []
-    stderr = []
-    for p in probs:
-        s, t = buckets[p]
-        prop = (s / t) if t > 0 else 0.0
-        means.append(prop)
-        if _np is not None:
-            stderr.append((_np.sqrt(prop * (1.0 - prop) / t) if t > 0 else 0.0))
-        else:
-            stderr.append(0.0)
-
-    # plot error bars
-    ax.errorbar(probs, means, yerr=stderr, fmt=marker, linestyle="none", capsize=3, markersize=5, label=label, color=color, alpha=0.95)
-
-    fit_x, fit_y, fit_hi, fit_lo = _binomial_logit_regression_from_buckets({p: buckets[p] for p in probs})
-    if fit_x:
-        ax.plot(fit_x, fit_y, "-", linewidth=2, alpha=0.9, color=color, label=fit_label)
-        ax.fill_between(fit_x, fit_lo, fit_hi, color=color, alpha=0.15, label=shade_label)
-
-
-def _plot_with_sigmoid_fit(
-    ax,
-    x: list[float],
-    y: list[float],
-    yerr: list[float],
-    *,
-    marker: str,
-    color: str,
-    label: str,
-    fit_label: str,
-    shade_label: str,
-) -> None:
-    ax.errorbar(
-        x,
-        y,
-        yerr=yerr,
-        fmt=marker,
-        linestyle="none",
-        capsize=3,
-        markersize=5,
-        label=label,
-        color=color,
-        alpha=0.95,
-    )
-    fit_x, fit_y, fit_hi, fit_lo = _sigmoid_regression_3sigma(x, y)
-    if fit_x:
-        ax.plot(fit_x, fit_y, "-", linewidth=2, alpha=0.9, color=color, label=fit_label)
-        ax.fill_between(fit_x, fit_lo, fit_hi, color=color, alpha=0.15, label=shade_label)
-
-
-def _plot_with_sigmoid_fit_nonlinear(
-    ax,
-    x: list[float],
-    y: list[float],
-    yerr: list[float],
-    *,
-    marker: str,
-    color: str,
-    label: str,
-    fit_label: str,
-    shade_label: str,
-) -> None:
-    """Plot points with error bars and a nonlinear logistic fit when available.
-
-    Falls back to the existing linear-logit fit implementation if nonlinear
-    fitting is not possible.
-    """
-    ax.errorbar(
-        x,
-        y,
-        yerr=yerr,
-        fmt=marker,
-        linestyle="none",
-        capsize=3,
-        markersize=5,
-        label=label,
-        color=color,
-        alpha=0.95,
-    )
-    fit_x, fit_y, fit_hi, fit_lo = _sigmoid_regression_nonlinear(x, y, yerr=yerr)
-    if fit_x:
-        ax.plot(fit_x, fit_y, "-", linewidth=2, alpha=0.9, color=color, label=fit_label)
-        ax.fill_between(fit_x, fit_lo, fit_hi, color=color, alpha=0.15, label=shade_label)
-
-
-def _derived_front_density_rows(rows: list[dict[str, object]]) -> list[dict[str, object]]:
-    derived_rows: list[dict[str, object]] = []
-    for row in rows:
-        p_value = row.get("p")
-        if p_value is None:
-            continue
-        if "reachable_fraction" in row:
-            front_density = float(row["reachable_fraction"])
-        elif "reachable_sites_per_run" in row and "steps" in row and "width" in row:
-            area = float(row["steps"]) * float(row["width"])
-            front_density = float(row["reachable_sites_per_run"]) / area if area > 0 else 0.0
-        elif "mass" in row and "spanning_rate" in row and "steps" in row and "width" in row:
-            area = float(row["steps"]) * float(row["width"])
-            front_density = float(row["mass"]) * float(row["spanning_rate"]) / area if area > 0 else 0.0
-        else:
-            continue
-        derived_rows.append({"p": float(p_value), "front_density": front_density})
-    return derived_rows
+from .data import (
+    FRONTIER_CYCLES_PER_STEP,
+    RNG_WARMUP_CYCLES,
+    RNG_WARMUP_S,
+    UART_WIRE_S_CALC,
+    DEFAULT_DB,
+    DEFAULT_DB2,
+    _PLOT_STYLE,
+    _connect,
+    _find_sessions_by_params,
+    _session_data,
+    _closest_row,
+    _find_square_sessions,
+)
+from .stats import (
+    _mean_std_err,
+    _group_by_p,
+    _aggregate_mass_by_p,
+    _linear_regression_3sigma,
+    _sigmoid_regression_3sigma,
+    _sigmoid_regression_nonlinear,
+    _binomial_logit_regression_from_buckets,
+    _plot_with_error_bars,
+    _plot_with_binomial_logit,
+    _plot_with_sigmoid_fit,
+    _plot_with_sigmoid_fit_nonlinear,
+    _derived_front_density_rows,
+)
 
 
 def plot_dashboard(summary_rows: list[dict[str, object]], raw_rows: list[dict[str, object]], output: Path) -> None:
@@ -629,7 +105,6 @@ def plot_dashboard(summary_rows: list[dict[str, object]], raw_rows: list[dict[st
     axes[1, 0].grid(True, alpha=0.3)
     axes[1, 0].legend()
 
-    # Use binomial logistic regression over raw repeats for spanning probability
     _plot_with_binomial_logit(
         axes[1, 1],
         raw_rows,
@@ -663,7 +138,6 @@ def plot_front_density(rows: list[dict[str, object]], output: Path) -> None:
 
     fig, ax = plt.subplots(1, 1, figsize=(10, 5))
     if p_values:
-        # Show sigmoid-style approximation for front density (approximate)
         _plot_with_sigmoid_fit_nonlinear(
             ax,
             p_values,
@@ -821,7 +295,6 @@ def plot_spanning_probability(rows: list[dict[str, object]], output: Path) -> No
     import matplotlib.pyplot as plt
 
     fig, ax = plt.subplots(1, 1, figsize=(10, 5))
-    # Plot binomial logistic regression using raw rows (successes/trials)
     _plot_with_binomial_logit(
         ax,
         rows,
@@ -863,7 +336,7 @@ def plot_latency_decomposition(summary_rows: list[dict[str, object]], raw_rows: 
     runs = float(first_raw.get("runs", 1.0))
     steps = float(first_raw.get("steps", 0.0))
     baudrate = 115200.0
-    uart_wire_s = float(first_raw.get("uart_wire_s", (REQUEST_BYTES + RESPONSE_BYTES) * 10.0 / baudrate))
+    uart_wire_s = float(first_raw.get("uart_wire_s", (16 + 16) * 10.0 / baudrate))
     ideal_core_cycles_per_run = steps * 3.0 + 3.0
     uart_wire_cycles_per_run = uart_wire_s * 100_000_000.0 / runs if runs > 0 else 0.0
 
@@ -905,80 +378,8 @@ def plot_latency_decomposition(summary_rows: list[dict[str, object]], raw_rows: 
 # ---------------------------------------------------------------------------
 
 
-def _find_sessions_by_params(conn: sqlite3.Connection, *, hw_width: int) -> list[dict]:
-    """Return all session metadata matching the given effective HW width."""
-    cur = conn.execute(
-        "SELECT session_id, created_at, payload_json FROM benchmark_sessions ORDER BY created_at"
-    )
-    matches: list[dict] = []
-    for row in cur.fetchall():
-        payload = json.loads(row["payload_json"])
-        if payload.get("effective_hw_width") == hw_width:
-            matches.append(
-                {
-                    "session_id": str(row["session_id"]),
-                    "created_at": str(row["created_at"]),
-                    "runs": payload.get("runs", 0),
-                    "steps": payload.get("steps", 0),
-                    "points": payload.get("points", 0),
-                    "repeats": payload.get("repeats", 1),
-                }
-            )
-    return matches
-
-
-def _session_data(conn: sqlite3.Connection, session_id: str) -> list[dict[str, object]]:
-    return load_raw_rows(conn, session_id=session_id)
-
-
-def _closest_row(rows: list[dict[str, object]], target_p: float) -> dict[str, object]:
-    return min(rows, key=lambda r: abs(float(r.get("p", 0.0)) - target_p))
-
-
-def _find_square_sessions(
-    conn: sqlite3.Connection, *, hw_width: int
-) -> list[dict]:
-    """Return sessions where steps == hw_width (square grids) for physics plots.
-
-    DP finite-size scaling requires square L×L grids.  Falls back to the
-    session with the largest total runs if none are perfectly square.
-    """
-    cur = conn.execute(
-        "SELECT session_id, created_at, payload_json FROM benchmark_sessions ORDER BY created_at"
-    )
-    matches: list[dict] = []
-    for row in cur.fetchall():
-        payload = json.loads(row["payload_json"])
-        if payload.get("effective_hw_width") != hw_width:
-            continue
-        steps = payload.get("steps", 0)
-        if steps != hw_width:
-            continue
-        matches.append(
-            {
-                "session_id": str(row["session_id"]),
-                "created_at": str(row["created_at"]),
-                "runs": payload.get("runs", 0),
-                "steps": steps,
-                "points": payload.get("points", 0),
-                "repeats": payload.get("repeats", 1),
-                "total_runs": payload.get("runs", 0) * payload.get("repeats", 1),
-            }
-        )
-    return matches
-
-
-def plot_latency_vs_batch(conn: sqlite3.Connection, output: Path, *, hw_width: int = 128, target_p: float = 0.60) -> None:
-    """Latency vs batch size, showing fixed UART overhead amortization.
-
-    Left: total latency vs cfg_runs (log-log) — flat at small R (UART-dominated),
-    then linear once core time dominates.
-
-    Right: speedup relative to R=1. The curve follows Amdahl's law:
-    speedup(R) = T(1) / T(R) = 1 / (f_serial + (1-f_serial)/R)
-    where f_serial = fixed_UART_fraction.
-    The flattening at large R reveals the serial bottleneck.
-    """
+def plot_latency_vs_batch(conn, output: Path, *, hw_width: int = 128, target_p: float = 0.60) -> None:
+    """Latency vs batch size, showing fixed UART overhead amortization."""
     import matplotlib
 
     matplotlib.use("Agg")
@@ -1021,7 +422,6 @@ def plot_latency_vs_batch(conn: sqlite3.Connection, output: Path, *, hw_width: i
             ax1.plot(runs_list, lat_list, "o-", color=colors[idx], label=label)
             ax2.plot(runs_list, speedup, "o-", color=colors[idx], label=label)
 
-            # Annotate Amdahl serial fraction estimate at largest R
             if len(runs_list) >= 2:
                 r_big = runs_list[-1]
                 s_big = speedup[-1]
@@ -1056,8 +456,8 @@ def plot_latency_vs_batch(conn: sqlite3.Connection, output: Path, *, hw_width: i
         plt.close(fig)
 
 
-def plot_breakdown_fit(conn: sqlite3.Connection, output: Path, *, hw_width: int = 128, target_p: float = 0.60) -> None:
-    """Asymptotic cycles-per-run fit separating fixed overhead from marginal cost (Fig 4)."""
+def plot_breakdown_fit(conn, output: Path, *, hw_width: int = 128, target_p: float = 0.60):
+    """Asymptotic cycles-per-run fit separating fixed overhead from marginal cost."""
     import matplotlib
 
     matplotlib.use("Agg")
@@ -1098,7 +498,6 @@ def plot_breakdown_fit(conn: sqlite3.Connection, output: Path, *, hw_width: int 
             if len(runs_list) < 3:
                 continue
 
-            # Fit: T_total × R = C_fixed + C_marginal × R
             n = len(runs_list)
             y = [tot_cyc_list[i] * runs_list[i] for i in range(n)]
             x = runs_list[:]
@@ -1126,7 +525,6 @@ def plot_breakdown_fit(conn: sqlite3.Connection, output: Path, *, hw_width: int 
                 label=f"S={steps} fit: asymptote={C_marginal:.0f} cyc/run",
             )
 
-            # Annotate the asymptote
             ax.axhline(C_marginal, color=colors[idx], linestyle=":", alpha=0.3)
 
         ax.set_xscale("log", base=2)
@@ -1158,16 +556,8 @@ def plot_breakdown_fit(conn: sqlite3.Connection, output: Path, *, hw_width: int 
     return results
 
 
-def plot_pipeline_efficiency(conn: sqlite3.Connection, output: Path, *, hw_width: int = 128, target_p: float = 0.60) -> None:
-    """Frontier cost breakdown and pipeline utilization efficiency.
-
-    Left panel: measured core cycles/run vs grid height (steps), with linear
-    fit and ideal frontier line (3×steps + ~71 from asymptotic fit).
-
-    Right panel:
-    - Efficiency = ideal / measured × 100%  (fraction of theoretical achieved)
-    - Excess = measured − ideal (grows with steps = overhead per step)
-    """
+def plot_pipeline_efficiency(conn, output: Path, *, hw_width: int = 128, target_p: float = 0.60) -> None:
+    """Frontier cost breakdown and pipeline utilization efficiency."""
     import matplotlib
 
     matplotlib.use("Agg")
@@ -1197,25 +587,18 @@ def plot_pipeline_efficiency(conn: sqlite3.Connection, output: Path, *, hw_width
         if len(steps_vals) < 2:
             return
 
-        # Linear fit: C_core/run = C_per_step × S + C_fixed
         n = len(steps_vals)
         x = [float(s) for s in steps_vals]
         y = cyc_vals[:]
         coeffs = np.polyfit(x, y, 1)
         slope, intercept = coeffs[0], coeffs[1]
 
-        # Ideal line: just the 3-cycle frontier (no host overhead)
         ideal_per_step = FRONTIER_CYCLES_PER_STEP
-        # The fixed part should also be just what the VHDL does.
-        # From the VHDL: per-run SM transitions ~ a few dozen cycles.
-        # We don't know this exactly, so fit it as: 3*steps + fitted_intercept
-        # That way ideal_line uses the same intercept as the fit, but with ideal slope.
         ideal_line = [ideal_per_step * s + intercept for s in steps_vals]
 
         fig = plt.figure(figsize=(12, 5))
         gs = fig.add_gridspec(1, 2, width_ratios=[1, 1.1])
 
-        # ---- Left: C_core/run vs steps ----
         ax1 = fig.add_subplot(gs[0])
         ax1.plot(steps_vals, cyc_vals, "o-", color="tab:blue", linewidth=2,
                  label=f"Measured (R={max_runs})")
@@ -1234,7 +617,6 @@ def plot_pipeline_efficiency(conn: sqlite3.Connection, output: Path, *, hw_width
         ax1.set_title(f"Frontier Cost (N={hw_width})")
         ax1.legend(fontsize=9)
 
-        # ---- Right: Efficiency + Excess ----
         ax2 = fig.add_subplot(gs[1])
         efficiency = [ideal_line[i] / cyc_vals[i] * 100 for i in range(len(steps_vals))]
         excess = [cyc_vals[i] - ideal_line[i] for i in range(len(steps_vals))]
@@ -1279,24 +661,11 @@ def plot_pipeline_efficiency(conn: sqlite3.Connection, output: Path, *, hw_width
 
 
 def plot_spanning_curves_multi_size(
-        conn: sqlite3.Connection,
-        output: Path,
-        *,
+        conn, output: Path, *,
         hw_widths: tuple[int, ...] = (64, 128, 180),
 ) -> None:
     """Spanning probability curves for multiple square-grid sizes, with
-    finite-size scaling collapse.
-
-    Left panel: raw P_span(p, N) for N=64,128,180 — the phase transition
-    sharpens as system size grows.
-
-    Right panel: data collapse P_span vs (p−p_c) · N^{1/ν}.  With the
-    correct DP exponent ν=1.096 all curves should overlay onto a single
-    master scaling function.
-
-    Only *square* sessions (steps == N) are used — rectangular grids would
-    give a different effective transition.
-    """
+    finite-size scaling collapse."""
     import matplotlib
 
     matplotlib.use("Agg")
@@ -1308,9 +677,8 @@ def plot_spanning_curves_multi_size(
         colors = plt.cm.Set1(np.linspace(0, 1, len(hw_widths)))
         markers = ["o", "s", "^", "D", "v"]
 
-        NU_DP = 1.096  # DP correlation-length exponent
+        NU_DP = 1.096
 
-        # ---- collect (p, P_span) for each N ----
         data_by_n: dict[int, tuple[np.ndarray, np.ndarray]] = {}
         p_candidates: list[float] = []
 
@@ -1325,7 +693,6 @@ def plot_spanning_curves_multi_size(
             if not rows:
                 continue
 
-            # Aggregate spanning-count / runs per p
             buckets: dict[float, dict[str, float]] = defaultdict(
                 lambda: {"k": 0.0, "n": 0.0}
             )
@@ -1344,7 +711,6 @@ def plot_spanning_curves_multi_size(
             )
             data_by_n[hw] = (p_arr, span_arr)
 
-            # Estimate the effective p_c from the 50%-crossing
             p_half = None
             for i in range(len(probs) - 1):
                 if (span_arr[i] - 0.5) * (span_arr[i + 1] - 0.5) <= 0:
@@ -1379,7 +745,6 @@ def plot_spanning_curves_multi_size(
         ax1.set_ylim(-0.02, 1.02)
         ax1.legend(fontsize=9)
 
-        # ---- Right: scaling collapse ----
         p_c_est = (
             sorted(p_candidates)[-1] if len(p_candidates) > 1 else 0.6046
         )
@@ -1423,10 +788,6 @@ def plot_spanning_curves_multi_size(
                 _find_square_sessions(conn, hw_width=hw) or [{"total_runs": 0}],
                 key=lambda s: s["total_runs"],
             )
-            pc_str = next(
-                (f"{pc:.4f}" for i, pc in enumerate(p_candidates) if i < len(hw_widths)),
-                "?",
-            )
             print(
                 f"  N={hw}×{hw}:  session={best.get('session_id', '?')[:8]}  "
                 f"total_runs={best.get('total_runs', 0)}"
@@ -1437,23 +798,12 @@ def plot_spanning_curves_multi_size(
 
 
 def plot_threshold_bootstrap(
-        conn: sqlite3.Connection,
-        output: Path,
-        *,
+        conn, output: Path, *,
         session_id: str = "ba1fe7e8-e636-4fd5-af9e-78363786a637",
         n_bootstrap: int = 2000,
-) -> None:
+):
     """Precise threshold estimation via binomial logistic regression with
-    binomial bootstrap confidence intervals.
-
-    Uses the finest sweep (N=180, 200 points × 131k runs) to fit
-    P_span(p) = 1/(1+exp(-a·(p-p_c))) in the transition region only
-    (0.001 < spanning < 0.999).
-
-    Bootstrap resamples k_bs ~ Binomial(n, p̂) at each p to capture
-    the natural counting noise without assuming repeat-level variation
-    (the FPGA is deterministic — same seed → same spanning count).
-    """
+    binomial bootstrap confidence intervals."""
     import matplotlib
 
     matplotlib.use("Agg")
@@ -1472,7 +822,6 @@ def plot_threshold_bootstrap(
             print(f"  [bootstrap] no rows for session {session_id[:8]}...")
             return
 
-        # Aggregate spanning counts per p
         buckets: dict[float, dict[str, float]] = defaultdict(
             lambda: {"k": 0.0, "n": 0.0}
         )
@@ -1487,7 +836,6 @@ def plot_threshold_bootstrap(
         n_all = np.array([buckets[p]["n"] for p in probs], dtype=float)
         y_all = k_all / n_all
 
-        # Restrict to transition region: 0.001 < spanning < 0.999
         mask = (y_all > 0.001) & (y_all < 0.999)
         p_arr = p_all[mask]
         k_arr = k_all[mask]
@@ -1498,13 +846,9 @@ def plot_threshold_bootstrap(
             print(f"  [bootstrap] too few transition points ({len(p_arr)}), skipping")
             return
 
-        # Observed binomial probabilities for bootstrap
         p_hat = k_arr / n_arr
 
-        def _logistic_fit(
-            xs: np.ndarray, ks: np.ndarray, ns: np.ndarray
-        ) -> tuple[float, float]:
-            """Fit P = 1/(1+exp(-(a·x+b))), return (a, b)."""
+        def _logistic_fit(xs, ks, ns):
             eps = 1e-12
             y_clipped = np.clip(ks / ns, eps, 1.0 - eps)
             logits = np.log(y_clipped / (1.0 - y_clipped))
@@ -1534,12 +878,8 @@ def plot_threshold_bootstrap(
 
         a_fit, b_fit = _logistic_fit(p_arr, k_arr, n_arr)
         p_c_fit = -b_fit / a_fit
-        # Slope at p_c = a/4
         slope_at_pc = a_fit / 4.0
 
-        # ------------------------------------------------------------------
-        # Binomial bootstrap
-        # ------------------------------------------------------------------
         rng = np.random.default_rng(42)
         p_c_samples: list[float] = []
         a_samples: list[float] = []
@@ -1563,12 +903,10 @@ def plot_threshold_bootstrap(
             np.percentile(pc_arr, 97.5)
         )
 
-        # ---- Plot ----
         fig = plt.figure(figsize=(12, 5.5))
         gs = fig.add_gridspec(1, 2, width_ratios=[1.2, 1])
 
         ax1 = fig.add_subplot(gs[0])
-        # Data
         ax1.plot(
             p_arr,
             y_arr,
@@ -1578,12 +916,10 @@ def plot_threshold_bootstrap(
             alpha=0.5,
             label=f"N=180×180 data  (transition only, {len(p_arr)} pts)",
         )
-        # Full fit curve (not just transition region)
         fit_x = np.linspace(0.55, 0.65, 500)
         fit_y = 1.0 / (1.0 + np.exp(-(a_fit * fit_x + b_fit)))
         ax1.plot(fit_x, fit_y, "-", color="tab:red", linewidth=2, label="Logistic fit")
 
-        # 95% CI band from binomial bootstrap
         if len(pc_arr) > 20:
             fit_ys = []
             for i in range(min(500, len(pc_arr))):
@@ -1615,7 +951,6 @@ def plot_threshold_bootstrap(
         ax1.set_ylim(-0.02, 1.02)
         ax1.legend(fontsize=8)
 
-        # Right: bootstrap distribution
         ax2 = fig.add_subplot(gs[1])
         ax2.hist(
             pc_arr,
@@ -1658,19 +993,10 @@ def plot_threshold_bootstrap(
 
 
 def plot_cluster_mass_curves(
-        conn: sqlite3.Connection,
-        output: Path,
-        *,
+        conn, output: Path, *,
         hw_widths: tuple[int, ...] = (64, 128, 180),
 ) -> None:
-    """Average spanning-cluster mass vs p for multiple square-grid sizes.
-
-    The mass (average reachable sites per spanning run) diverges near p_c
-    and is a *continuous* observable — unlike the binary spanning indicator.
-    This makes it useful for order-parameter analysis.
-
-    Only square sessions (steps == N) are used.
-    """
+    """Average spanning-cluster mass vs p for multiple square-grid sizes."""
     import matplotlib
 
     matplotlib.use("Agg")
@@ -1733,24 +1059,10 @@ def plot_cluster_mass_curves(
 
 
 def plot_binder_cumulant(
-        conn: sqlite3.Connection,
-        output: Path,
-        *,
+        conn, output: Path, *,
         hw_widths: tuple[int, ...] = (64, 128, 180),
 ) -> None:
-    """Binder cumulant U(p, N) = 1 − ⟨k²⟩/(3⟨k⟩²) for multiple square-grid sizes.
-
-    The crossing point of U(p, N) for different N is an independent estimator
-    of p_c that is insensitive to the precise form of the scaling function.
-
-    Note: the FPGA uses the same seed across repeats, so per-repeat spanning
-    counts are perfectly deterministic.  We therefore compute the expected
-    binomial variance ⟨k²⟩ = k² + k·(1 − k/R) where k = total spanning events
-    and R = total runs, to recover the Binder cumulant from the observed
-    fraction p̂ = k/R.
-
-    Only square sessions (steps == N) are used.
-    """
+    """Binder cumulant U(p, N) = 1 − ⟨k²⟩/(3⟨k⟩²) for multiple square-grid sizes."""
     import matplotlib
 
     matplotlib.use("Agg")
@@ -1773,7 +1085,6 @@ def plot_binder_cumulant(
             if not rows:
                 continue
 
-            # Aggregate spanning counts per p (summing all repeats)
             buckets: dict[float, dict[str, float]] = defaultdict(
                 lambda: {"k": 0.0, "n": 0.0}
             )
@@ -1790,7 +1101,6 @@ def plot_binder_cumulant(
                 n_total = buckets[pv]["n"]
                 if k <= 0 or n_total <= 0:
                     continue
-                # Expected binomial ⟨k²⟩ = k² + k·(1 − k/n)
                 p_hat = k / n_total
                 k2_exp = k * k + k * (1.0 - p_hat)
                 U = 1.0 - (k2_exp / (3.0 * k * k))
@@ -1811,7 +1121,6 @@ def plot_binder_cumulant(
                 alpha=0.85,
             )
 
-            # Crossing with U = 2/3
             for i in range(len(u_vals) - 1):
                 if (u_vals[i] - 2.0 / 3.0) * (u_vals[i + 1] - 2.0 / 3.0) <= 0:
                     dy = u_vals[i + 1] - u_vals[i]
@@ -1858,8 +1167,8 @@ def plot_binder_cumulant(
         plt.close(fig)
 
 
-def plot_throughput_invariance(conn: sqlite3.Connection, output: Path, *, hw_width: int = 128, target_p: float = 0.60) -> None:
-    """Grid-height invariance: cells/s vs steps for multiple batch sizes (Fig 7)."""
+def plot_throughput_invariance(conn, output: Path, *, hw_width: int = 128, target_p: float = 0.60) -> None:
+    """Grid-height invariance: cells/s vs steps for multiple batch sizes."""
     import matplotlib
 
     matplotlib.use("Agg")
@@ -1869,7 +1178,6 @@ def plot_throughput_invariance(conn: sqlite3.Connection, output: Path, *, hw_wid
     if not sessions:
         return
 
-    # Group by runs
     by_runs: dict[int, list[dict]] = defaultdict(list)
     for s in sessions:
         by_runs[s["runs"]].append(s)
@@ -1911,8 +1219,8 @@ def plot_throughput_invariance(conn: sqlite3.Connection, output: Path, *, hw_wid
     plt.close(fig)
 
 
-def plot_determinism_cv(conn: sqlite3.Connection, output: Path, *, hw_width: int = 128, target_p: float = 0.60) -> None:
-    """Coefficient of variation across repeats to quantify determinism (Fig 8)."""
+def plot_determinism_cv(conn, output: Path, *, hw_width: int = 128, target_p: float = 0.60) -> None:
+    """Coefficient of variation across repeats to quantify determinism."""
     import matplotlib
 
     matplotlib.use("Agg")
@@ -1922,12 +1230,11 @@ def plot_determinism_cv(conn: sqlite3.Connection, output: Path, *, hw_width: int
     if not sessions:
         return
 
-    # Only sessions with repeats > 1
     multi_repeat = [s for s in sessions if s["repeats"] > 1]
 
     if not multi_repeat:
         fig, ax = plt.subplots(1, 1, figsize=(10, 5))
-        ax.text(0.5, 0.5, "No multi-repeat data available for hw_width={hw_width}", ha="center", va="center", transform=ax.transAxes)
+        ax.text(0.5, 0.5, f"No multi-repeat data available for hw_width={hw_width}", ha="center", va="center", transform=ax.transAxes)
         output.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(output, dpi=150)
         plt.close(fig)
@@ -1935,16 +1242,12 @@ def plot_determinism_cv(conn: sqlite3.Connection, output: Path, *, hw_width: int
 
     fig, ax = plt.subplots(1, 1, figsize=(10, 5))
 
-    from collections import defaultdict
-
-    # Group repeat data by (steps, runs)
     config_cv: dict[tuple[int, int], list[float]] = defaultdict(list)
 
     for s in multi_repeat:
         rows = _session_data(conn, s["session_id"])
         if not rows:
             continue
-        # Group repeats by p
         by_p: dict[float, list[float]] = defaultdict(list)
         for r in rows:
             by_p[float(r["p"])].append(float(r["latency_s"]))
@@ -1958,7 +1261,6 @@ def plot_determinism_cv(conn: sqlite3.Connection, output: Path, *, hw_width: int
             cv = math.sqrt(var) / mean if mean > 0 else 0
             config_cv[(s["steps"], s["runs"])].append(cv)
 
-    # Average CV per config
     configs = sorted(config_cv)
     steps_display = [c[0] for c in configs]
     runs_display = [c[1] for c in configs]
@@ -1992,8 +1294,8 @@ def plot_determinism_cv(conn: sqlite3.Connection, output: Path, *, hw_width: int
         print(f"  steps={c[0]:4d} runs={c[1]:6d}  CV={cv_means[i]:.2f}%")
 
 
-def plot_throughput_contour(conn: sqlite3.Connection, output: Path, *, hw_width: int = 128) -> None:
-    """2D heatmap of throughput across p × steps for large batch size (Fig 9)."""
+def plot_throughput_contour(conn, output: Path, *, hw_width: int = 128) -> None:
+    """2D heatmap of throughput across p × steps for large batch size."""
     import matplotlib
 
     matplotlib.use("Agg")
@@ -2004,15 +1306,12 @@ def plot_throughput_contour(conn: sqlite3.Connection, output: Path, *, hw_width:
     if not sessions:
         return
 
-    # Find largest runs
     max_runs = max(s["runs"] for s in sessions)
     best_sessions = [s for s in sessions if s["runs"] == max_runs]
 
-    # Build 2D grid
     all_steps = sorted({s["steps"] for s in best_sessions})
     all_p: set[float] = set()
 
-    # First pass: collect all p values
     for s in best_sessions:
         rows = _session_data(conn, s["session_id"])
         for r in rows:
@@ -2038,7 +1337,6 @@ def plot_throughput_contour(conn: sqlite3.Connection, output: Path, *, hw_width:
 
     fig, ax = plt.subplots(1, 1, figsize=(12, 6))
 
-    # Mask NaN for contour
     mask = np.isnan(Z)
     Z_masked = np.ma.masked_where(mask, Z)
 
@@ -2121,71 +1419,3 @@ def plot_fpga_all(output_dir: Path, *,
         conn2.close()
 
     print(f"\nAll plots saved to {output_dir}")
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser(description="Inspect percolation benchmark SQLite history")
-    parser.add_argument("--db", type=str, default=str(DEFAULT_DB))
-    parser.add_argument("--latest", action="store_true", help="Only inspect latest session")
-    parser.add_argument("--plot", type=str, default="", help="Optional throughput plot output path")
-    parser.add_argument("--plot-dir", type=str, default="", help="Optional output directory for starter plots")
-    parser.add_argument(
-        "--fpga-plot",
-        type=str,
-        default="",
-        help="Output directory for FPGA engineering analysis plots (uses benchmark-2)",
-    )
-    args = parser.parse_args()
-
-    db_path = Path(args.db)
-    if not db_path.exists():
-        raise SystemExit(f"database not found: {db_path}")
-
-    conn = _connect(db_path)
-    try:
-        print(summarize_db(conn))
-        sessions = list_sessions(conn)
-        if sessions:
-            latest = sessions[-1]
-            print(f"latest_session={latest.session_id}")
-            print(f"latest_created_at={latest.created_at}")
-            if "config_hash" in latest.payload:
-                print(f"latest_config_hash={latest.payload['config_hash']}")
-
-        session_id = latest_session_id(conn) if args.latest else None
-        rows = load_summary_rows(conn, session_id=session_id)
-        raw_rows = load_raw_rows(conn, session_id=session_id)
-        print(f"loaded_summary_rows={len(rows)}")
-        print(f"loaded_raw_rows={len(raw_rows)}")
-        if rows:
-            print(f"p_min={min(float(row['p']) for row in rows):.6f}")
-            print(f"p_max={max(float(row['p']) for row in rows):.6f}")
-
-        if args.plot:
-            plot_dashboard(rows, raw_rows, Path(args.plot))
-            print(f"plot_saved={args.plot}")
-        if args.plot_dir:
-            plot_dir = Path(args.plot_dir)
-            plot_dashboard(rows, raw_rows, plot_dir / "dashboard.png")
-            plot_latency_decomposition(rows, raw_rows, plot_dir / "latency_decomposition.png")
-            plot_front_density(raw_rows, plot_dir / "front_density.png")
-            plot_cluster_mass(raw_rows, plot_dir / "cluster_mass.png")
-            plot_occupancy_bias(raw_rows, plot_dir / "occupancy_bias.png")
-            plot_core_latency(raw_rows, plot_dir / "core_latency.png")
-            plot_spanning_probability(raw_rows, plot_dir / "spanning_probability.png")
-            print(f"plot_dir_saved={plot_dir}")
-    finally:
-        conn.close()
-
-    if args.fpga_plot:
-        plot_fpga_all(
-            Path(args.fpga_plot),
-            db2_path=DEFAULT_DB2,
-        )
-        print(f"fpga_analysis_saved={args.fpga_plot}")
-
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

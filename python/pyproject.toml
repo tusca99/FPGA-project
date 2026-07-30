@@ -9,14 +9,14 @@ description = "UART client, reference simulator, and benchmarks for the FPGA per
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "pyserial>=3.5",
+    "numpy>=1.26",
+    "numba>=0.59",
 ]
 
 [project.optional-dependencies]
 analysis = [
-    "numpy>=1.26",
     "matplotlib>=3.8",
-    "numba>=0.59",
+    "scipy>=1.11",
 ]
 
 [project.scripts]

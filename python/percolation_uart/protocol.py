@@ -17,16 +17,6 @@ MAX_STEPS_PER_RUN = 0xFFFFFFFF
 MAX_GRID_SIZE = MAX_STEPS_PER_RUN
 
 
-def max_cfg_runs_for_steps(steps_per_run: int, width: int = CORE_WIDTH, total_limit: int = MAX_TOTAL_OCCUPIED) -> int:
-    """Return the largest cfg_runs that keeps the total occupied count in 32 bits."""
-
-    if steps_per_run < 1:
-        raise ValueError("steps_per_run must be positive")
-    if width < 1:
-        raise ValueError("width must be positive")
-    return total_limit // (width * steps_per_run)
-
-
 def max_cfg_runs_for_probability(
     steps_per_run: int,
     probability: float,
@@ -170,10 +160,6 @@ class PercolationResponse:
     total_occupied: int
     spanning_occupied: int
 
-    @property
-    def is_error(self) -> bool:
-        return False  # No status word in v3.1; errors are implicit (step_count mismatch)
-
     def as_tuple(self) -> tuple[int, int, int, int]:
         return (
             self.step_count,
@@ -192,18 +178,6 @@ def encode_request(request: PercolationRequest) -> bytes:
         request.cfg_seed & 0xFFFFFFFF,
         request.word2 & 0xFFFFFFFF,
         request.cfg_runs & 0xFFFFFFFF,
-    )
-
-
-def encode_response(response: PercolationResponse) -> bytes:
-    """Pack a response into the 16-byte wire format."""
-
-    return struct.pack(
-        ">IIII",
-        response.step_count & 0xFFFFFFFF,
-        response.spanning_count & 0xFFFFFFFF,
-        response.total_occupied & 0xFFFFFFFF,
-        response.spanning_occupied & 0xFFFFFFFF,
     )
 
 
