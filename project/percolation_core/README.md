@@ -16,8 +16,8 @@ Data-plane for site percolation on FPGA. Single-clock 100 MHz.
 
 ### Key Features
 
-- **RNG**: 64 independent Trivium stream ciphers, AES-CTR seeded, producing 64 random bits/cycle
-- **Frontier**: Bidirectional associative prefix scan for exact horizontal closure in 1 cycle/row
+- **RNG**: $N_{\text{rows}}$ independent Trivium stream ciphers (one per column), AES-CTR seeded, producing $N_{\text{rows}}$ random bits/cycle
+- **Frontier**: Bidirectional associative prefix scan for exact horizontal closure in 3 cycles/row (pipelined)
 - **Statistics**: StepCount, SpanningCount, TotalOccupied, SpanningOccupied
 - **Grid shape**: Width fixed at `N_ROWS_G` (compile-time, default 64), height from `CfgStepsPerRun` (runtime)
 

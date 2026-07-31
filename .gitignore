@@ -37,3 +37,13 @@ __pycache__/
 *.pyc
 ## SQL database files
 *.sqlite*
+## presentation output files
+*.aux
+*.bbl
+*.blg
+*.out
+*.toc
+*.nav
+*.snm
+*.fls
+*.fdb_latexmk

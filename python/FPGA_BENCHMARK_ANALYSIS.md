@@ -1,7 +1,7 @@
 # FPGA Benchmark Analysis Guide
 
 A catalog of FPGA-engineering analyses for the percolation accelerator UART
-benchmark data. These complement the physics-oriented plots in `analysis.py`
+benchmark data. These complement the physics-oriented plots in the `analysis` package
 by focusing on **pipeline performance, UART overhead decomposition, and
 system-level efficiency**.
 
@@ -470,7 +470,7 @@ def decompose_latency(row):
 
 ### Plotting conventions
 
-- Use `matplotlib` with `Agg` backend for file output (as in `analysis.py`).
+- Use `matplotlib` with `Agg` backend for file output (as in the `analysis` package).
 - Save to `python/output/analysis/` with descriptive filenames.
 - Use log scales where the data spans orders of magnitude (runs, latency).
 - Label axes with physical units (cycles, seconds, cells/s).

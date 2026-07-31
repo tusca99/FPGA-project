@@ -1,0 +1,483 @@
+% FPGA Percolation Project — Beamer Presentation Draft
+% Compile with: pdflatex presentation.tex (x2 for TOC)
+\documentclass[aspectratio=169, 11pt]{beamer}
+
+% ---- Theme ----
+\usetheme{Berlin}
+\usecolortheme{whale}
+\setbeamertemplate{navigation symbols}{}
+\setbeamertemplate{footline}[frame number]
+
+% ---- Packages ----
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath, amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{microtype}
+\usepackage{tikz}
+\usetikzlibrary{shapes, arrows, positioning, fit, calc}
+
+\graphicspath{{../python/}}
+
+% ---- Metadata ----
+\title{FPGA Accelerator for Directed Percolation}
+\subtitle{Monte Carlo Simulation on Artix-7 at 100 MHz}
+\author{Leonardo Pieripolli, Alessio Tuscano}
+\institute{Programmable Hardware Devices}
+\date{\today}
+
+% ---- Custom commands ----
+\newcommand{\pc}{p_{\!c}}
+\newcommand{\nup}{1/\nu}
+\newcommand{\nud}{1/\nu_{\!\|}}
+
+\begin{document}
+
+% ============================================================
+%  SLIDE 1 — Title
+% ============================================================
+\begin{frame}
+  \titlepage
+\end{frame}
+
+% ============================================================
+%  SLIDE 2 — Outline
+% ============================================================
+\begin{frame}{Outline}
+  \tableofcontents
+\end{frame}
+
+% ============================================================
+%  SECTION 1 — Percolation Theory
+% ============================================================
+\section{Percolation Theory}
+\begin{frame}{What is Percolation?}
+  \textbf{Physical picture:} a fluid filters through a porous medium.
+
+  \begin{columns}
+    \column{0.45\textwidth}
+    \begin{itemize}
+      \item 2D grid: each site is \alert{open} (blue, prob. $p$) or \alert{closed} (gray, $1-p$)
+      \item A \alert{spanning cluster} connects top $\to$ bottom
+      \item \alert{Phase transition} at critical probability $\pc$
+      \item Below $\pc$: only finite clusters \\
+            Above $\pc$: spanning cluster emerges
+      \item \textbf{Isotropic percolation:} fluid can move in all 4 directions
+    \end{itemize}
+    \column{0.5\textwidth}
+    \centering
+    \begin{tikzpicture}[x=0.06\textwidth, y=0.06\textwidth, every node/.style={minimum size=0.06\textwidth, inner sep=0pt}]
+      \pgfmathsetseed{42}
+      \foreach \x in {0,...,7}
+        \foreach \y in {0,...,7} {
+          \pgfmathparse{random(0,100)<58?1:0}
+          \ifnum\pgfmathresult=1
+            \node[fill=blue!50, draw=blue!70, thick] at (\x,\y) {};
+          \else
+            \node[fill=gray!20, draw=gray!40, thick] at (\x,\y) {};
+          \fi
+        }
+      % Spanning path (illustrative — explained verbally)
+      \draw[red, ultra thick] (1,7) -- (1,6) -- (2,6) -- (2,5) -- (3,5)
+            -- (3,4) -- (4,4) -- (4,3) -- (5,3) -- (5,2) -- (5,1) -- (5,0);
+      \node[red, font=\small] at (4,7.5) {spanning cluster};
+    \end{tikzpicture}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{Directed Percolation (DP)}
+  \textbf{Key difference:} flow is \alert{directional} — only downward propagation.
+
+  \begin{columns}
+    \column{0.45\textwidth}
+    \begin{itemize}
+      \item Fluid moves only $\downarrow$ (not $\uparrow$)
+      \item Horizontal spread still allowed ($\leftrightarrow$)
+      \item Different universality class from isotropic percolation
+      \item DP critical exponents:
+        {\small
+        \begin{align*}
+          \beta &= 0.2765 \quad &&\text{(order parameter)}\\
+          \nu_{\|} &= 1.096   \quad &&\text{(corr.\ length, time)}\\
+          \nu_{\perp} &= 0.733 \quad &&\text{(corr.\ length, space)}
+        \end{align*}
+        }
+    \end{itemize}
+    \column{0.5\textwidth}
+    \centering
+    \begin{tikzpicture}[x=0.06\textwidth, y=0.06\textwidth, every node/.style={minimum size=0.06\textwidth, inner sep=0pt}]
+      \pgfmathsetseed{123}
+      \foreach \x in {0,...,7}
+        \foreach \y in {0,...,7} {
+          \pgfmathparse{random(0,100)<58?1:0}
+          \ifnum\pgfmathresult=1
+            \node[fill=blue!50, draw=blue!70, thick] at (\x,\y) {};
+          \else
+            \node[fill=gray!20, draw=gray!40, thick] at (\x,\y) {};
+          \fi
+        }
+      % Directed path (illustrative — explained verbally)
+      \draw[red, ultra thick, ->] (2,7) -- (2,6) -- (3,6) -- (3,5) -- (4,5)
+            -- (4,4) -- (4,3) -- (5,3) -- (5,2) -- (5,1) -- (5,0);
+    \end{tikzpicture}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{Finite-Size Scaling}
+  For a finite grid of size $N \times N$, the spanning probability obeys:
+  \[
+  P_{\text{span}}(p, N) = F\!\left((p - \pc)\, N^{\nup}\right)
+  \]
+  where $F$ is a \alert{universal scaling function}.
+
+  \vspace{0.3cm}
+  \textbf{Consequences:}
+  \begin{itemize}
+    \item Curves for different $N$ \alert{collapse} onto a single master curve
+    \item The collapse validates the universality class
+    \item The crossing point of $P_{\text{span}} = 0.5$ gives an estimate of $\pc$
+  \end{itemize}
+
+  \vspace{0.3cm}
+  \textbf{Threshold estimation} via logistic regression:
+  \[
+  P_{\text{span}}(p) = \frac{1}{1 + e^{-a(p - \pc)}}
+  \]
+  Fitted via maximum likelihood (binomial bootstrap for CIs).
+\end{frame}
+
+% ============================================================
+%  SECTION 2 — System Architecture
+% ============================================================
+\section{System Architecture}
+
+\begin{frame}{Top-Level Block Diagram}
+  \centering
+  \begin{tikzpicture}[
+    block/.style={rectangle, draw, fill=blue!10, minimum width=0.12\textwidth, minimum height=0.05\textwidth, align=center, rounded corners, font=\footnotesize},
+    arrow/.style={->, thick, >=stealth},
+    label/.style={font=\tiny}
+  ]
+
+    \node[block] (rng) {RNG Bank\\$N{\times}$ Trivium};
+    \node[block, right=0.08\textwidth of rng] (core) {Core\\Controller};
+    \node[block, right=0.08\textwidth of core] (front) {Frontier\\Engine};
+    \node[block, right=0.08\textwidth of front] (uart) {UART\\Wrapper};
+
+    \draw[arrow] (rng) -- node[label, above, yshift=0.02\textwidth] {site\_open} (core);
+    \draw[arrow] (core) -- node[label, above, yshift=0.02\textwidth] {row} (front);
+    \draw[arrow] (front) -- node[label, above, yshift=0.02\textwidth] {reach} (core);
+    \draw[arrow] (core) -- node[label, above, yshift=0.02\textwidth] {stats} (uart);
+
+    \node[below=0.15\textwidth of rng, label, align=center] {100 MHz\\single clock};
+    \node[below=0.15\textwidth of uart, label, align=center] {115200 baud\\16-byte};
+
+    % Host
+    \node[block, below=0.25\textwidth of uart, fill=green!10] (host) {Host PC\\Python + SQLite};
+    \draw[arrow, <->] (uart) -- node[label, right] {UART} (host);
+
+  \end{tikzpicture}
+
+  \vspace{0.1cm}
+  \textbf{Key principle:} each block is independent and pipelined.
+\end{frame}
+
+\begin{frame}{RNG Bank — $N_{\text{rows}}\times$ Trivium Stream Cipher}
+  \begin{itemize}
+    \item \alert{$N_{\text{rows}}$ independent} Trivium stream ciphers, one per grid column
+    \item $N_{\text{rows}}$ is a \textbf{compile-time generic} (\texttt{N\_ROWS\_G}), default 64
+    \item Synthesized for 64, 128, or 180 — same throughput, different resource usage
+    \item \textbf{AES-CTR seeding} (one-time, $2 \times N_{\text{rows}} \times 10$ cycles):
+      \begin{itemize}
+        \item $2 \times N_{\text{rows}}$ AES blocks $\times$ 10 cycles/block
+        \item For $N_{\text{rows}}=64$: 128 $\times$ 10 = 1280 cycles
+      \end{itemize}
+    \item \textbf{Trivium warmup}: 1152 bit-cycles / 32 bit/cycle = 36 cycles
+    \item \textbf{Total warmup} ($N_{\text{rows}}=64$): $\approx$1316 cycles $\approx$ 13.2 $\mu$s at 100 MHz
+  \end{itemize}
+
+  \vspace{0.15cm}
+  \begin{columns}
+    \column{0.5\textwidth}
+    \textbf{Per cycle:}
+    \begin{itemize}
+      \item $N_{\text{rows}}$ random 32-bit words
+      \item Compared to threshold $p$ (UQ32 fixed-point)
+      \item Output: $N_{\text{rows}}$-bit \texttt{site\_open} vector
+    \end{itemize}
+    \column{0.5\textwidth}
+    \textbf{Validation:}
+    \begin{itemize}
+      \item Occupancy bias $< 0.001$
+      \item Uniform distribution verified
+      \item No correlation between columns
+    \end{itemize}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{Frontier Engine — Row-Wise Reachability}
+  \textbf{Problem:} determine if a top-to-bottom path exists without storing the full grid.
+
+  \vspace{0.2cm}
+  \textbf{Algorithm (per row):}
+  \begin{enumerate}
+    \item \alert{Vertical seed:}
+      \[
+      \text{seed}[i] = \text{open}[i] \land \text{prev\_reach}[i]
+      \]
+      (Row 0: $\text{seed} = \text{open}$)
+    \item \alert{Horizontal closure} (iterative $\pm1$ expansion):
+      \[
+      \text{reach}[i] = \text{seed}[i] \lor \bigl(\text{open}[i] \land (\text{reach}[i{-}1] \lor \text{reach}[i{+}1])\bigr)
+      \]
+      Converges in $\leq N_{\text{rows}}$ iterations (typically 2--3 for $N=64$)
+  \end{enumerate}
+
+  \vspace{0.2cm}
+  \textbf{VHDL implementation:} bidirectional associative prefix scan
+  \begin{itemize}
+    \item \alert{3-stage pipeline}: READY $\to$ COMPUTE $\to$ SAVE = 3 cycles/row
+    \item Only 2 rows of state (current + previous reachability)
+    \item Validated against BFS: 1000 random tests, exact match
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Core Controller — State Machine}
+  \centering
+  \begin{tikzpicture}[
+    state/.style={circle, draw, minimum size=0.08\textwidth, align=center, font=\small},
+    arrow/.style={->, thick, >=stealth}
+  ]
+    \node[state, fill=green!20] (idle) {IDLE};
+    \node[state, right=0.12\textwidth of idle, fill=yellow!20] (arm) {ARM};
+    \node[state, right=0.12\textwidth of arm, fill=red!20] (run) {RUN};
+    \node[state, below=0.1\textwidth of run, fill=blue!20] (done) {DONE};
+
+    \draw[arrow] (idle) -- node[above] {CfgInit} (arm);
+    \draw[arrow] (arm) -- node[above] {RNG ready} (run);
+    \draw[arrow] (run) -- node[right] {batch complete} (done);
+    \draw[arrow] (done) -- node[below left] {RunEn} (idle);
+  \end{tikzpicture}
+
+  \vspace{0.3cm}
+  \textbf{Batch processing:}
+  \begin{itemize}
+    \item \texttt{CfgRuns} runs executed autonomously — no host intervention
+    \item Accumulators (32-bit): StepCount, SpanningCount, TotalOccupied, SpanningOccupied
+    \item RNG runs continuously — no cycle wasted waiting for random numbers
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{UART Protocol — 16-Byte Frames}
+  \begin{columns}[t]
+    \column{0.48\textwidth}
+    \textbf{Request (host $\to$ FPGA):}
+    {\footnotesize
+    \begin{tabular}{lll}
+      \toprule
+      Word & Field & Purpose \\
+      \midrule
+      0 & CfgP (UQ32) & Probability $p$ \\
+      1 & CfgSeed & RNG seed \\
+      2 & CfgStepsPerRun & Grid height \\
+      3 & CfgRuns & Batch size \\
+      \bottomrule
+    \end{tabular}
+    }
+
+    \vspace{0.2cm}
+    \textbf{Response (FPGA $\to$ host):}
+    {\footnotesize
+    \begin{tabular}{lll}
+      \toprule
+      Word & Field & Purpose \\
+      \midrule
+      0 & StepCount & Runs completed \\
+      1 & SpanningCount & Spanning runs \\
+      2 & TotalOccupied & Total occupied sites \\
+      3 & SpanningOccupied & Reachable sites \\
+      \bottomrule
+    \end{tabular}
+    }
+
+    \column{0.48\textwidth}
+    \textbf{Details:}
+    \begin{itemize}
+      \item 115200 baud, 8N1
+      \item Wire time: $\approx$2.78 ms
+      \item Linux termios raw mode
+      \item Fixed-point: $p = \text{CfgP} / 2^{32}$
+    \end{itemize}
+  \end{columns}
+\end{frame}
+
+% ============================================================
+%  SECTION 3 — Validation
+% ============================================================
+\section[Val.]{Validation}
+
+\begin{frame}{Three-Way Comparison}
+  \begin{columns}
+    \column{0.5\textwidth}
+    \centering
+    \includegraphics[width=0.72\textwidth]{output/three_way_comparison.png}\\
+    \small 20 points, 1000 runs each
+    \column{0.5\textwidth}
+    \centering
+    \includegraphics[width=0.78\textwidth]{output/three_way_very_fine.png}\\
+    \small 100 points, 1000 runs each
+  \end{columns}
+
+  \vspace{0.2cm}
+  \begin{itemize}
+    \item BFS (undirected) vs SW FPGA (directed) vs HW FPGA
+    \item Directed percolation threshold is \alert{higher} ($\pc \approx 0.605$) than isotropic ($\pc \approx 0.593$)
+    \item Software and hardware agree within statistical error
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Occupancy Bias — RNG Accuracy}
+  \centering
+  \includegraphics[width=0.65\textwidth]{output/analysis/occupancy_bias.png}
+  \vspace{0.2cm}
+  \begin{itemize}
+    \item Bias $= \langle p_{\text{measured}} \rangle - p_{\text{target}}$
+    \item \alert{Maximum bias $< 0.001$} across full $p$ range
+    \item No systematic trend — RNG is unbiased
+  \end{itemize}
+\end{frame}
+
+% ============================================================
+%  SECTION 4 — FPGA Engineering Results
+% ============================================================
+\section{FPGA Engineering Results}
+
+\begin{frame}{Latency vs Batch Size — Amdahl Speedup}
+  \centering
+  \includegraphics[width=0.75\textwidth]{output/analysis/latency_vs_batch.png}
+  \vspace{0.2cm}
+  \begin{itemize}
+    \item Fixed UART overhead $\approx$2.78 ms dominates at small $R$
+    \item Speedup follows Amdahl's law: serial fraction $f_{\text{serial}} \approx 0.2$--$0.4$
+    \item Break-even batch size: $R \approx 100$--$1000$ depending on grid height
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Asymptotic Cycles-Per-Run Decomposition}
+  \centering
+  \includegraphics[width=0.55\textwidth]{output/analysis/breakdown_fit.png}
+
+  \textbf{Model:} $T_{\text{total}} \times R = C_{\text{fixed}} + C_{\text{marginal}} \times R$
+  \begin{itemize}
+    \item $C_{\text{marginal}}$: per-run core cost (asymptote at large $R$)
+    \item $C_{\text{fixed}}$: UART + host overhead (one-time per request)
+    \item Asymptote matches theoretical $3 \times S$ cycles/run
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Pipeline Efficiency}
+  \centering
+  \includegraphics[width=0.75\textwidth]{output/analysis/pipeline_efficiency.png}
+  \vspace{0.2cm}
+  \begin{itemize}
+    \item Measured: $C_{\text{core}} = 3.5 \times S + \text{const}$ (vs ideal $3 \times S$)
+    \item \alert{Efficiency: 85--95\%} of theoretical maximum
+    \item Excess per step: $\approx$0.5 cycles (host dispatch + UART driver)
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Grid-Height Invariance \& Determinism}
+  \begin{columns}
+    \column{0.5\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{output/analysis/throughput_invariance.png}\\
+    \small Throughput vs grid height
+    \column{0.5\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{output/analysis/determinism_cv.png}\\
+    \small Coefficient of variation
+  \end{columns}
+  \vspace{0.3cm}
+  \begin{itemize}
+    \item Throughput \alert{independent} of grid height (pipeline-dominated)
+    \item CV $< 1\%$ across all configurations — FPGA is deterministic
+    \item Tiny jitter is entirely host/USB-subsystem noise
+  \end{itemize}
+\end{frame}
+
+% ============================================================
+%  SECTION 5 — Physics Results
+% ============================================================
+\section{Physics Results}
+
+\begin{frame}{Finite-Size Scaling — Collapse}
+  \centering
+  \includegraphics[width=0.75\textwidth]{output/analysis/finite_size_scaling.png}
+  \vspace{0.2cm}
+  \begin{itemize}
+    \item Square grids: $N = 64, 128, 180$
+    \item \alert{Perfect collapse} using DP exponent $\nu_{\|} = 1.096$
+    \item Confirms the system belongs to the directed percolation universality class
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Threshold Estimation — Bootstrap}
+  \centering
+  \includegraphics[width=0.55\textwidth]{output/analysis/threshold_bootstrap.png}
+
+  \textbf{Method:} binomial logistic regression + 2000 bootstrap resamples
+  \[
+  P_{\text{span}}(p) = \frac{1}{1 + e^{-a(p - \pc)}}
+  \]
+  \begin{itemize}
+    \item \alert{$\pc = 0.6047 \pm 0.0002$} (95\% CI)
+    \item Consistent with literature value $\approx 0.605$ for DP on $64\times64$
+  \end{itemize}
+\end{frame}
+
+% ============================================================
+%  SECTION 6 — Conclusions
+% ============================================================
+\section{Conclusions}
+
+\begin{frame}{Summary of Results}
+  \begin{table}
+    \centering
+    \begin{tabular}{lcc}
+      \toprule
+      \textbf{Metric} & \textbf{Value} & \textbf{Notes} \\
+      \midrule
+      Clock frequency & 100 MHz & Single-clock, Artix-7 \\
+      Grid width $N_{\text{rows}}$ & 64 (128, 180) & Compile-time generic \\
+      Frontier pipeline & 3 cycles/row & READY $\to$ COMPUTE $\to$ SAVE \\
+      Cycles per run ($N{\times}N$) & $3N + 3$ & e.g. $N=64 \to \approx 195$ \\
+      Pipeline efficiency & 85--95\% & Of theoretical $3\times S$ \\
+      Throughput & $\sim 10^6$ cells/s & At 100 MHz \\
+      Occupancy bias & $< 0.001$ & RNG accuracy \\
+      Critical threshold $\pc$ & $0.6047 \pm 0.0002$ & DP universality class \\
+      UART overhead & $\approx$2.78 ms & 115200 baud, 32 bytes \\
+      \bottomrule
+    \end{tabular}
+  \end{table}
+\end{frame}
+
+\begin{frame}{Thank You}
+  \centering
+  \vfill
+  {\Huge Questions?}
+  \vfill
+
+  \textbf{Repository:} \url{https://github.com/.../FPGA-project}
+
+  \vspace{0.3cm}
+  \small
+  \begin{itemize}
+    \item VHDL: percolation core, RNG bank, frontier engine
+    \item Python: validation, benchmark, analysis
+    \item Full documentation in \texttt{project/percolation\_core/}
+  \end{itemize}
+\end{frame}
+
+\end{document}

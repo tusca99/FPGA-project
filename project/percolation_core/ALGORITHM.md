@@ -160,11 +160,10 @@ This ensures the core only sends a new row when the frontier is **truly idle** a
 | Phase | Cycles | Description |
 |-------|--------|-------------|
 | Start overhead | 1 | Core asserts `frontier_start_s` |
-| Busy settle | 1 | Frontier transitions, `Busy` registered |
-| Row streaming | 64 × 1–3 | One row per cycle (iterative closure converges fast) |
+| Row streaming | 64 × 3 | Pipelined prefix frontier = 3 cycles/row |
 | Done detection | 1 | Frontier asserts `Done` |
 | Accumulation | 1 | Core adds `run_occupied` to `occupied_sum` |
-| **Total** | **~68–132** | ~94% efficiency at 1 cycle/row |
+| **Total** | **~195** | Per run at 64 rows |
 
 ---
 

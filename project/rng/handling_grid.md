@@ -1,6 +1,6 @@
 # VHDL Interface for a Trivium Array
 
-> Nota: l'esempio usa 64 componenti, ma nel build attuale del progetto il bank RNG e` parametrizzato con `N_ROWS = 128`.
+> Nota: l'esempio usa 64 componenti, ma nel build attuale del progetto il bank RNG e` parametrizzato con `N_ROWS_G` (generic, default 64).
 
 In VHDL you can use an **array of component instances** generated with a `for...generate` statement. This is the canonical way to instantiate parametric arrays of the same component.
 
@@ -83,7 +83,7 @@ architecture rtl of trivium_array is
 
 begin
 
-    -- Instantiate 64 Trivium cores with a single generate statement
+    -- Instantiate N_ROWS_G Trivium cores with a single generate statement
     GEN_TRIVIUM : for i in 0 to N_ROWS-1 generate
         u_trivium : trivium
             port map (

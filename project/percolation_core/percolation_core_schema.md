@@ -16,16 +16,17 @@ The core performs multiple independent trials of site percolation on a 2D grid s
 │                    percolation_core.vhd                       │
 │  ┌─────────────┐    ┌─────────────┐    ┌─────────────────┐ │
 │  │   RNG Bank  │───▶│   Core FSM  │───▶│   Frontier      │ │
-│  │ (64 Trivium)│    │ (orchestrate)│    │ (reachability)  │ │
+│  │(N_ROWS_G    │    │ (orchestrate)│    │ (reachability)  │ │
+│  │ Trivium)    │    │             │    │                 │ │
 │  └─────────────┘    └─────────────┘    └─────────────────┘ │
 │         │                  │                      │           │
 │         │ site_open[0..63] │ row_bits            │ ChunkOpen │
 │         │ (every cycle)    │ (when frontier      │ (valid)   │
-│         │                  │  ready)               │           │
+│         │                  │  ready)             │           │
 │         ▼                  ▼                      ▼           │
 │     Random bits         Occupancy row         Reachability    │
 │     vs threshold        sent to frontier      computed via    │
-│                         (1 cycle/row)       prefix scan     │
+│                         (3 cycles/row)       prefix scan     │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼

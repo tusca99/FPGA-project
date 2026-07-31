@@ -10,8 +10,7 @@ Host-side tools for the FPGA percolation core.
 | `transport` | Serial link wrapper (Linux termios) |
 | `client` | High-level API (`PercolationClient`) |
 | `algorithms` | BFS reference + FPGA-directed algorithm |
-| `reference` | Pure-Python Monte Carlo reference (BFS) |
-| `analysis` | SQLite history inspection and lightweight plotting |
+| `analysis` | SQLite history inspection and plotting (data, stats, plots, CLI) |
 
 ## Quick Start
 
@@ -19,7 +18,7 @@ Host-side tools for the FPGA percolation core.
 from percolation_uart.client import PercolationClient
 
 with PercolationClient(port="/dev/ttyUSB0") as client:
-    response = client.run_from_probability(0.6, seed=0x12345678, grid_size=64, cfg_runs=16)
+    response = client.run_from_probability(0.6, seed=0x12345678, steps_per_run=64, cfg_runs=16)
     print(response)
     # PercolationResponse(step_count=16, spanning_count=8, total_occupied=39314, spanning_occupied=57344)
 ```
@@ -41,7 +40,13 @@ python try.py
 ### SQLite Analysis
 
 ```bash
-python -m percolation_uart.analysis --db python/output/benchmark.sqlite3 --latest --plot-dir python/output/analysis
+percolation-analyze --db python/output/benchmark.sqlite3 --latest --plot-dir python/output/analysis
+```
+
+### FPGA Engineering Plots
+
+```bash
+percolation-analyze --fpga-plot python/output/analysis
 ```
 
 ## Response Format
