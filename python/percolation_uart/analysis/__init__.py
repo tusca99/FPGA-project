@@ -1,5 +1,7 @@
 """SQLite analysis helpers for percolation benchmark history."""
 
+from ..protocol import REQUEST_BYTES, RESPONSE_BYTES
+
 from .data import (
     RNG_WARMUP_CYCLES,
     RNG_WARMUP_S,
@@ -56,6 +58,8 @@ from .plots import (
 from .cli import main
 
 __all__ = [
+    "REQUEST_BYTES",
+    "RESPONSE_BYTES",
     "RNG_WARMUP_CYCLES",
     "RNG_WARMUP_S",
     "FRONTIER_CYCLES_PER_STEP",
