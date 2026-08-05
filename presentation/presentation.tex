@@ -238,7 +238,7 @@
   \vspace{0.2cm}
   \textbf{VHDL implementation:} bidirectional associative prefix scan
   \begin{itemize}
-    \item \alert{3-stage pipeline}: READY $\to$ COMPUTE $\to$ SAVE = 3 cycles/row
+    \item \alert{3-stage pipeline}: 3 cycles/row
     \item Only 2 rows of state (current + previous reachability)
     \item Validated against BFS: 1000 random tests, exact match
   \end{itemize}
@@ -334,7 +334,6 @@
   \begin{itemize}
     \item BFS (undirected) vs SW FPGA (directed) vs HW FPGA
     \item Directed percolation threshold is \alert{higher} ($\pc \approx 0.605$) than isotropic ($\pc \approx 0.593$)
-    \item Software and hardware agree within statistical error
   \end{itemize}
 \end{frame}
 
@@ -442,6 +441,26 @@
 % ============================================================
 \section{Conclusions}
 
+
+
+\begin{frame}{Thank You}
+  \centering
+  \vfill
+  {\Huge Questions?}
+  \vfill
+
+  \textbf{Repository:} \url{https://github.com/.../FPGA-project}
+
+  \vspace{0.3cm}
+  \small
+  \begin{itemize}
+    \item VHDL: percolation core, RNG bank, frontier engine
+    \item Python: validation, benchmark, analysis
+    \item Full documentation in \texttt{project/percolation\_core/}
+  \end{itemize}
+\end{frame}
+
+\section{Backup}
 \begin{frame}{Summary of Results}
   \begin{table}
     \centering
@@ -461,23 +480,6 @@
       \bottomrule
     \end{tabular}
   \end{table}
-\end{frame}
-
-\begin{frame}{Thank You}
-  \centering
-  \vfill
-  {\Huge Questions?}
-  \vfill
-
-  \textbf{Repository:} \url{https://github.com/.../FPGA-project}
-
-  \vspace{0.3cm}
-  \small
-  \begin{itemize}
-    \item VHDL: percolation core, RNG bank, frontier engine
-    \item Python: validation, benchmark, analysis
-    \item Full documentation in \texttt{project/percolation\_core/}
-  \end{itemize}
 \end{frame}
 
 \end{document}

@@ -1,11 +1,9 @@
 pyproject.toml
 percolation_uart/__init__.py
 percolation_uart/algorithms.py
-percolation_uart/analysis.py
 percolation_uart/benchmark.py
 percolation_uart/client.py
 percolation_uart/protocol.py
-percolation_uart/reference.py
 percolation_uart/transport.py
 percolation_uart.egg-info/PKG-INFO
 percolation_uart.egg-info/SOURCES.txt
@@ -13,3 +11,9 @@ percolation_uart.egg-info/dependency_links.txt
 percolation_uart.egg-info/entry_points.txt
 percolation_uart.egg-info/requires.txt
 percolation_uart.egg-info/top_level.txt
+percolation_uart/analysis/__init__.py
+percolation_uart/analysis/__main__.py
+percolation_uart/analysis/cli.py
+percolation_uart/analysis/data.py
+percolation_uart/analysis/plots.py
+percolation_uart/analysis/stats.py

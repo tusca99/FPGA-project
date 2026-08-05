@@ -4,8 +4,8 @@ Version: 0.1.0
 Summary: UART client, reference simulator, and benchmarks for the FPGA percolation core
 Requires-Python: >=3.10
 Description-Content-Type: text/markdown
-Requires-Dist: pyserial>=3.5
+Requires-Dist: numpy>=1.26
+Requires-Dist: numba>=0.59
 Provides-Extra: analysis
-Requires-Dist: numpy>=1.26; extra == "analysis"
 Requires-Dist: matplotlib>=3.8; extra == "analysis"
-Requires-Dist: numba>=0.59; extra == "analysis"
+Requires-Dist: scipy>=1.11; extra == "analysis"

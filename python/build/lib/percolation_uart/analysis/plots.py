@@ -556,143 +556,6 @@ def plot_breakdown_fit(conn, output: Path, *, hw_width: int = 128, target_p: flo
     return results
 
 
-def plot_breakdown_throughput(conn, output: Path, *, hw_width: int = 128, target_p: float = 0.60):
-    """Side-by-side asymptotic decomposition: core cycles/run (left) and
-    throughput in rows/s (right), both fitted to the Amdahl model
-
-        T_total_cycles = C_fixed + C_marginal × R
-
-    so that, as the batch size R→∞,
-        core cycles/run → C_marginal
-        throughput     → steps × f_clk / C_marginal
-    """
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    import numpy as np
-
-    F_CLK = 100_000_000.0
-
-    with plt.style.context(_PLOT_STYLE):
-        sessions = _find_sessions_by_params(conn, hw_width=hw_width)
-        if not sessions:
-            print(f"  [breakdown_throughput] no sessions for hw_width={hw_width}")
-            return
-
-        by_steps: dict[int, list[dict]] = defaultdict(list)
-        for s in sessions:
-            by_steps[s["steps"]].append(s)
-        for steps in by_steps:
-            by_steps[steps].sort(key=lambda x: x["runs"])
-
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
-        colors = plt.cm.Set1(np.linspace(0, 1, len(by_steps)))
-        results: list[dict] = []
-
-        for idx, steps in enumerate(sorted(by_steps)):
-            runs_list: list[float] = []
-            core_cyc_list: list[float] = []
-            tot_cyc_list: list[float] = []
-            rows_s_list: list[float] = []
-
-            for s in by_steps[steps]:
-                rows = _session_data(conn, s["session_id"])
-                if not rows:
-                    continue
-                row = _closest_row(rows, target_p)
-                r_val = float(row["runs"])
-                runs_list.append(r_val)
-                core_cyc_list.append(float(row.get("core_latency_per_run_cycles_est", 0)))
-                tot_cyc_list.append(float(row.get("latency_per_run_cycles", 0)))
-                cells_s = float(row.get("cells_per_s", 0))
-                rows_s_list.append(cells_s / hw_width if hw_width > 0 else 0.0)
-
-            if len(runs_list) < 3:
-                continue
-
-            n = len(runs_list)
-            y = [tot_cyc_list[i] * runs_list[i] for i in range(n)]
-            x = runs_list[:]
-            x_mean = sum(x) / n
-            y_mean = sum(y) / n
-            sxx = sum((xi - x_mean) ** 2 for xi in x)
-            sxy = sum((xi - x_mean) * (yi - y_mean) for xi, yi in zip(x, y))
-            if sxx <= 0:
-                continue
-            slope = sxy / sxx
-            intercept = y_mean - slope * x_mean
-
-            C_marginal = slope
-            C_fixed = intercept
-            asymptote_rows_s = (steps * F_CLK / C_marginal) if C_marginal > 0 else float("inf")
-            results.append(
-                {
-                    "steps": steps,
-                    "C_marginal": C_marginal,
-                    "C_fixed": C_fixed,
-                    "asymptote_rows_s": asymptote_rows_s,
-                }
-            )
-
-            # Left panel: core cycles per run (asymptotic decomposition).
-            ax1.plot(runs_list, core_cyc_list, "o-",
-                     color=colors[idx], label=f"S={steps} measured", alpha=0.7)
-            fit_cyc = [C_fixed / r + C_marginal for r in runs_list]
-            ax1.plot(runs_list, fit_cyc, "--",
-                     color=colors[idx], alpha=0.5,
-                     label=f"S={steps} fit: asymptote={C_marginal:.0f} cyc/run")
-            ax1.axhline(C_marginal, color=colors[idx], linestyle=":", alpha=0.3)
-
-            # Right panel: throughput in rows/s (Amdahl saturation).
-            ax2.plot(runs_list, rows_s_list, "o-",
-                     color=colors[idx], label=f"S={steps} measured", alpha=0.7)
-            fit_rows = [r * steps * F_CLK / (C_fixed + C_marginal * r) for r in runs_list]
-            ax2.plot(runs_list, fit_rows, "--",
-                     color=colors[idx], alpha=0.5,
-                     label=f"S={steps} fit: asymptote={asymptote_rows_s:.0f} rows/s")
-            ax2.axhline(asymptote_rows_s, color=colors[idx], linestyle=":", alpha=0.3)
-
-        ax1.set_xscale("log", base=2)
-        ax1.set_yscale("log")
-        ax1.set_xlabel("Batch size (cfg_runs)")
-        ax1.set_ylabel("Core cycles per run (estimated)")
-        ax1.set_title("Asymptotic Cycles-per-Run Decomposition\n"
-                      "T_total×R = C_fixed + C_marginal×R")
-        ax1.legend(fontsize=8, ncol=2)
-
-        ax2.set_xscale("log", base=2)
-        ax2.set_yscale("log")
-        ax2.set_xlabel("Batch size (cfg_runs)")
-        ax2.set_ylabel("Throughput [rows/s]")
-        ax2.set_title("Asymptotic Throughput (Amdahl)\n"
-                      "rows/s → steps×f_clk / C_marginal")
-        ax2.legend(fontsize=8, ncol=2)
-
-        print(f"\n=== Breakdown vs Throughput (N={hw_width}, p≈{target_p}) ===")
-        print(f"{'steps':>6}  {'C_marginal':>10}  {'C_fixed':>10}  {'ideal(S×3)':>12}  "
-              f"{'overhead':>9}  {'util':>6}  {'asympt rows/s':>14}")
-        print("-" * 76)
-        for r in sorted(results, key=lambda x: x["steps"]):
-            s = r["steps"]
-            frontier_ideal = s * FRONTIER_CYCLES_PER_STEP
-            overhead = r["C_marginal"] - frontier_ideal
-            util = frontier_ideal / r["C_marginal"] * 100 if r["C_marginal"] > 0 else 0
-            print(
-                f"{s:6d}  {r['C_marginal']:10.1f}  {r['C_fixed']:10.0f}  "
-                f"{frontier_ideal:12.1f}  {overhead:9.1f}  {util:5.1f}%  "
-                f"{r['asymptote_rows_s']:14.0f}"
-            )
-
-        fig.suptitle(f"N={hw_width}, p≈{target_p}", fontsize=12, y=1.02)
-        fig.tight_layout()
-        output.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(output, bbox_inches="tight")
-        plt.close(fig)
-
-    return results
-
-
 def plot_pipeline_efficiency(conn, output: Path, *, hw_width: int = 128, target_p: float = 0.60) -> None:
     """Frontier cost breakdown and pipeline utilization efficiency."""
     import matplotlib
@@ -762,16 +625,10 @@ def plot_pipeline_efficiency(conn, output: Path, *, hw_width: int = 128, target_
                  label="Efficiency = ideal/measured")
         ax2.axhline(100, color="gray", linestyle=":", alpha=0.5)
 
-        # Bars must use the SAME numeric x positions as the efficiency line so
-        # both series share one x-scale. A string category axis would map the
-        # bars to integer 0..n while the line spans up to max(steps), crowding
-        # everything to one side.
-        bar_width = 0.08 * max(steps_vals)
         ax2_twin = ax2.twinx()
-        ax2_twin.bar(steps_vals, excess, color="tab:red",
-                     alpha=0.4, width=bar_width, label="Excess cycles")
+        ax2_twin.bar([str(s) for s in steps_vals], excess, color="tab:red",
+                     alpha=0.4, width=0.6, label="Excess cycles")
         ax2_twin.set_ylabel("Excess cycles (measured − ideal)")
-        ax2_twin.set_ylim(bottom=0)
 
         ax2.set_xlabel("Grid height (steps)")
         ax2.set_ylabel("Pipeline efficiency [%]")
@@ -1311,21 +1168,11 @@ def plot_binder_cumulant(
 
 
 def plot_throughput_invariance(conn, output: Path, *, hw_width: int = 128, target_p: float = 0.60) -> None:
-    """Grid-height invariance: throughput vs steps for multiple batch sizes,
-    with an Amdahl-style asymptotic fit per (steps) curve.
-
-    For each (steps) curve the fixed + marginal cost model
-        T_total_cycles = C_fixed + C_marginal × R
-    is fitted and used to draw the asymptotic throughput
-        rows/s → steps × f_clk / C_marginal   as R→∞.
-    """
+    """Grid-height invariance: cells/s vs steps for multiple batch sizes."""
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    import numpy as np
-
-    F_CLK = 100_000_000.0
 
     sessions = _find_sessions_by_params(conn, hw_width=hw_width)
     if not sessions:
@@ -1337,7 +1184,7 @@ def plot_throughput_invariance(conn, output: Path, *, hw_width: int = 128, targe
     for runs in by_runs:
         by_runs[runs].sort(key=lambda x: x["steps"])
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
+    fig, ax = plt.subplots(1, 1, figsize=(10, 6))
 
     colors = ["tab:blue", "tab:orange", "tab:green", "tab:red", "tab:purple", "tab:brown", "tab:pink", "tab:gray"]
 
@@ -1345,7 +1192,6 @@ def plot_throughput_invariance(conn, output: Path, *, hw_width: int = 128, targe
         color = colors[idx % len(colors)]
         steps_list: list[int] = []
         cells_list: list[float] = []
-        core_cyc_list: list[float] = []
         for s in by_runs[runs]:
             rows = _session_data(conn, s["session_id"])
             if not rows:
@@ -1353,46 +1199,20 @@ def plot_throughput_invariance(conn, output: Path, *, hw_width: int = 128, targe
             row = _closest_row(rows, target_p)
             steps_list.append(s["steps"])
             cells_list.append(float(row.get("cells_per_s", 0)))
-            core_cyc_list.append(float(row.get("core_latency_per_run_cycles_est", 0)))
 
         if not steps_list:
             continue
 
-        ax1.plot(steps_list, cells_list, "o-", color=color, label=f"runs={runs}")
+        ax.plot(steps_list, cells_list, "o-", color=color, label=f"runs={runs}")
 
-        # Fit C_core = a×S + b per batch size, then map to asymptotic rows/s
-        # throughput: rows/s = S×f_clk / (a×S + b) → f_clk/a as S→∞.
-        if len(steps_list) >= 2:
-            xs = np.array([float(s) for s in steps_list])
-            ys = np.array(core_cyc_list)
-            if len(ys) == len(xs):
-                coeffs = np.polyfit(xs, ys, 1)
-                a_slope, b_int = coeffs[0], coeffs[1]
-                if a_slope > 0:
-                    asympt_rows_s = F_CLK / a_slope
-                    fit_rows = [s * F_CLK / (a_slope * s + b_int) for s in steps_list]
-                    ax2.plot(steps_list, fit_rows, "--", color=color, alpha=0.6,
-                             label=f"runs={runs} fit: asymptote≈{asympt_rows_s:.0f} rows/s")
-                    ax2.axhline(asympt_rows_s, color=color, linestyle=":", alpha=0.3)
+    ax.set_xscale("log", base=2)
+    ax.set_yscale("log")
+    ax.set_xlabel("Grid height (steps)")
+    ax.set_ylabel("Throughput [cells/s]")
+    ax.set_title(f"Grid-Height Invariance (N={hw_width}, p≈{target_p})")
+    ax.grid(True, alpha=0.3)
+    ax.legend(fontsize=8)
 
-    ax1.set_xscale("log", base=2)
-    ax1.set_yscale("log")
-    ax1.set_xlabel("Grid height (steps)")
-    ax1.set_ylabel("Throughput [cells/s]")
-    ax1.set_title(f"Grid-Height Invariance (N={hw_width}, p≈{target_p})")
-    ax1.grid(True, alpha=0.3)
-    ax1.legend(fontsize=8)
-
-    ax2.set_xscale("log", base=2)
-    ax2.set_yscale("log")
-    ax2.set_xlabel("Grid height (steps)")
-    ax2.set_ylabel("Asymptotic throughput [rows/s]")
-    ax2.set_title(f"Throughput Asymptotic (N={hw_width}, p≈{target_p})\n"
-                  "rows/s → f_clk / (∂C_core/∂S)")
-    ax2.grid(True, alpha=0.3)
-    ax2.legend(fontsize=8)
-
-    fig.suptitle(f"Grid-Height Invariance — cells/s vs asymptotic rows/s", fontsize=12, y=1.02)
     fig.tight_layout()
     output.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output, dpi=150)
