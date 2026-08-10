@@ -14,7 +14,13 @@ from ..protocol import REQUEST_BYTES, RESPONSE_BYTES
 # FPGA timing constants (from VHDL analysis)
 RNG_WARMUP_CYCLES = 1573        # AES seeding (1536) + Trivium warmup (37) @ 100 MHz
 RNG_WARMUP_S = RNG_WARMUP_CYCLES / 100e6
-FRONTIER_CYCLES_PER_STEP = 3    # 3-stage pipelined prefix scan
+# End-to-end frontier cost per row. The frontier's own pipeline is 3 cycles/row
+# (RUN_READY -> RUN_COMPUTE -> RUN_SAVE), but the core's registered row-send
+# handshake (ChunkValid/ChunkOpen are registered, Busy is combinatorial) adds
+# one extra cycle per row, so the measured end-to-end cost is 4 cycles/row.
+# Verified against hardware: fit of core_latency_per_run_cycles_est vs steps
+# gives slope ~3.99 cyc/step (see plot_pipeline_efficiency).
+FRONTIER_CYCLES_PER_STEP = 4    # 3-stage prefix scan + 1 registered-send handshake
 UART_WIRE_S_CALC = (REQUEST_BYTES + RESPONSE_BYTES) * 10.0 / 115200.0  # ≈ 2.78 ms
 
 DEFAULT_DB = Path(__file__).resolve().parents[2] / "output" / "benchmark.sqlite3"

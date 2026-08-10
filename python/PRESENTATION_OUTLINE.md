@@ -37,9 +37,9 @@ Focus su **FPGA engineering** (architettura, pipeline, timing), Python è second
   - Row N: seed = open AND previous_reach (propagazione verticale — solo se c'è un sito aperto *sotto* uno raggiungibile)
   - **Chiusura orizzontale**: iterative ±1 neighbor expansion — un sito aperto diventa raggiungibile se il vicino sinistro o destro lo è
 - **Implementazione VHDL**: bidirectional associative prefix scan
-  - 1 ciclo per riga (pipeline a 3 stadi)
+  - Pipeline a 3 stadi (RUN_READY → RUN_COMPUTE → RUN_SAVE)
   - Esattezza: converge allo stesso risultato del BFS (1000 test random)
-  - Costo: ~3 × steps cicli per run (es: 64 righe → ~195 cicli)
+  - Costo end-to-end: ~4 × steps cicli per run (3 frontier + 1 handshake registrato; es: 64 righe → ~259 cicli)
 - **Perché non BFS classico**: BFS su FPGA richiederebbe bufferizzare tutta la griglia in BRAM. Row-wise usa solo 2 righe alla volta.
 
 ### 5. Core Controller e Macchina a Stati (3 min)

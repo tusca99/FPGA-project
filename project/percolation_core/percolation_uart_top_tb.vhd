@@ -23,7 +23,7 @@ end entity;
 architecture Behavioral of percolation_uart_top_tb is
     constant N_ROWS_G : positive := 64;             -- MUST match hardware capabilities (not 256)
     constant CLK_FREQ  : integer := 100_000_000;    -- 100 MHz clock frequency (used for baud generation)
-    constant BAUD_RATE : integer := 1_000_000;      -- Use a high baud rate for faster testing (must be supported by the hardware and UART modules)
+    constant BAUD_RATE : integer := 921600;      -- Use a high baud rate for faster testing (must be supported by the hardware and UART modules)
     constant REQ_BYTES : positive := 16;
     constant RSP_BYTES : positive := 16;
     constant ZERO_RSP  : std_logic_vector(RSP_BYTES*8-1 downto 0) := (others => '0');

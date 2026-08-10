@@ -87,8 +87,8 @@ IDLE ──req_valid──▶ WAIT_CLEAR ──done='0'──▶ RUN_WAIT ──
 - **Total per request** ≈ **2.78 ms** (UART-dominated)
 
 ### Computation Time
-- Per run (64×64): ~193-195 cycles @ 100 MHz = **1.93-1.95 µs**
-- Batch of 16 runs: ~16 × 195 + RNG warmup ≈ **~3100 cycles = 31 µs**
+- Per run (64×64): ~259 cycles @ 100 MHz = **2.59 µs** (4 cyc/row × 64 + 3)
+- Batch of 16 runs: ~16 × 259 + RNG warmup ≈ **~5700 cycles = 57 µs**
 - UART wire time still dominates single-request wall time at 115200 baud
 
 ### For Faster Operation

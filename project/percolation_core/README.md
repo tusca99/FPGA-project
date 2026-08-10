@@ -22,7 +22,6 @@ Data-plane for site percolation on FPGA. Single-clock 100 MHz.
 - **Grid shape**: Width fixed at `N_ROWS_G` (compile-time, default 64), height from `CfgStepsPerRun` (runtime)
 
 ### Algorithm
-
 1. Core waits for RNG ready (`rng_busy='0'`, `rng_all_valid='1'`)
 2. For each run, streams `CfgStepsPerRun` rows to the frontier
 3. Frontier computes reachability row-by-row:
@@ -62,20 +61,31 @@ end entity;
 
 ### Timing per Run (N=64, GridSteps=64)
 
+The frontier's own pipeline is **3 cycles/row** (`RUN_READY → RUN_COMPUTE → RUN_SAVE`).
+However, the core drives the row handshake with **registered** `ChunkValid`/`ChunkOpen`
+while the frontier's `Busy` is combinatorial, so the frontier waits one extra cycle in
+`RUN_READY` for the row to arrive. The **end-to-end** cost is therefore **4 cycles/row**.
+
 | Phase | Cycles | Description |
 |-------|--------|-------------|
 | Start overhead | 1 | Core asserts `frontier_start_s` |
-| Row streaming | 64 × 3 | Pipelined prefix frontier = 3 cycles/row |
+| Row streaming | 64 × 4 | 3-cycle prefix scan + 1-cycle registered-send handshake |
 | Done detection | 1 | Frontier asserts `Done` |
 | Accumulation | 1 | Core adds `run_occupied` to `occupied_sum` |
-| **Total** | **~195** | Per run at 64 rows |
+| **Total** | **~259** | Per run at 64 rows (4·64 + 3) |
+
+> **Note on the 4 cyc/row**: this is a handshake artifact, not a frontier inefficiency.
+> The measured hardware fit of `core_latency_per_run_cycles_est` vs `steps` gives a slope
+> of ~3.99 cyc/step, matching the 4 cyc/row model. The frontier's prefix-scan pipeline
+> itself is 3 cycles/row; the extra cycle is the registered row-send in `percolation_core.vhd`.
 
 ## Validation
 
 - Threshold ~0.6047 for directed percolation on 64×64 (expected ~0.605)
 - Occupancy bias < 0.001 vs probability p
 - Prefix scan validated against BFS reference (1000 random grids)
-- Frontier latency is pipelined: 3 cycles per row, so 64 rows cost about 193-195 cycles depending on start/done bookkeeping
+- Frontier latency is pipelined: 3 cycles per row internally, 4 cycles/row end-to-end
+  including the registered-send handshake, so 64 rows cost about 259 cycles
 
 ## Doc Links
 

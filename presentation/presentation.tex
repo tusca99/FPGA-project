@@ -238,7 +238,8 @@
   \vspace{0.2cm}
   \textbf{VHDL implementation:} bidirectional associative prefix scan
   \begin{itemize}
-    \item \alert{3-stage pipeline}: 3 cycles/row
+    \item \alert{3-stage pipeline}: 3 cycles/row (READY $\to$ COMPUTE $\to$ SAVE)
+    \item \alert{4 cycles/row end-to-end}: the core's registered row-send handshake adds 1 cycle/row
     \item Only 2 rows of state (current + previous reachability)
     \item Validated against BFS: 1000 random tests, exact match
   \end{itemize}
@@ -372,7 +373,7 @@
   \begin{itemize}
     \item $C_{\text{marginal}}$: per-run core cost (asymptote at large $R$)
     \item $C_{\text{fixed}}$: UART + host overhead (one-time per request)
-    \item Asymptote matches theoretical $3 \times S$ cycles/run
+    \item Asymptote matches theoretical $4 \times S$ cycles/run (3 frontier + 1 handshake)
   \end{itemize}
 \end{frame}
 
@@ -381,9 +382,9 @@
   \includegraphics[width=0.75\textwidth]{output/analysis/pipeline_efficiency.png}
   \vspace{0.2cm}
   \begin{itemize}
-    \item Measured: $C_{\text{core}} = 3.5 \times S + \text{const}$ (vs ideal $3 \times S$)
-    \item \alert{Efficiency: 85--95\%} of theoretical maximum
-    \item Excess per step: $\approx$0.5 cycles (host dispatch + UART driver)
+    \item Measured: $C_{\text{core}} = 3.99 \times S + \text{const}$ (vs ideal $4 \times S$)
+    \item \alert{Efficiency: $\approx$100\%} of the achievable $4 \times S$ model
+    \item The $4^{\text{th}}$ cycle/row is the core's \alert{registered-send handshake}, not a frontier bubble
   \end{itemize}
 \end{frame}
 
@@ -471,8 +472,8 @@
       Clock frequency & 100 MHz & Single-clock, Artix-7 \\
       Grid width $N_{\text{rows}}$ & 64 (128, 180) & Compile-time generic \\
       Frontier pipeline & 3 cycles/row & READY $\to$ COMPUTE $\to$ SAVE \\
-      Cycles per run ($N{\times}N$) & $3N + 3$ & e.g. $N=64 \to \approx 195$ \\
-      Pipeline efficiency & 85--95\% & Of theoretical $3\times S$ \\
+      Cycles per run ($N{\times}N$) & $4N + 3$ & e.g. $N=64 \to \approx 259$ \\
+      Pipeline efficiency & $\approx$100\% & Of achievable $4\times S$ model \\
       Throughput & $\sim 10^6$ cells/s & At 100 MHz \\
       Occupancy bias & $< 0.001$ & RNG accuracy \\
       Critical threshold $\pc$ & $0.6047 \pm 0.0002$ & DP universality class \\

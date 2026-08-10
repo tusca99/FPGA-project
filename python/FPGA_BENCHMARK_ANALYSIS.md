@@ -65,10 +65,18 @@ Cycle 2: RUN_COMPUTE — compute reachability
 Cycle 3: RUN_SAVE    — save result, compute popcount
 ```
 
-With fully pipelined operation (a new row accepted every 3 cycles):
+The frontier's own pipeline is therefore 3 cycles/row. However, the core
+(`percolation_core.vhd`) drives the row handshake with **registered**
+`ChunkValid`/`ChunkOpen` while the frontier's `Busy` is combinatorial, so the
+frontier idles one extra cycle in `RUN_READY` waiting for the row. The
+**end-to-end** cost is therefore **4 cycles/row**:
+
 ```
-C_frontier = S × 3  cycles
+C_frontier = S × 4  cycles
 ```
+
+This matches the measured hardware fit (slope ~3.99 cyc/step). The Python
+analysis uses `FRONTIER_CYCLES_PER_STEP = 4` to reflect the end-to-end cost.
 
 ### Per-run overhead
 After all S rows are processed, the core state machine does:
@@ -216,8 +224,9 @@ Fitting across S separates:
 - **Per-run overhead**: state machine transitions, finalization (constant)
 - **Per-step cost**: frontier pipeline cost per row
 
-From the VHDL, the ideal frontier pipeline gives `C_per_step = 3 cycles`.
-The fit tells you how close reality is.
+From the VHDL, the frontier's own pipeline is 3 cycles/row, but the end-to-end
+cost (including the registered-send handshake in the core) is **4 cycles/row**.
+The fit tells you how close reality is to that 4 cyc/row model.
 
 ### What to plot
 
@@ -227,9 +236,9 @@ The fit tells you how close reality is.
 
 | Quantity | Meaning |
 |----------|---------|
-| Slope | `C_per_step` — should be close to 3 |
+| Slope | `C_per_step` — should be close to 4 (3 frontier + 1 handshake) |
 | Intercept | `C_per_run_overhead` — state machine fixed cost |
-| Deviation from 3 | Pipeline bubbles or stalls |
+| Deviation from 4 | Pipeline bubbles or stalls |
 
 ### Data source
 

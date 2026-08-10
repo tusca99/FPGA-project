@@ -157,13 +157,23 @@ This ensures the core only sends a new row when the frontier is **truly idle** a
 
 ### Timing per Run (N=64, GridSteps=64)
 
+The frontier's own pipeline is **3 cycles/row** (`RUN_READY → RUN_COMPUTE → RUN_SAVE`).
+The core drives the row handshake with **registered** `ChunkValid`/`ChunkOpen` while the
+frontier's `Busy` is combinatorial, so the frontier waits one extra cycle in `RUN_READY`
+for the row to arrive. The **end-to-end** cost is therefore **4 cycles/row**.
+
 | Phase | Cycles | Description |
 |-------|--------|-------------|
 | Start overhead | 1 | Core asserts `frontier_start_s` |
-| Row streaming | 64 × 3 | Pipelined prefix frontier = 3 cycles/row |
+| Row streaming | 64 × 4 | 3-cycle prefix scan + 1-cycle registered-send handshake |
 | Done detection | 1 | Frontier asserts `Done` |
 | Accumulation | 1 | Core adds `run_occupied` to `occupied_sum` |
-| **Total** | **~195** | Per run at 64 rows |
+| **Total** | **~259** | Per run at 64 rows (4·64 + 3) |
+
+> **Note on the 4 cyc/row**: this is a handshake artifact, not a frontier inefficiency.
+> The measured hardware fit of `core_latency_per_run_cycles_est` vs `steps` gives a slope
+> of ~3.99 cyc/step, matching the 4 cyc/row model. The frontier's prefix-scan pipeline
+> itself is 3 cycles/row; the extra cycle is the registered row-send in `percolation_core.vhd`.
 
 ---
 

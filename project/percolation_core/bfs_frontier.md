@@ -100,8 +100,16 @@ IDLE ──Start──▶ RUN_READY ──ChunkValid──▶ RUN_PROCESS ──
 
 | Phase | Cycles | Description |
 |-------|--------|-------------|
-| Per row | 3 | Pipelined prefix scan (registered stages) |
-| Total run | ~3 * GridSteps + 1 | Start overhead + rows + done |
+| Per row (frontier only) | 3 | Pipelined prefix scan (registered stages) |
+| Per row (end-to-end) | 4 | 3-cycle scan + 1-cycle registered-send handshake in the core |
+| Total run | ~4 * GridSteps + 3 | Start overhead + rows + done |
+
+> **Frontier vs end-to-end cost.** The frontier state machine itself is 3 cycles/row
+> (`RUN_READY → RUN_COMPUTE → RUN_SAVE`). The core (`percolation_core.vhd`) drives the
+> row handshake with **registered** `ChunkValid`/`ChunkOpen` while the frontier's `Busy`
+> is combinatorial, so the frontier idles one extra cycle in `RUN_READY` waiting for the
+> row. The measured end-to-end cost is therefore **4 cycles/row** (hardware fit slope
+> ~3.99 cyc/step). The Python analysis uses `FRONTIER_CYCLES_PER_STEP = 4` to reflect this.
 
 ## Comparison of Methods
 

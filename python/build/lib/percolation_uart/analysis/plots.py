@@ -337,7 +337,7 @@ def plot_latency_decomposition(summary_rows: list[dict[str, object]], raw_rows: 
     steps = float(first_raw.get("steps", 0.0))
     baudrate = 115200.0
     uart_wire_s = float(first_raw.get("uart_wire_s", (16 + 16) * 10.0 / baudrate))
-    ideal_core_cycles_per_run = steps * 3.0 + 3.0
+    ideal_core_cycles_per_run = steps * FRONTIER_CYCLES_PER_STEP + 3.0
     uart_wire_cycles_per_run = uart_wire_s * 100_000_000.0 / runs if runs > 0 else 0.0
 
     p_values = [float(row["p"]) for row in summary_rows]
@@ -594,21 +594,29 @@ def plot_pipeline_efficiency(conn, output: Path, *, hw_width: int = 128, target_
         slope, intercept = coeffs[0], coeffs[1]
 
         ideal_per_step = FRONTIER_CYCLES_PER_STEP
-        ideal_line = [ideal_per_step * s + intercept for s in steps_vals]
+        # Theoretical frontier cost: 4 cycles/row x S rows + 3 (start/done/accumulate).
+        # The fitted `intercept` is NOT part of the frontier — it is residual
+        # host/UART overhead that leaked into core_latency_per_run_cycles_est
+        # (that metric only subtracts UART wire time, not Python/serial/USB
+        # dispatch). So the ideal line uses the theoretical +3, and the fitted
+        # intercept is reported separately as residual host overhead.
+        ideal_intercept = 3.0
+        ideal_line = [ideal_per_step * s + ideal_intercept for s in steps_vals]
 
         fig = plt.figure(figsize=(12, 5))
         gs = fig.add_gridspec(1, 2, width_ratios=[1, 1.1])
 
         ax1 = fig.add_subplot(gs[0])
+        ax1.set_xscale("log", base=2)
         ax1.plot(steps_vals, cyc_vals, "o-", color="tab:blue", linewidth=2,
                  label=f"Measured (R={max_runs})")
         fit_x = np.linspace(min(x), max(x), 100)
         fit_y = coeffs[1] + coeffs[0] * fit_x
         ax1.plot(fit_x, fit_y, "--", color="tab:blue", alpha=0.6,
                  label=f"Fit: {slope:.2f}×S + {intercept:.0f}")
-        ideal_y = ideal_per_step * fit_x + intercept
+        ideal_y = ideal_per_step * fit_x + ideal_intercept
         ax1.plot(fit_x, ideal_y, ":", color="tab:green", linewidth=2,
-                 label=f"Ideal: {ideal_per_step}×S + {intercept:.0f}")
+                 label=f"Ideal: {ideal_per_step}×S + {ideal_intercept:.0f}")
 
         ax1.fill_between(fit_x, ideal_y, fit_y, alpha=0.1, color="tab:red",
                          label=f"Excess (slope={slope-ideal_per_step:.2f}/step)")
@@ -621,14 +629,21 @@ def plot_pipeline_efficiency(conn, output: Path, *, hw_width: int = 128, target_
         efficiency = [ideal_line[i] / cyc_vals[i] * 100 for i in range(len(steps_vals))]
         excess = [cyc_vals[i] - ideal_line[i] for i in range(len(steps_vals))]
 
+        # The steps span decades (64..2048), so a log x-axis keeps the small
+        # points readable and lets the bars share the same scale without
+        # overlapping. On a log axis the bar width is expressed in log2 units;
+        # adjacent steps are 1.0 apart, so a width < 1 guarantees no collision.
+        ax2.set_xscale("log", base=2)
         ax2.plot(steps_vals, efficiency, "s-", color="tab:green", linewidth=2,
                  label="Efficiency = ideal/measured")
         ax2.axhline(100, color="gray", linestyle=":", alpha=0.5)
 
+        bar_width = 0.8  # log2 units; adjacent steps are 1.0 apart
         ax2_twin = ax2.twinx()
-        ax2_twin.bar([str(s) for s in steps_vals], excess, color="tab:red",
-                     alpha=0.4, width=0.6, label="Excess cycles")
+        ax2_twin.bar(steps_vals, excess, color="tab:red",
+                     alpha=0.4, width=bar_width, label="Excess cycles")
         ax2_twin.set_ylabel("Excess cycles (measured − ideal)")
+        ax2_twin.set_ylim(bottom=0)
 
         ax2.set_xlabel("Grid height (steps)")
         ax2.set_ylabel("Pipeline efficiency [%]")
@@ -640,10 +655,10 @@ def plot_pipeline_efficiency(conn, output: Path, *, hw_width: int = 128, target_
         print(
             f"\n=== Pipeline Efficiency (N={hw_width}, R={max_runs}, p≈{target_p}) ===\n"
             f"  Fit: C_core/run = {slope:.3f} × steps + {intercept:.1f}\n"
-            f"  Ideal frontier: {FRONTIER_CYCLES_PER_STEP} cyc/step\n"
+            f"  Ideal frontier: {FRONTIER_CYCLES_PER_STEP} cyc/step + {ideal_intercept:.0f}\n"
             f"  Per-step cost:  {slope:.3f} cyc/step (vs ideal {FRONTIER_CYCLES_PER_STEP}, "
             f"excess {slope-FRONTIER_CYCLES_PER_STEP:.3f}/step)\n"
-            f"  Fixed overhead: {intercept:.1f} cyc/run\n"
+            f"  Residual host overhead (fitted intercept − ideal): {intercept-ideal_intercept:.1f} cyc/run\n"
         )
         for i, s in enumerate(steps_vals):
             print(f"    S={s:4d}: measured={cyc_vals[i]:.0f}  ideal={ideal_line[i]:.0f}  "

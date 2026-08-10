@@ -26,7 +26,7 @@ The core performs multiple independent trials of site percolation on a 2D grid s
 │         ▼                  ▼                      ▼           │
 │     Random bits         Occupancy row         Reachability    │
 │     vs threshold        sent to frontier      computed via    │
-│                         (3 cycles/row)       prefix scan     │
+│                         (4 cycles/row)       prefix scan       │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -79,6 +79,10 @@ The frontier processes the grid row-by-row without storing the full grid:
 
 **Current choice**: Pipelined associative prefix scan (bidirectional Kogge-Stone style).
 Mathematically equivalent to iterative ±1 propagation, but the RTL uses three registered stages per row.
+
+> **End-to-end cost**: the frontier pipeline is 3 cycles/row, but the core's registered
+> row-send handshake adds 1 cycle/row, so the measured end-to-end throughput is
+> **1 row/4 clks** (hardware fit slope ~3.99 cyc/step).
 
 ## Operational Flow
 
