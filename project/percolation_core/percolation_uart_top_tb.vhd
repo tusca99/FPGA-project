@@ -166,8 +166,11 @@ begin
         assert unsigned(rsp_msg_s(63 downto 32)) > 0
             report "Expected non-zero TotalOccupied" severity failure;
 
-        assert rsp_msg_s(31 downto 0) = x"00000000"
-            report "Expected Status = 0 (success)" severity failure;
+        -- Last word is SpanningOccupied (no Status word in the 16-byte protocol).
+        -- It must be non-zero whenever there is at least one spanning run, and
+        -- can never exceed TotalOccupied.
+        assert unsigned(rsp_msg_s(31 downto 0)) <= unsigned(rsp_msg_s(63 downto 32))
+            report "SpanningOccupied exceeds TotalOccupied" severity failure;
 
         report "Percolation UART top smoke test passed" severity note;
         wait;
