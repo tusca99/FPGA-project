@@ -37,7 +37,7 @@ We need to determine if there exists a path of open sites from the **top row** t
 - **Width**: `N_ROWS_G` columns (compile-time generic, currently 64)
 - **Height**: `CfgStepsPerRun` rows (runtime parameter, e.g. 64)
 
-### The Algorithm (Iterative Horizontal Closure)
+### The Algorithm (Associative Prefix Scan)
 
 For each row `r` from `0` to `GridSteps-1`:
 
@@ -45,38 +45,44 @@ For each row `r` from `0` to `GridSteps-1`:
 2. **Vertical seeding**: 
    - If `r == 0`: `seed = open` (top row — every open site is a starting point)
    - Else: `seed = open AND previous_reach` (only sites directly above a reachable site can be reached)
-3. **Horizontal closure** (iterative until convergence):
+3. **Horizontal closure** (bidirectional associative prefix scan):
    ```
-   reach = seed
-   repeat:
-       left  = reach shifted left  by 1 (with '0' fill)
-       right = reach shifted right by 1 (with '0' fill)
-       new_reach = reach OR ((left OR right) AND open)
-   until new_reach == reach
+   pairs(i).a = open(i)              -- segment fully open
+   pairs(i).b = open(i) AND seed(i)  -- segment has a reachable seed
+   ltr = prefix_scan_ltr(pairs)      -- left-to-right scan
+   rtl = reverse(prefix_scan_ltr(reverse(pairs)))  -- right-to-left scan
+   reach(i) = ltr(i).b OR rtl(i).b
    ```
-   This propagates reachability **left and right** across contiguous open sites. It converges in at most `N_ROWS_G/2` iterations for a single cluster, but typically 1-3 iterations.
+   The `prefix_scan_ltr` uses Kogge-Stone style doubling (`dist = 1, 2, 4, ...`), so the
+   scan resolves in **`log2(N_ROWS_G)` stages** (6 for `N=64`) — a **fixed-depth
+   combinatorial tree**, not a data-dependent convergence loop. Every row takes exactly
+   the same number of cycles regardless of cluster size or occupancy pattern.
 4. **Save result**: `previous_reach = reach` for the next row's vertical seeding.
 5. **Spanning check**: If `r == GridSteps-1` (last row) and `any_set(reach) == '1'`, set `Spanning = '1'`.
 
-### Why Not the Combinatorial Mask?
+### Why Not the Iterative Closure?
 
-Earlier versions used a **single-cycle combinatorial prefix network**:
+Earlier versions used an **iterative ±1 propagation** loop:
 ```vhdl
-for d in 1, 2, 4, 8, 16, 32 loop
-    reach = reach OR ((reach << d OR reach >> d) AND open)
-end loop
+reach = seed
+repeat:
+    left  = reach shifted left  by 1 (with '0' fill)
+    right = reach shifted right by 1 (with '0' fill)
+    new_reach = reach OR ((left OR right) AND open)
+until new_reach == reach
 ```
+This converges in at most `N_ROWS_G/2` iterations for a single cluster (typically 1-3),
+but the loop depth is **data-dependent** and the wide shifts/ORs/ANDs form a long
+combinatorial path.
 
-This is mathematically equivalent to the iterative closure but computes it in **one clock cycle** using `log2(N_ROWS_G)` stages of wide shifts/ORs/ANDs.
-
-**Why we reverted to iterative:**
-- At `N_ROWS_G = 64`, the combinatorial path was **~9.9ns** (logic + routing), leaving only **0.08ns slack** at 100 MHz.
+**Why we use the pipelined prefix scan instead:**
+- At `N_ROWS_G = 64`, the combinatorial mask path was **~9.9ns** (logic + routing), leaving only **0.08ns slack** at 100 MHz.
 - At `N_ROWS_G = 128`, it **failed timing entirely** (~60% LUT utilization but routing congestion killed the path).
-- The iterative version breaks the work across **multiple cycles**, giving the router freedom to spread logic and meeting timing comfortably.
+- The pipelined prefix scan breaks the work across **3 registered stages** (`RUN_READY → RUN_COMPUTE → RUN_SAVE`), giving the router freedom to spread logic and meeting timing comfortably.
 
 **Trade-off**: 
-- Combinatorial: 1 row / clock (but risky at N≥64)
-- Iterative: 1–3 cycles / row (but safe and scalable)
+- Iterative: 1–3 cycles / row (but data-dependent, risky at N≥64)
+- Pipelined prefix scan: 3 cycles / row (fixed, safe and scalable)
 
 ---
 
@@ -120,9 +126,9 @@ State 1 (RUNNING):
 Busy <= '0' when (state = RUN_READY) else '1';
 ```
 
-When `ChunkValid='1'` arrived, the frontier transitioned `RUN_READY → RUN_PROCESS` on the clock edge. But during that cycle, `state` still read as `RUN_READY` (VHDL signal updates happen after all processes suspend). So `Busy` remained `'0'` for **one extra cycle**.
+When `ChunkValid='1'` arrived, the frontier transitioned `RUN_READY → RUN_COMPUTE` on the clock edge. But during that cycle, `state` still read as `RUN_READY` (VHDL signal updates happen after all processes suspend). So `Busy` remained `'0'` for **one extra cycle**.
 
-The core saw `frontier_busy_s = '0'` and sent a **second row** immediately. The frontier ignored it (already in `RUN_PROCESS`). When the frontier later returned to `RUN_READY`, the core sent that same row **again**, and `run_occupied` was incremented twice.
+The core saw `frontier_busy_s = '0'` and sent a **second row** immediately. The frontier ignored it (already in `RUN_COMPUTE`). When the frontier later returned to `RUN_READY`, the core sent that same row **again**, and `run_occupied` was incremented twice.
 
 **Fix**: Added a `row_pending` flag in the core:
 ```vhdl
@@ -257,13 +263,14 @@ For `N_ROWS_G = 64`:
 | Phase | Cycles | Description |
 |-------|--------|-------------|
 | Start overhead | 1 | Core asserts `frontier_start_s` |
-| Per-row latency | **2** | Cycle 1: latch `ChunkOpen` + compute `seed`; Cycle 2: prefix-scan computes `reach_result`, save to `previous_reach` |
+| Per-row latency (frontier) | **3** | `RUN_READY` (latch `ChunkOpen` + compute `seed`) → `RUN_COMPUTE` (prefix-scan computes `reach_result`) → `RUN_SAVE` (save to `previous_reach`, popcount) |
+| Per-row latency (end-to-end) | **4** | 3-cycle frontier + 1-cycle registered row-send handshake in the core |
 | Row count | `GridSteps` | e.g. 64 rows |
 | Done detection | 1 | Frontier asserts `Done` after last row |
 | Core accumulation | 1 | Core adds `run_occupied` to `occupied_sum` |
-| **Total per run** | **`2 × GridSteps + 3`** | For 64×64 grid: **131 cycles** @ 100 MHz = **1.31 µs** |
+| **Total per run** | **`4 × GridSteps + 3`** | For 64×64 grid: **259 cycles** @ 100 MHz = **2.59 µs** |
 
-The timing is **fully deterministic** — no data-dependent convergence loops. Every row takes exactly 2 cycles regardless of cluster size or occupancy pattern.
+The timing is **fully deterministic** — no data-dependent convergence loops. Every row takes exactly the same number of cycles regardless of cluster size or occupancy pattern.
 
 ### Timing closure
 
@@ -275,6 +282,6 @@ The prefix-scan network is ~6 Kogge-Stone stages × 2 LUTs per stage = ~12 LUT l
 |----------|-----------|----------------|-------------------|
 | Iterative | 1–32 | No | Low (meets timing) |
 | Broken OR-shift prefix | 1 | Yes | Medium (algorithm wrong) |
-| **Correct prefix-scan** | **2** | **Yes** | **Low (correct + meets timing)** |
+| **Correct pipelined prefix-scan** | **3** (4 end-to-end) | **Yes** | **Low (correct + meets timing)** |
 
 ---

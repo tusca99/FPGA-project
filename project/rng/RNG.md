@@ -108,7 +108,7 @@ entity rng_hybrid_64 is
         run_tag    : in  std_logic_vector(31 downto 0);
         threshold  : in  std_logic_vector(31 downto 0); -- UQ32
         words_out  : out word_array_t(0 to N_ROWS_G-1);
-        valid_mask : out std_logic_vector(N_ROWS_G-1 downto 0);
+        valid_mask : out flag_array_t(0 to N_ROWS_G-1);
         site_open  : out flag_array_t(0 to N_ROWS_G-1);
         all_valid  : out std_logic;
         busy       : out std_logic

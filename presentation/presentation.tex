@@ -17,9 +17,10 @@
 \usepackage{hyperref}
 \usepackage{microtype}
 \usepackage{tikz}
-\usetikzlibrary{shapes, arrows, positioning, fit, calc}
+\usepackage{bookmark}
+\usetikzlibrary{shapes, arrows, arrows.meta, positioning, fit, calc}
 
-\graphicspath{{../python/}}
+
 
 % ---- Metadata ----
 \title{FPGA Accelerator for Directed Percolation}
@@ -32,6 +33,8 @@
 \newcommand{\pc}{p_{\!c}}
 \newcommand{\nup}{1/\nu}
 \newcommand{\nud}{1/\nu_{\!\|}}
+
+\graphicspath{{figures/}}
 
 \begin{document}
 
@@ -57,7 +60,7 @@
   \textbf{Physical picture:} a fluid filters through a porous medium.
 
   \begin{columns}
-    \column{0.45\textwidth}
+    \column{0.55\textwidth}
     \begin{itemize}
       \item 2D grid: each site is \alert{open} (blue, prob. $p$) or \alert{closed} (gray, $1-p$)
       \item A \alert{spanning cluster} connects top $\to$ bottom
@@ -66,9 +69,9 @@
             Above $\pc$: spanning cluster emerges
       \item \textbf{Isotropic percolation:} fluid can move in all 4 directions
     \end{itemize}
-    \column{0.5\textwidth}
+    \column{0.45\textwidth}
     \centering
-    \includegraphics[width=0.6\textwidth]{percolation_isotropic.png}
+    \includegraphics[width=0.8\textwidth]{percolation_isotropic.png}
   \end{columns}
 \end{frame}
 
@@ -76,12 +79,12 @@
   \textbf{Key difference:} flow is \alert{directional} — only downward propagation.
 
   \begin{columns}
-    \column{0.45\textwidth}
+    \column{0.55\textwidth}
     \begin{itemize}
       \item Fluid moves only $\downarrow$ (not $\uparrow$)
       \item Horizontal spread still allowed ($\leftrightarrow$)
       \item Different universality class from isotropic percolation
-      \item DP critical exponents:
+      \item DP critical exponents: useful to find cluster mass and $p_c$ for example
         {\small
         \begin{align*}
           \beta &= 0.2765 \quad &&\text{(order parameter)}\\
@@ -90,9 +93,9 @@
         \end{align*}
         }
     \end{itemize}
-    \column{0.5\textwidth}
+    \column{0.45\textwidth}
     \centering
-    \includegraphics[width=0.6\textwidth]{percolation_directed.png}
+    \includegraphics[width=0.8\textwidth]{percolation_directed.png}
   \end{columns}
 \end{frame}
 
@@ -103,7 +106,7 @@
   \]
   where $F$ is a \alert{universal scaling function}.
 
-  \vspace{0.3cm}
+  \vspace{0.15cm}
   \textbf{Consequences:}
   \begin{itemize}
     \item Curves for different $N$ \alert{collapse} onto a single master curve
@@ -111,7 +114,7 @@
     \item The crossing point of $P_{\text{span}} = 0.5$ gives an estimate of $\pc$
   \end{itemize}
 
-  \vspace{0.3cm}
+  \vspace{0.15cm}
   \textbf{Threshold estimation} via logistic regression:
   \[
   P_{\text{span}}(p) = \frac{1}{1 + e^{-a(p - \pc)}}
@@ -126,94 +129,210 @@
 
 \begin{frame}{Top-Level Block Diagram}
   \centering
-  \begin{tikzpicture}[
-    block/.style={rectangle, draw, fill=blue!10, minimum width=0.12\textwidth, minimum height=0.05\textwidth, align=center, rounded corners, font=\footnotesize},
-    arrow/.style={->, thick, >=stealth},
-    label/.style={font=\tiny}
-  ]
+\begin{tikzpicture}[
+    block/.style={
+        rectangle,
+        draw,
+        rounded corners=3pt,
+        minimum width=2.35cm,
+        minimum height=1.05cm,
+        align=center,
+        font=\large,
+        fill=blue!8
+    },
+    host/.style={
+        block,
+        fill=green!10
+    },
+    signal/.style={
+        ->,
+        >=Stealth,
+        thick
+    },
+    feedback/.style={
+        <->,
+        >=Stealth,
+        thick
+    },
+    label/.style={
+        font=\normalsize,
+        fill=white,
+        inner sep=2pt
+    }
+]
 
-    \node[block] (rng) {RNG Bank\\$N{\times}$ Trivium};
-    \node[block, right=0.08\textwidth of rng] (core) {Core\\Controller};
-    \node[block, right=0.08\textwidth of core] (front) {Frontier\\Engine};
-    \node[block, right=0.08\textwidth of front] (uart) {UART\\Wrapper};
+% ------------------------------------------------------------------
+% Main blocks
+% ------------------------------------------------------------------
 
-    \draw[arrow] (rng) -- node[label, above, yshift=0.02\textwidth] {site\_open} (core);
-    \draw[arrow] (core) -- node[label, above, yshift=0.02\textwidth] {row} (front);
-    \draw[arrow] (front) -- node[label, above, yshift=0.02\textwidth] {reach} (core);
-    \draw[arrow] (core) -- node[label, above, yshift=0.02\textwidth] {stats} (uart);
+\node[block] (rng)
+    at (0,0)
+    {RNG Bank\\[-1mm]$N\times$ Trivium};
 
-    \node[below=0.15\textwidth of rng, label, align=center] {100 MHz\\single clock};
-    \node[below=0.15\textwidth of uart, label, align=center] {115200 baud\\16-byte};
+\node[block] (core)
+    at (4.2,0)
+    {Core\\Controller};
 
-    % Host
-    \node[block, below=0.25\textwidth of uart, fill=green!10] (host) {Host PC\\Python + SQLite};
-    \draw[arrow, <->] (uart) -- node[label, right] {UART} (host);
+\node[block] (frontier)
+    at (7.6,0)
+    {Frontier\\Engine};
 
-  \end{tikzpicture}
+\node[block] (uart)
+    at (11.,0)
+    {UART};
 
-  \vspace{0.1cm}
-  \textbf{Key principle:} each block is independent and pipelined.
+% ------------------------------------------------------------------
+% Main data flow
+% ------------------------------------------------------------------
+
+\draw[signal]
+    (rng.east) --
+    node[label, above=3pt] {site\_open}
+    (core.west);
+
+\draw[signal]
+    (core.east) --
+    node[label, above=3pt] {row}
+    (frontier.west);
+
+\draw[signal]
+    (frontier.east) --
+    node[label, above=3pt] {stats}
+    (uart.west);
+
+% ------------------------------------------------------------------
+% Feedback path
+% ------------------------------------------------------------------
+
+\draw[feedback]
+    ([yshift=-8pt]core.east) --
+    node[label, below=3pt] {reach}
+    ([yshift=-8pt]frontier.west);
+
+% ------------------------------------------------------------------
+% Host PC
+% ------------------------------------------------------------------
+
+\node[host]
+    (host)
+    at (9.6,-2.0)
+    {Host PC\\Python};
+
+\draw[feedback]
+    (uart.south) --
+    node[label, pos=0.5, xshift=8pt] {UART, 115200 baud}
+    (host.north);
+
+% ------------------------------------------------------------------
+% Clock domain
+% ------------------------------------------------------------------
+
+\node[
+    draw,
+    rounded corners=3pt,
+    dashed,
+    minimum width=3.2cm,
+    minimum height=0.75cm,
+    align=center,
+    font=\normalsize
+]
+(clock)
+    at (3.2,-2.0)
+    {100 MHz\\single clock domain};
+
+% ------------------------------------------------------------------
+% Key principle
+% ------------------------------------------------------------------
+
+\node[
+    align=center,
+    font=\normalsize
+]
+(principle)
+    at (4.8,-3.25)
+    {\textbf{Key principle:} independent modules, streaming data flow.};
+
+\end{tikzpicture}
+
 \end{frame}
 
-\begin{frame}{RNG Bank — $N_{\text{rows}}\times$ Trivium Stream Cipher}
+\begin{frame}{Block Diagram}
+\centering
+\includegraphics[width=0.8\textwidth]{system_diagram.png}
+\end{frame}
+
+
+\begin{frame}{RNG Bank — Architecture}
   \begin{itemize}
     \item \alert{$N_{\text{rows}}$ independent} Trivium stream ciphers, one per grid column
-    \item $N_{\text{rows}}$ is a \textbf{compile-time generic} (\texttt{N\_ROWS\_G}), default 64
+    \item $N_{\text{rows}}$ is a \textbf{synthesis-time generic} (\texttt{N\_ROWS\_G}), default 64
     \item Synthesized for 64, 128, or 180 — same throughput, different resource usage
-    \item \textbf{AES-CTR seeding} (one-time, $2 \times N_{\text{rows}} \times 10$ cycles):
-      \begin{itemize}
-        \item $2 \times N_{\text{rows}}$ AES blocks $\times$ 10 cycles/block
-        \item For $N_{\text{rows}}=64$: 128 $\times$ 10 = 1280 cycles
-      \end{itemize}
-    \item \textbf{Trivium warmup}: 1152 bit-cycles / 32 bit/cycle = 36 cycles
-    \item \textbf{Total warmup} ($N_{\text{rows}}=64$): $\approx$1316 cycles $\approx$ 13.2 $\mu$s at 100 MHz
   \end{itemize}
 
-  \vspace{0.15cm}
-  \begin{columns}
-    \column{0.5\textwidth}
-    \textbf{Per cycle:}
-    \begin{itemize}
-      \item $N_{\text{rows}}$ random 32-bit words
-      \item Compared to threshold $p$ (UQ32 fixed-point)
-      \item Output: $N_{\text{rows}}$-bit \texttt{site\_open} vector
-    \end{itemize}
-    \column{0.5\textwidth}
-    \textbf{Validation:}
-    \begin{itemize}
-      \item Occupancy bias $< 0.001$
-      \item Uniform distribution verified
-      \item No correlation between columns
-    \end{itemize}
-  \end{columns}
+  \vspace{0.1cm}
+  \centering
+  \includegraphics[width=0.85\textwidth]{sim_rng_warmup.png}
+
+  \vspace{0.1cm}
+  \textbf{AES-CTR seeding:} 128-bit key loaded, all 64 streams initialized in parallel
 \end{frame}
 
-\begin{frame}{Frontier Engine — Row-Wise Reachability}
+\begin{frame}{RNG Bank — Seeding \& Output}
+  \begin{columns}
+    \column{0.68\textwidth}
+    \textbf{AES-CTR Seeding:}
+    \begin{itemize}
+      \item For $N_{\text{rows}}=64$: 1536 cycles ($2N$ AES blocks $\times$ 12 cyc)
+      \item Trivium warmup: 36 cycles (1152 bits $\div$ 32)
+      \item \alert{Total: $\approx$1573 cycles} ($\approx$15.7 $\mu$s at 100 MHz)
+    \end{itemize}
+    \column{0.3\textwidth}
+  \textbf{Per cycle output:}
+  \begin{itemize}
+    \item $N_{\text{rows}}$ random 32-bit words
+  \end{itemize}
+  \end{columns}
+
+  \vspace{0.3cm}
+    \centering
+    \includegraphics[width=.85\textwidth]{sim_rng_valid.png}
+
+\end{frame}
+
+\begin{frame}{Frontier Engine — Row-Wise Algorithm}
   \textbf{Problem:} determine if a top-to-bottom path exists without storing the full grid.
 
   \vspace{0.2cm}
   \textbf{Algorithm (per row):}
   \begin{enumerate}
-    \item \alert{Vertical seed:}
-      \[
-      \text{seed}[i] = \text{open}[i] \land \text{prev\_reach}[i]
-      \]
-      (Row 0: $\text{seed} = \text{open}$)
-    \item \alert{Horizontal closure} (iterative $\pm1$ expansion):
-      \[
-      \text{reach}[i] = \text{seed}[i] \lor \bigl(\text{open}[i] \land (\text{reach}[i{-}1] \lor \text{reach}[i{+}1])\bigr)
-      \]
-      Converges in $\leq N_{\text{rows}}$ iterations (typically 2--3 for $N=64$)
+    \item \alert{Vertical seed:} $\text{seed}[i] = \text{open}[i] \land \text{prev\_reach}[i]$
+    \item \alert{Horizontal closure:} $\text{reach}[i] = \text{seed}[i] \lor (\text{open}[i] \land (\text{reach}[i{-}1] \lor \text{reach}[i{+}1]))$
   \end{enumerate}
 
+  \vspace{0.3cm}
+  \centering
+  \includegraphics[width=0.7\textwidth]{sim_core.png}
+
   \vspace{0.2cm}
-  \textbf{VHDL implementation:} bidirectional associative prefix scan
-  \begin{itemize}
-    \item \alert{3-stage pipeline}: 3 cycles/row (READY $\to$ COMPUTE $\to$ SAVE)
-    \item \alert{4 cycles/row end-to-end}: the core's registered row-send handshake adds 1 cycle/row
-    \item Only 2 rows of state (current + previous reachability)
-    \item Validated against BFS: 1000 random tests, exact match
-  \end{itemize}
+  \textbf{Bidirectional prefix scan:} resolves in $\log_2 N_{\text{rows}}$ stages (6 for $N=64$) in a single cycle
+\end{frame}
+
+\begin{frame}{Frontier Engine — VHDL Pipeline}
+
+    \textbf{3-stage pipeline:}
+    \begin{itemize}
+      \item RUN\_READY $\to$ RUN\_COMPUTE $\to$ RUN\_SAVE
+      \item \alert{3 cycles/row} core computation
+      \item \alert{4 cycles/row end-to-end} (includes registered handshake)
+      \item Only 2 rows of state buffered
+    \end{itemize}
+
+    \centering
+    \includegraphics[width=0.85\textwidth]{sim_core_single.png}
+
+
+  \vspace{0.3cm}
+  \textbf{Validation:} 1000 random tests, exact match with BFS reference
 \end{frame}
 
 \begin{frame}{Core Controller — State Machine}
@@ -244,7 +363,7 @@
 
 \begin{frame}{UART Protocol — 16-Byte Frames}
   \begin{columns}[t]
-    \column{0.48\textwidth}
+    \column{0.6\textwidth}
     \textbf{Request (host $\to$ FPGA):}
     {\footnotesize
     \begin{tabular}{lll}
@@ -268,13 +387,13 @@
       \midrule
       0 & StepCount & Runs completed \\
       1 & SpanningCount & Spanning runs \\
-      2 & TotalOccupied & Total occupied sites \\
+      2 & TotalOccupied & Total occupied site\\
       3 & SpanningOccupied & Reachable sites \\
       \bottomrule
     \end{tabular}
     }
 
-    \column{0.48\textwidth}
+    \column{0.4\textwidth}
     \textbf{Details:}
     \begin{itemize}
       \item 115200 baud, 8N1
@@ -285,33 +404,48 @@
   \end{columns}
 \end{frame}
 
+\begin{frame}{UART Protocol — End-to-End Simulation}
+  \centering
+  \includegraphics[width=\textwidth]{sim_uart_top.png}
+\end{frame}
+
+
 % ============================================================
 %  SECTION 3 — Validation
 % ============================================================
 \section[Val.]{Validation}
 
-\begin{frame}{Three-Way Comparison}
-  \begin{columns}
-    \column{0.5\textwidth}
-    \centering
-    \includegraphics[width=0.72\textwidth]{output/three_way_comparison.png}\\
-    \small 20 points, 1000 runs each
-    \column{0.5\textwidth}
-    \centering
-    \includegraphics[width=0.78\textwidth]{output/three_way_comparison_zoom.png}\\
-    \small 100 points, 1000 runs each
-  \end{columns}
-
-  \vspace{0.2cm}
+\begin{frame}{Three-Way Comparison — Full Range}
+  \centering
+\begin{columns}
+\column{0.3\textwidth}
   \begin{itemize}
     \item BFS (undirected) vs SW FPGA (directed) vs HW FPGA
+    \item 20 points, 1000 runs each
     \item Directed percolation threshold is \alert{higher} ($\pc \approx 0.605$) than isotropic ($\pc \approx 0.593$)
   \end{itemize}
+  \column{0.7\textwidth}
+  \includegraphics[width=\textwidth]{three_way_comparison.png}
+\end{columns}
+\end{frame}
+
+\begin{frame}{Three-Way Comparison — Threshold Region}
+  \centering
+\begin{columns}
+\column{0.3\textwidth}
+  \begin{itemize}
+    \item Zoom around the critical region
+    \item 100 points, 1000 runs each
+    \item Perfect agreement between software model and hardware implementation
+  \end{itemize}
+  \column{0.7\textwidth}
+  \includegraphics[width=\textwidth]{three_way_comparison_zoom.png}
+\end{columns}
 \end{frame}
 
 \begin{frame}{Occupancy Bias — RNG Accuracy}
   \centering
-  \includegraphics[width=0.65\textwidth]{output/analysis/occupancy_bias.png}
+  \includegraphics[width=0.65\textwidth]{occupancy_bias.png}
   \vspace{0.2cm}
   \begin{itemize}
     \item Bias $= \langle p_{\text{measured}} \rangle - p_{\text{target}}$
@@ -325,37 +459,43 @@
 % ============================================================
 \section{FPGA Engineering Results}
 
-\begin{frame}{Latency vs Batch Size — Amdahl Speedup}
+%% \begin{frame}{Latency vs Batch Size — Amdahl Speedup}
+%%   \centering
+%%   \includegraphics[width=0.45\textwidth]{latency_vs_batch.png}
+%%   \vspace{0.2cm}
+%%   \begin{itemize}
+%%     \item Fixed UART overhead $\approx$2.78 ms dominates at small $R$
+%%     \item Speedup follows Amdahl's law: serial fraction $f_{\text{serial}} \approx 0.2$--$0.4$
+%%     \item Break-even batch size: $R \approx 100$--$1000$ depending on grid height
+%%   \end{itemize}
+%% \end{frame}
+
+\begin{frame}{Asymptotic Throughput — Amdahl Decomposition}
   \centering
-  \includegraphics[width=0.75\textwidth]{output/analysis/latency_vs_batch.png}
-  \vspace{0.2cm}
-  \begin{itemize}
-    \item Fixed UART overhead $\approx$2.78 ms dominates at small $R$
-    \item Speedup follows Amdahl's law: serial fraction $f_{\text{serial}} \approx 0.2$--$0.4$
-    \item Break-even batch size: $R \approx 100$--$1000$ depending on grid height
-  \end{itemize}
+  \includegraphics[width=\textwidth]{breakdown_throughput.png}
 \end{frame}
 
-\begin{frame}{Asymptotic Cycles-Per-Run Decomposition}
+\begin{frame}{Theoretical vs practical efficiency}
   \centering
-  \includegraphics[width=0.55\textwidth]{output/analysis/breakdown_fit.png}
+  \includegraphics[width=\textwidth]{pipeline_efficiency.png}
+\end{frame}
 
+\begin{frame}{Model and Speed results}
   \textbf{Model:} $T_{\text{total}} \times R = C_{\text{fixed}} + C_{\text{marginal}} \times R$
-  \begin{itemize}
-    \item $C_{\text{marginal}}$: per-run core cost (asymptote at large $R$)
-    \item $C_{\text{fixed}}$: UART + host overhead (one-time per request)
-    \item Asymptote matches theoretical $4 \times S$ cycles/run (3 frontier + 1 handshake)
-  \end{itemize}
-\end{frame}
 
-\begin{frame}{Pipeline Efficiency}
-  \centering
-  \includegraphics[width=0.75\textwidth]{output/analysis/pipeline_efficiency.png}
   \vspace{0.2cm}
   \begin{itemize}
+    \item $C_{\text{fixed}}$: UART + host overhead (one-time per request)
+    \item $C_{\text{marginal}}$: per-run core cost (asymptote at large $R$)
+    \item \textbf{Throughput:} $\displaystyle \frac{\text{rows}}{\text{s}} = \frac{\text{steps} \times f_{\text{clk}}}{C_{\text{marginal}}}$
+\end{itemize}
+  \textbf{Results:}
+  \begin{itemize}
+    \item Asymptote matches theoretical $4 \times S$ cycles/run (3 frontier + 1 handshake)
     \item Measured: $C_{\text{core}} = 3.99 \times S + \text{const}$ (vs ideal $4 \times S$)
-    \item \alert{Efficiency: $\approx$100\%} of the achievable $4 \times S$ model
-    \item The $4^{\text{th}}$ cycle/row is the core's \alert{registered-send handshake}, not a frontier bubble
+    \item For $N=64$: measured asymptote $\approx 288$ cycles/run vs theoretical $4N+3 = 259$ ($\approx$11\% state-machine overhead at the latest point we measured)
+    \item \alert{Efficiency: $\approx$100\%} of achievable $4 \times S$ model
+    \item Throughput scales with batch size, saturating at $\sim 2.5 \times 10^7$ rows/s
   \end{itemize}
 \end{frame}
 
@@ -363,11 +503,11 @@
   \begin{columns}
     \column{0.5\textwidth}
     \centering
-    \includegraphics[width=\textwidth]{output/analysis/throughput_invariance.png}\\
+    \includegraphics[width=\textwidth]{throughput_invariance.png}\\
     \small Throughput vs grid height
     \column{0.5\textwidth}
     \centering
-    \includegraphics[width=\textwidth]{output/analysis/determinism_cv.png}\\
+    \includegraphics[width=\textwidth]{determinism_cv.png}\\
     \small Coefficient of variation
   \end{columns}
   \vspace{0.3cm}
@@ -378,6 +518,7 @@
   \end{itemize}
 \end{frame}
 
+
 % ============================================================
 %  SECTION 5 — Physics Results
 % ============================================================
@@ -385,7 +526,7 @@
 
 \begin{frame}{Finite-Size Scaling — Collapse}
   \centering
-  \includegraphics[width=0.75\textwidth]{output/analysis/finite_size_scaling.png}
+  \includegraphics[width=0.75\textwidth]{finite_size_scaling.png}
   \vspace{0.2cm}
   \begin{itemize}
     \item Square grids: $N = 64, 128, 180$
@@ -396,7 +537,7 @@
 
 \begin{frame}{Threshold Estimation — Bootstrap}
   \centering
-  \includegraphics[width=0.55\textwidth]{output/analysis/threshold_bootstrap.png}
+  \includegraphics[width=0.55\textwidth]{threshold_bootstrap.png}
 
   \textbf{Method:} binomial logistic regression + 2000 bootstrap resamples
   \[
@@ -436,6 +577,7 @@
 \begin{frame}{Summary of Results}
   \begin{table}
     \centering
+\resizebox{\textwidth}{!}{
     \begin{tabular}{lcc}
       \toprule
       \textbf{Metric} & \textbf{Value} & \textbf{Notes} \\
@@ -445,12 +587,13 @@
       Frontier pipeline & 3 cycles/row & READY $\to$ COMPUTE $\to$ SAVE \\
       Cycles per run ($N{\times}N$) & $4N + 3$ & e.g. $N=64 \to \approx 259$ \\
       Pipeline efficiency & $\approx$100\% & Of achievable $4\times S$ model \\
-      Throughput & $\sim 10^6$ cells/s & At 100 MHz \\
+      Throughput & $\sim 10^9$ cells/s & At 100 MHz ($\sim$2.5$\times$10$^7$ rows/s $\times$ 64) \\
       Occupancy bias & $< 0.001$ & RNG accuracy \\
       Critical threshold $\pc$ & $0.6047 \pm 0.0002$ & DP universality class \\
       UART overhead & $\approx$2.78 ms & 115200 baud, 32 bytes \\
       \bottomrule
     \end{tabular}
+}
   \end{table}
 \end{frame}
 

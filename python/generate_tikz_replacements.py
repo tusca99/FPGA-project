@@ -82,7 +82,7 @@ def plot_grid(grid, path, filename, title, directed=False):
     ax.set_aspect('equal')
     ax.axis('off')
     plt.title(title)
-    plt.savefig(filename, bbox_inches='tight', pad_inches=0)
+    plt.savefig(filename, bbox_inches='tight', pad_inches=0, dpi=300)
     plt.close()
 
 if __name__ == "__main__":

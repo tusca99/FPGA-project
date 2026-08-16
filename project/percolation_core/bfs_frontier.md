@@ -5,7 +5,7 @@
 `percolation_bfs_frontier.vhd` computes row-wise reachability for site percolation.
 It processes the grid strip top-to-bottom, keeping only the current row and the previous reachability mask.
 
-**Key property**: exact horizontal closure in **1 cycle per row** via associative prefix scan.
+**Key property**: exact horizontal closure via associative prefix scan, pipelined over **3 cycles per row**.
 
 ## Entity
 
@@ -23,7 +23,7 @@ entity percolation_bfs_frontier is
         Busy          : out std_logic;
         Done          : out std_logic;
         Spanning      : out std_logic;
-        ReachPopcount : out unsigned(15 downto 0)
+        ReachPopcount : out unsigned(31 downto 0)
     );
 end entity;
 ```
@@ -87,14 +87,15 @@ The `prefix_scan_ltr` uses Kogge-Stone style doubling (dist = 1, 2, 4, 8, ...).
 ## State Machine
 
 ```
-IDLE ──Start──▶ RUN_READY ──ChunkValid──▶ RUN_PROCESS ──last row──▶ COMPLETE ──▶ IDLE
+IDLE ──Start──▶ RUN_READY ──ChunkValid──▶ RUN_COMPUTE ──last row──▶ COMPLETE ──▶ IDLE
                       ▲                                              │
                       └──────────────── not last row ────────────────┘
 ```
 
 - **RUN_READY**: Wait for `ChunkValid`, latch `ChunkOpen`, compute `seed`
-- **RUN_PROCESS**: Compute `reach = horizontal_reach(seed, open)`, save to `previous_reach`, output popcount
-- **COMPLETE**: Assert `Done` and `Spanning` (if any reach bit set)
+- **RUN_COMPUTE**: Compute `reach = horizontal_reach(seed, open)`, register `reach_result`
+- **RUN_SAVE**: Save to `previous_reach`, compute popcount; on last row assert `Spanning`
+- **COMPLETE**: Assert `Done` (if any reach bit set)
 
 ## Timing
 
@@ -117,8 +118,7 @@ IDLE ──Start──▶ RUN_READY ──ChunkValid──▶ RUN_PROCESS ──
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | Naive ±1 loop | ✅ | ❌ (O(N) depth) | 1 row/clk | 1 clk | Too deep for N=64 |
 | Combinatorial mask (shift-OR) | ✅ | ⚠️ (marginal) | 1 row/clk | 1 clk | ~9.9ns at N=64 |
-| **Associative prefix scan** | ✅ | ✅ (~7 LUT levels) | **1 row/3 clks** | **3 clks** | **Current** |
-| Pipelined prefix (3 cycles) | ✅ | ✅ | 1 row/3 clks | 3 clks | For N≥128 |
+| **Pipelined associative prefix scan** | ✅ | ✅ (~7 LUT levels) | **1 row/3 clks** | **3 clks** | **Current** |
 
 ## Validation
 
@@ -129,8 +129,8 @@ IDLE ──Start──▶ RUN_READY ──ChunkValid──▶ RUN_PROCESS ──
 ## Synthesis Notes
 
 - **N=64**: ~7 LUT levels, easily meets 100 MHz on Artix-7
-- **N=128**: prefix scan may fail timing; use pipelined version (3 cycles/row)
-- **N≥256**: consider tiling or fully pipelined approach
+- **N=128**: the 3-cycle pipelined prefix scan (current implementation) should be used
+- **N≥256**: consider tiling or further pipelining
 
 ## Doc Links
 

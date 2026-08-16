@@ -48,12 +48,9 @@ entity percolation_core is
         CfgRuns        : in std_logic_vector(31 downto 0);
         CfgInit        : in std_logic;
         StepCount      : out std_logic_vector(31 downto 0);
-        PendingSteps   : out std_logic_vector(31 downto 0);
         SpanningCount  : out std_logic_vector(31 downto 0);
         TotalOccupied  : out std_logic_vector(31 downto 0);
         SpanningOccupied : out std_logic_vector(31 downto 0);
-        RngBusy        : out std_logic;
-        RngAllValid    : out std_logic;
         Done           : out std_logic
     );
 end entity;

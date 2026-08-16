@@ -1,0 +1,26 @@
+---
+title: FPGA System Architecture
+---
+flowchart LR
+    subgraph FPGA["FPGA - 100 MHz"]
+        direction LR
+        RNG["RNG Bank<br/>N× Trivium"]
+        CORE["Core<br/>Controller"]
+        FRONT["Frontier<br/>Engine"]
+        UART["UART"]
+    end
+
+    HOST["Host PC<br/>Python"]
+
+    RNG -->|"site_open"| CORE
+    CORE -->|"row"| FRONT
+    FRONT -->|"reach"| CORE
+    CORE -->|"stats"| UART
+    UART <-->|"UART<br/>115200 baud"| HOST
+
+    style RNG fill:#e3f2fd,stroke:#333,stroke-width:1px
+    style CORE fill:#e3f2fd,stroke:#333,stroke-width:1px
+    style FRONT fill:#e3f2fd,stroke:#333,stroke-width:1px
+    style UART fill:#e3f2fd,stroke:#333,stroke-width:1px
+    style HOST fill:#e8f5e9,stroke:#333,stroke-width:1px
+    style FPGA fill:#fff3e0,stroke:#333,stroke-width:2px,stroke-dasharray:5 5

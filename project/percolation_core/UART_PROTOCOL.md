@@ -16,10 +16,10 @@ Compact binary protocol with UART request/response.
 |------|-------|-------|------|-------|---------|
 | 0 | 0–3 | `CfgP` | uint32 | Fixed-point 0.0–1.0 (UQ32) | Occupation probability |
 | 1 | 4–7 | `CfgSeed` | uint32 | Any | RNG seed |
-| 2 | 8–11 | `CfgStepsPerRun` | uint32 | 1–65535 | Rows per run (lower 16 bits used) |
+| 2 | 8–11 | `CfgStepsPerRun` | uint32 | 1–4294967295 | Rows per run (grid height) |
 | 3 | 12–15 | `CfgRuns` | uint32 | 1–4294967295 | Batch size |
 
-**Note:** `CfgStepsPerRun` travels as a full 32-bit big-endian word. The core uses only the lower 16 bits. For 64 steps, encode as `00 00 00 40`.
+**Note:** `CfgStepsPerRun` travels as a full 32-bit big-endian word and is used in full by the core (`unsigned(31 downto 0)`). For 64 steps, encode as `00 00 00 40`.
 
 **Grid shape:**
 - Width: fixed at compile-time by `N_ROWS_G` (default 64)
