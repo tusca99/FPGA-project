@@ -88,7 +88,7 @@ while the frontier's `Busy` is combinatorial, so the frontier waits one extra cy
 
 - [BFS Frontier Algorithm](bfs_frontier.md) — Prefix scan reachability details
 - [Core Schema](percolation_core_schema.md) — Conceptual architecture
-- [UART Protocol](UART_PROTOCOL_V2.md) — Binary frame layout
+- [UART Protocol](UART_PROTOCOL.md) — Binary frame layout
 - [RNG Architecture](../rng/RNG.md) — Trivium + AES-CTR seeding
 - [UART Binary Scaffold](../uart_message_bin/README.md) — Wrapper details
 - [Python Tools](../../python/README.md) — Host-side validation

@@ -740,19 +740,20 @@ def plot_pipeline_efficiency(conn, output: Path, *, hw_width: int = 128, target_
         ideal_intercept = 3.0
         ideal_line = [ideal_per_step * s + ideal_intercept for s in steps_vals]
 
-        fig = plt.figure(figsize=(12, 5))
+        fig = plt.figure(figsize=(16, 8))
         gs = fig.add_gridspec(1, 2, width_ratios=[1, 1.1])
 
         ax1 = fig.add_subplot(gs[0])
         ax1.set_xscale("log", base=2)
-        ax1.plot(steps_vals, cyc_vals, "o-", color="tab:blue", linewidth=2,
+        ax1.set_yscale("log")
+        ax1.plot(steps_vals, cyc_vals, "o-", color="tab:red", linewidth=2,
                  label=f"Measured (R={max_runs})")
         fit_x = np.linspace(min(x), max(x), 100)
         fit_y = coeffs[1] + coeffs[0] * fit_x
-        ax1.plot(fit_x, fit_y, "--", color="tab:blue", alpha=0.6,
+        ax1.plot(fit_x, fit_y, "--", color="firebrick", alpha=0.6,
                  label=f"Fit: {slope:.2f}×S + {intercept:.0f}")
         ideal_y = ideal_per_step * fit_x + ideal_intercept
-        ax1.plot(fit_x, ideal_y, ":", color="tab:green", linewidth=2,
+        ax1.plot(fit_x, ideal_y, ":", color="tab:blue", linewidth=2,
                  label=f"Ideal: {ideal_per_step}×S + {ideal_intercept:.0f}")
 
         ax1.fill_between(fit_x, ideal_y, fit_y, alpha=0.1, color="tab:red",
@@ -771,11 +772,15 @@ def plot_pipeline_efficiency(conn, output: Path, *, hw_width: int = 128, target_
         # overlapping. On a log axis the bar width is expressed in log2 units;
         # adjacent steps are 1.0 apart, so a width < 1 guarantees no collision.
         ax2.set_xscale("log", base=2)
-        ax2.plot(steps_vals, efficiency, "s-", color="tab:green", linewidth=2,
+        ax2.plot(steps_vals, efficiency, "s-", color="tab:blue", linewidth=2,
                  label="Efficiency = ideal/measured")
         ax2.axhline(100, color="gray", linestyle=":", alpha=0.5)
 
-        bar_width = 1  # log2 units; adjacent steps are 1.0 apart
+        x_vals = np.asarray(steps_vals, dtype=float)
+
+        # width ~ 0.35 in log2 units:
+        # factor = 2^(0.35) - 1 ≈ 0.27
+        bar_width = x_vals * (2**0.35 - 1.0) # log2 units; adjacent steps are 1.0 apart
         ax2_twin = ax2.twinx()
         ax2_twin.bar(steps_vals, excess, color="tab:red",
                      alpha=0.4, width=bar_width, label="Excess cycles")
@@ -803,7 +808,7 @@ def plot_pipeline_efficiency(conn, output: Path, *, hw_width: int = 128, target_
 
         fig.tight_layout()
         output.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(output, bbox_inches="tight")
+        fig.savefig(output, bbox_inches="tight", dpi=300)
         plt.close(fig)
 
 
@@ -1066,7 +1071,7 @@ def plot_threshold_bootstrap(
             color="tab:blue",
             markersize=3,
             alpha=0.5,
-            label=f"N=180×180 data  (transition only, {len(p_arr)} pts)",
+            label=f"N=64×64 data  (transition only, {len(p_arr)} pts)",
         )
         fit_x = np.linspace(0.55, 0.65, 500)
         fit_y = 1.0 / (1.0 + np.exp(-(a_fit * fit_x + b_fit)))
@@ -1120,10 +1125,11 @@ def plot_threshold_bootstrap(
         ax2.set_xlabel("p_c = −b/a")
         ax2.set_ylabel("Count (bootstrap)")
         ax2.set_title(f"Binomial Bootstrap (n={len(pc_arr)})")
+        ax2.set_xticklabels([f"{x:.4f}" for x in ax2.get_xticks()], rotation=45)
         ax2.legend(fontsize=8)
 
         fig.suptitle(
-            "Directed Percolation Threshold Estimation  (180×180, 131k runs/pt)",
+            "Directed Percolation Threshold Estimation  (64×64, 16k runs/pt)",
             fontsize=13,
             y=1.02,
         )
@@ -1132,7 +1138,7 @@ def plot_threshold_bootstrap(
         fig.savefig(output, bbox_inches="tight")
         plt.close(fig)
 
-        print(f"\n=== Threshold Estimation (N=180, {n_bootstrap} binomial bootstrap) ===")
+        print(f"\n=== Threshold Estimation (N=64, {n_bootstrap} binomial bootstrap) ===")
         print(f"  Fit range: {p_arr[0]:.4f} – {p_arr[-1]:.4f}  ({len(p_arr)} points)")
         print(f"  Logistic: a={a_fit:.1f}, b={b_fit:.1f}")
         print(f"  p_c = −b/a = {p_c_fit:.6f}")

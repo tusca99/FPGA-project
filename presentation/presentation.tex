@@ -127,138 +127,9 @@
 % ============================================================
 \section{System Architecture}
 
-\begin{frame}{Top-Level Block Diagram}
-  \centering
-\begin{tikzpicture}[
-    block/.style={
-        rectangle,
-        draw,
-        rounded corners=3pt,
-        minimum width=2.35cm,
-        minimum height=1.05cm,
-        align=center,
-        font=\large,
-        fill=blue!8
-    },
-    host/.style={
-        block,
-        fill=green!10
-    },
-    signal/.style={
-        ->,
-        >=Stealth,
-        thick
-    },
-    feedback/.style={
-        <->,
-        >=Stealth,
-        thick
-    },
-    label/.style={
-        font=\normalsize,
-        fill=white,
-        inner sep=2pt
-    }
-]
-
-% ------------------------------------------------------------------
-% Main blocks
-% ------------------------------------------------------------------
-
-\node[block] (rng)
-    at (0,0)
-    {RNG Bank\\[-1mm]$N\times$ Trivium};
-
-\node[block] (core)
-    at (4.2,0)
-    {Core\\Controller};
-
-\node[block] (frontier)
-    at (7.6,0)
-    {Frontier\\Engine};
-
-\node[block] (uart)
-    at (11.,0)
-    {UART};
-
-% ------------------------------------------------------------------
-% Main data flow
-% ------------------------------------------------------------------
-
-\draw[signal]
-    (rng.east) --
-    node[label, above=3pt] {site\_open}
-    (core.west);
-
-\draw[signal]
-    (core.east) --
-    node[label, above=3pt] {row}
-    (frontier.west);
-
-\draw[signal]
-    (frontier.east) --
-    node[label, above=3pt] {stats}
-    (uart.west);
-
-% ------------------------------------------------------------------
-% Feedback path
-% ------------------------------------------------------------------
-
-\draw[feedback]
-    ([yshift=-8pt]core.east) --
-    node[label, below=3pt] {reach}
-    ([yshift=-8pt]frontier.west);
-
-% ------------------------------------------------------------------
-% Host PC
-% ------------------------------------------------------------------
-
-\node[host]
-    (host)
-    at (9.6,-2.0)
-    {Host PC\\Python};
-
-\draw[feedback]
-    (uart.south) --
-    node[label, pos=0.5, xshift=8pt] {UART, 115200 baud}
-    (host.north);
-
-% ------------------------------------------------------------------
-% Clock domain
-% ------------------------------------------------------------------
-
-\node[
-    draw,
-    rounded corners=3pt,
-    dashed,
-    minimum width=3.2cm,
-    minimum height=0.75cm,
-    align=center,
-    font=\normalsize
-]
-(clock)
-    at (3.2,-2.0)
-    {100 MHz\\single clock domain};
-
-% ------------------------------------------------------------------
-% Key principle
-% ------------------------------------------------------------------
-
-\node[
-    align=center,
-    font=\normalsize
-]
-(principle)
-    at (4.8,-3.25)
-    {\textbf{Key principle:} independent modules, streaming data flow.};
-
-\end{tikzpicture}
-
-\end{frame}
-
 \begin{frame}{Block Diagram}
 \centering
-\includegraphics[width=0.8\textwidth]{system_diagram.png}
+\includegraphics[width=\textwidth]{system_diagram.png}
 \end{frame}
 
 
@@ -499,24 +370,7 @@
   \end{itemize}
 \end{frame}
 
-\begin{frame}{Grid-Height Invariance \& Determinism}
-  \begin{columns}
-    \column{0.5\textwidth}
-    \centering
-    \includegraphics[width=\textwidth]{throughput_invariance.png}\\
-    \small Throughput vs grid height
-    \column{0.5\textwidth}
-    \centering
-    \includegraphics[width=\textwidth]{determinism_cv.png}\\
-    \small Coefficient of variation
-  \end{columns}
-  \vspace{0.3cm}
-  \begin{itemize}
-    \item Throughput \alert{independent} of grid height (pipeline-dominated)
-    \item CV $< 1\%$ across all configurations — FPGA is deterministic
-    \item Tiny jitter is entirely host/USB-subsystem noise
-  \end{itemize}
-\end{frame}
+
 
 
 % ============================================================
@@ -537,7 +391,7 @@
 
 \begin{frame}{Threshold Estimation — Bootstrap}
   \centering
-  \includegraphics[width=0.55\textwidth]{threshold_bootstrap.png}
+  \includegraphics[width=0.55\textwidth]{threshold_bootstrap_64.png}\\
 
   \textbf{Method:} binomial logistic regression + 2000 bootstrap resamples
   \[
@@ -595,6 +449,23 @@
     \end{tabular}
 }
   \end{table}
+\end{frame}
+
+\begin{frame}{Grid-Height Invariance \& Determinism}
+    \centering
+    \includegraphics[width=0.6\textwidth]{throughput_invariance.png}\\
+    \small Throughput vs grid height
+  \vspace{0.3cm}
+  \begin{itemize}
+    \item Throughput \alert{independent} of grid height (pipeline-dominated)
+    \item CV $< 1\%$ across all configurations — FPGA is deterministic
+    \item Tiny jitter is entirely host/USB-subsystem noise
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Threshold Estimation — Bootstrap}
+  \centering
+  \includegraphics[width=0.75\textwidth]{threshold_bootstrap.png}
 \end{frame}
 
 \end{document}

@@ -1,9 +1,11 @@
 # FPGA Percolation Project
 
-Site percolation on Artix-7 A7-100T (xc7a100tcsg324-1), 100 MHz single-clock.
-Validates directed percolation threshold (~0.605 for 64×64) via UART-controlled sweeps.
+Acceleratore FPGA di **percolazione diretta** (directed percolation) su Artix-7
+A7-100T (`xc7a100tcsg324-1`), clock singolo 100 MHz. Un core RTL valida la
+transizione di fase della percolazione diretta (~0.605 per 64×64) tramite sweep
+controllati da host via UART.
 
-## Architecture
+## Architettura
 
 ```
 ┌─────────────┐     ┌─────────────┐     ┌─────────────────┐
@@ -13,65 +15,110 @@ Validates directed percolation threshold (~0.605 for 64×64) via UART-controlled
        │                   │                     │
        │ site_open[0..63]  │ row_bits            │ ChunkOpen
        │ (every cycle)     │ (when frontier      │ (when ChunkValid)
-       │                   │  ready)               │
+       │                   │  ready)             │
        ▼                   ▼                     ▼
    Random bits         Occupancy row         Reachability mask
    compared to        sent to frontier      computed via prefix
-   threshold CfgP                            scan (1 cycle/row)
+   threshold CfgP                            scan (4 cyc/row E2E)
 ```
+
+Tre blocchi indipendenti e ben separati: generazione numeri casuali
+(RNG bank), calcolo di reachability (frontier) e controllo/comunicazione
+(core + UART). Il core consuma righe dalla pipeline quando serve, senza
+cicli persi in attesa.
 
 ## Key Modules
 
-| File | Role |
-|------|------|
-| `project/percolation_core/percolation_core.vhd` | Orchestrates RNG + frontier, accumulates statistics |
-| `project/percolation_core/percolation_bfs_frontier.vhd` | Row-wise reachability via bidirectional associative prefix scan |
-| `project/rng/rng_hybrid_64.vhd` | 64× Trivium RNG bank, AES-CTR seeded |
-| `project/percolation_core/percolation_uart_top.vhd` | UART wrapper: 16-byte request/response |
+| File | Ruolo |
+|------|-------|
+| `project/percolation_core/percolation_core.vhd` | Controller top-level: orchestrazione RNG + frontier, accumulo statistiche |
+| `project/percolation_core/percolation_bfs_frontier.vhd` | Engine reachability row-wise (bidirectional associative prefix scan) |
+| `project/percolation_core/percolation_uart_top.vhd` | Wrapper UART: request/response 16 byte |
+| `project/rng/rng_hybrid_64.vhd` | Bank RNG 64× Trivium, seed AES-CTR |
 
-## Protocol
+## Protocol (v3.0)
 
-- **Request (16 bytes)**: `[CfgP (4B)] [CfgSeed (4B)] [CfgStepsPerRun (4B)] [CfgRuns (4B)]`
-- **Response (16 bytes)**: `[StepCount (4B)] [SpanningCount (4B)] [TotalOccupied (4B)] [SpanningOccupied (4B)]`
+- **Request (16 byte)**: `[CfgP (4B, UQ32)] [CfgSeed (4B)] [CfgStepsPerRun (4B)] [CfgRuns (4B)]`
+- **Response (16 byte)**: `[StepCount (4B)] [SpanningCount (4B)] [TotalOccupied (4B)] [SpanningOccupied (4B)]`
+- **Baud rate**: 115200 (nessuna dipendenza host: link termios raw)
 
-See `project/percolation_core/UART_PROTOCOL_V2.md` for full details.
+Vedi `project/percolation_core/UART_PROTOCOL.md` per il dettaglio completo.
 
 ## Build & Simulation
 
 ```bash
-# Rebuild Vivado project
+# Ricrea il progetto Vivado
 cd /path/to/FPGA-project
 vivado -mode batch -source project/recreate_vivado_project.tcl
 
-# Optional targets
+# Target opzionali
 vivado -mode batch -source project/recreate_vivado_project.tcl -tclargs percolation
 vivado -mode batch -source project/recreate_vivado_project.tcl -tclargs loopback
 ```
 
-Project created in `project/.vivado/FPGA-project/FPGA-project.xpr`.
+Progetto creato in `project/.vivado/FPGA-project/FPGA-project.xpr`.
 
-## Validation
+## Validation & Analysis
 
 ```bash
 # Three-way comparison: BFS reference vs SW FPGA model vs HW FPGA
-python python/compare_three.py --runs 1000 --points 20 --output three_way.png
+python python/compare_three.py --runs 1000 --points 20 --output python/output/three_way_comparison.png
+
+# Quick hardware test
+python python/try.py
+
+# Analisi benchmark SQLite (starter plots)
+percolation-analyze --db python/output/benchmark.sqlite3 --latest --plot-dir python/output/analysis
+
+# Analisi FPGA engineering (pipeline, throughput, determinismo)
+percolation-analyze --fpga-plot python/output/analysis
 ```
+
+Vedi `python/README.md` per il workflow host completo e la catalogazione dei
+grafici prodotti.
+
+## Results (stato attuale)
+
+| Risultato | Valore |
+|-----------|--------|
+| Occupancy bias RNG | < 0.001 |
+| Frontiera vs BFS | 1000 test random, match perfetto |
+| Soglia DP (64×64) | ~0.6047 ± 0.0002 (letteratura ~0.605) |
+| Costo end-to-end frontiera | 4 cicli/riga (3 prefix scan + 1 handshake) |
+| Pipeline efficiency | 85–95% dell'ideale |
+| Classificazione universalità | Finite-size scaling, esponente DP ν = 1.096 |
+
+### Grafici prodotti
+
+I plot principali sono generati da notebook e CLI in `python/output/`:
+
+- **Fisica della percolazione** (`python/output/analysis/`, `python/output/notebook_analysis/physics/`):
+  `spanning_probability.png`, `occupancy_bias.png`, `cluster_mass_curves.png`,
+  `finite_size_scaling.png`, `threshold_bootstrap.png`
+- **FPGA engineering** (`python/output/analysis/`, `python/output/notebook_analysis/fpga_engineering/`):
+  `latency_vs_batch.png`, `pipeline_efficiency.png`, `breakdown_fit.png`,
+  `determinism_cv.png`, `throughput_invariance.png`, `throughput_contour.png`
+- **Sweep cross-check** (`python/output/notebook_analysis/sweep_comparison/`):
+  `sweep_comparison.png`
 
 ## Documentation
 
-- `project/percolation_core/README.md` — Core details and connectivity backend
-- `project/percolation_core/percolation_core_schema.md` — Conceptual schema
-- `project/percolation_core/bfs_frontier.md` — Frontier algorithm (prefix scan)
-- `project/percolation_core/UART_PROTOCOL_V2.md` — Binary UART protocol
-- `project/rng/RNG.md` — RNG architecture (Trivium + AES-CTR)
-- `project/uart_message_bin/README.md` — UART binary wrappers
-- `python/README.md` — Host-side Python tools
+- `project/percolation_core/README.md` — Dettagli del core e backend di connectivity
+- `project/percolation_core/percolation_core_schema.md` — Schema concettuale
+- `project/percolation_core/bfs_frontier.md` — Algoritmo frontier (prefix scan)
+- `project/percolation_core/UART_PROTOCOL.md` — Protocollo UART binario
+- `project/rng/RNG.md` — Architettura RNG (Trivium + AES-CTR)
+- `project/uart_message_bin/README.md` — Wrapper UART binari
+- `python/README.md` — Strumenti Python host-side
+- `python/FPGA_BENCHMARK_ANALYSIS.md` — Modelli teorici delle analisi di benchmark
+- `python/PRESENTATION_OUTLINE.md` — Scaletta per la presentazione
 
 ## Status
 
-- ✅ RNG verified: occupancy matches p (bias < 0.001)
-- ✅ Frontier algorithm: prefix scan validated against BFS (1000 random tests)
-- ✅ Threshold: ~0.6047 for directed percolation on 64×64 (expected ~0.605)
-- ✅ Timing: combinatorial prefix scan meets 100 MHz at N=64
-- ✅ UART end-to-end: 16-byte request/response working
-- ⚠️  For N≥128, pipelined version needed (see `bfs_frontier.md`)
+- ✅ RNG verificato: occupancy coincide con p (bias < 0.001)
+- ✅ Algoritmo frontier: prefix scan validato contro BFS (1000 test random)
+- ✅ Soglia: ~0.6047 per percolazione diretta su 64×64 (atteso ~0.605)
+- ✅ Timing: prefix scan rispetta 100 MHz a N=64
+- ✅ UART end-to-end: request/response 16 byte funzionanti
+- ✅ Benchmark caratterizzato: Amdahl, pipeline efficiency, throughput, determinismo
+- ⚠️  Per N≥128 serve una versione pipelined (vedi `bfs_frontier.md`)

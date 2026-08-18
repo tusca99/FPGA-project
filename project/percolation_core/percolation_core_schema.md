@@ -130,6 +130,6 @@ while runs_done < runs_target:
 ## Doc Links
 
 - [BFS Frontier](bfs_frontier.md) — Prefix scan algorithm details
-- [UART Protocol](UART_PROTOCOL_V2.md) — Binary frame specification
+- [UART Protocol](UART_PROTOCOL.md) — Binary frame specification
 - [RNG Architecture](../rng/RNG.md) — Trivium + AES-CTR seeding
 - [Core README](README.md) — Module-level documentation
