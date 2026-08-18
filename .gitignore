@@ -47,3 +47,6 @@ __pycache__/
 *.snm
 *.fls
 *.fdb_latexmk
+.github/
+.vscode/
+skills-lock.json
