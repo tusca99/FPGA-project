@@ -174,10 +174,10 @@
   \textbf{Problem:} determine if a top-to-bottom path exists without storing the full grid.
 
   \vspace{0.2cm}
-  \textbf{Algorithm (per row):}
+  \textbf{Algorithm (per row):} $i$ is the \emph{horizontal} position within the row ($0 \le i < N_{\text{rows}}$).
   \begin{enumerate}
     \item \alert{Vertical seed:} $\text{seed}[i] = \text{open}[i] \land \text{prev\_reach}[i]$
-    \item \alert{Horizontal closure:} $\text{reach}[i] = \text{seed}[i] \lor (\text{open}[i] \land (\text{reach}[i{-}1] \lor \text{reach}[i{+}1]))$
+    \item \alert{Horizontal closure (fixed point):} $\text{reach}[i] = \text{seed}[i] \lor (\text{open}[i] \land (\text{reach}[i{-}1] \lor \text{reach}[i{+}1]))$
   \end{enumerate}
 
   \vspace{0.3cm}
@@ -267,7 +267,7 @@
     \column{0.4\textwidth}
     \textbf{Details:}
     \begin{itemize}
-      \item 115200 baud, 8N1
+      \item 115200 baud
       \item Wire time: $\approx$2.78 ms
       \item Linux termios raw mode
       \item Fixed-point: $p = \text{CfgP} / 2^{32}$
@@ -363,7 +363,7 @@
   \textbf{Results:}
   \begin{itemize}
     \item Asymptote matches theoretical $4 \times S$ cycles/run (3 frontier + 1 handshake)
-    \item Measured: $C_{\text{core}} = 3.99 \times S + \text{const}$ (vs ideal $4 \times S$)
+    \item Measured: $C_{\text{core}} = 3.96 \times S + \text{const}$ (vs ideal $4 \times S$)
     \item For $N=64$: measured asymptote $\approx 288$ cycles/run vs theoretical $4N+3 = 259$ ($\approx$11\% state-machine overhead at the latest point we measured)
     \item \alert{Efficiency: $\approx$100\%} of achievable $4 \times S$ model
     \item Throughput scales with batch size, saturating at $\sim 2.5 \times 10^7$ rows/s
@@ -398,8 +398,8 @@
   P_{\text{span}}(p) = \frac{1}{1 + e^{-a(p - \pc)}}
   \]
   \begin{itemize}
-    \item \alert{$\pc = 0.6047 \pm 0.0002$} (95\% CI)
-    \item Consistent with literature value $\approx 0.605$ for DP on $64\times64$
+    \item \alert{$\pc = 0.6022 \pm 0.0007$} (95\% CI)
+    \item Fairly consistent with literature value $\approx 0.605$ for DP on $64\times64$
   \end{itemize}
 \end{frame}
 
