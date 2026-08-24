@@ -48,9 +48,9 @@
 % ============================================================
 %  SLIDE 2 — Outline
 % ============================================================
-\begin{frame}{Outline}
-  \tableofcontents
-\end{frame}
+%% \begin{frame}{Outline}
+%%   \tableofcontents
+%% \end{frame}
 
 % ============================================================
 %  SECTION 1 — Percolation Theory
@@ -142,7 +142,7 @@
 
   \vspace{0.1cm}
   \centering
-  \includegraphics[width=0.85\textwidth]{sim_rng_warmup.png}
+  \includegraphics[width=0.75\textwidth]{sim_rng_warmup.png}
 
   \vspace{0.1cm}
   \textbf{AES-CTR seeding:} 128-bit key loaded, all 64 streams initialized in parallel
@@ -160,27 +160,26 @@
     \column{0.3\textwidth}
   \textbf{Per cycle output:}
   \begin{itemize}
-    \item $N_{\text{rows}}$ random 32-bit words
+    \item $N_{\text{rows}}$ 32-bit words
+\item runs in streaming with core
   \end{itemize}
   \end{columns}
 
   \vspace{0.3cm}
     \centering
-    \includegraphics[width=.85\textwidth]{sim_rng_valid.png}
+    \includegraphics[width=.75\textwidth]{sim_rng_valid.png}
 
 \end{frame}
 
 \begin{frame}{Frontier Engine — Row-Wise Algorithm}
   \textbf{Problem:} determine if a top-to-bottom path exists without storing the full grid.
-
-  \vspace{0.2cm}
   \textbf{Algorithm (per row):} $i$ is the \emph{horizontal} position within the row ($0 \le i < N_{\text{rows}}$).
   \begin{enumerate}
     \item \alert{Vertical seed:} $\text{seed}[i] = \text{open}[i] \land \text{prev\_reach}[i]$
     \item \alert{Horizontal closure (fixed point):} $\text{reach}[i] = \text{seed}[i] \lor (\text{open}[i] \land (\text{reach}[i{-}1] \lor \text{reach}[i{+}1]))$
   \end{enumerate}
 
-  \vspace{0.3cm}
+  \vspace{0.2cm}
   \centering
   \includegraphics[width=0.7\textwidth]{sim_core.png}
 
@@ -201,9 +200,6 @@
     \centering
     \includegraphics[width=0.85\textwidth]{sim_core_single.png}
 
-
-  \vspace{0.3cm}
-  \textbf{Validation:} 1000 random tests, exact match with BFS reference
 \end{frame}
 
 \begin{frame}{Core Controller — State Machine}
@@ -228,7 +224,6 @@
   \begin{itemize}
     \item \texttt{CfgRuns} runs executed autonomously — no host intervention
     \item Accumulators (32-bit): StepCount, SpanningCount, TotalOccupied, SpanningOccupied
-    \item RNG runs continuously — no cycle wasted waiting for random numbers
   \end{itemize}
 \end{frame}
 
@@ -365,7 +360,6 @@
     \item Asymptote matches theoretical $4 \times S$ cycles/run (3 frontier + 1 handshake)
     \item Measured: $C_{\text{core}} = 3.96 \times S + \text{const}$ (vs ideal $4 \times S$)
     \item For $N=64$: measured asymptote $\approx 288$ cycles/run vs theoretical $4N+3 = 259$ ($\approx$11\% state-machine overhead at the latest point we measured)
-    \item \alert{Efficiency: $\approx$100\%} of achievable $4 \times S$ model
     \item Throughput scales with batch size, saturating at $\sim 2.5 \times 10^7$ rows/s
   \end{itemize}
 \end{frame}
